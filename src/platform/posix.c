@@ -48,3 +48,40 @@ int plat_file_info(const char *path, uint64_t *size, int64_t *mtime) {
 }
 
 int plat_mkdir(const char *path) { return mkdir(path, 0775) ? -1 : 0; }
+
+// ---- threads and locks (pthreads)
+#include <stdlib.h>
+struct plat_thread { pthread_t t; int (*fn)(void *); void *data; int ret; };
+static void *thread_main(void *p) { plat_thread *t = p; t->ret = t->fn(t->data); return NULL; }
+plat_thread *plat_thread_start(int (*fn)(void *), void *data) {
+    plat_thread *t = calloc(1, sizeof *t);
+    if (!t) return NULL;
+    t->fn = fn; t->data = data;
+    if (pthread_create(&t->t, NULL, thread_main, t)) { free(t); return NULL; }
+    return t;
+}
+int plat_thread_join(plat_thread *t) {
+    pthread_join(t->t, NULL);
+    const int ret = t->ret;
+    free(t);
+    return ret;
+}
+
+void plat_lock_take(plat_lock *l) { pthread_mutex_lock(l); }
+void plat_lock_give(plat_lock *l) { pthread_mutex_unlock(l); }
+void plat_cond_wait(plat_cond *c, plat_lock *l) { pthread_cond_wait(c, l); }
+void plat_cond_broadcast(plat_cond *c) { pthread_cond_broadcast(c); }
+
+struct plat_rmutex { pthread_mutex_t m; };
+plat_rmutex *plat_rmutex_new(void) {
+    plat_rmutex *m = calloc(1, sizeof *m);
+    if (!m) return NULL;
+    pthread_mutexattr_t a;
+    pthread_mutexattr_init(&a);
+    pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&m->m, &a);
+    pthread_mutexattr_destroy(&a);
+    return m;
+}
+void plat_rmutex_lock(plat_rmutex *m) { pthread_mutex_lock(&m->m); }
+void plat_rmutex_unlock(plat_rmutex *m) { pthread_mutex_unlock(&m->m); }

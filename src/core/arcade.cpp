@@ -1,7 +1,7 @@
 // The House of the Dead (arcade, recompiled) as the game of the Quest VR app
 // (src/quest on main: OpenXR, the guns, the menus, online play, voice). The
 // app runs SDL_main on its own thread against its small SDL2 subset
-// (quest_sdl.c); this is that SDL_main, and the few calls the VR side makes
+// (host_sdl.c); this is that SDL_main, and the few calls the VR side makes
 // into its game:
 //  - the game: rt::GameLoop on the images of the player's ROM set
 //    (game/hotd.zip, or the importer's images in game/), paced at the
@@ -56,7 +56,7 @@ extern "C" {
 #define LOGI(...) plat_log(PLAT_LOG_INFO, __VA_ARGS__)
 #define LOGE(...) plat_log(PLAT_LOG_ERROR, __VA_ARGS__)
 
-// ---- what the VR side (quest_xr.c, quest_sdl.c) shares with its game
+// ---- what the VR side (quest_xr.c, host_sdl.c) shares with its game
 extern "C" {
 int port_draw_crosshairs = 0;          // the game's own crosshairs on its 2D layer (the cabinet, or online: the partner's)
 volatile int arcade_view_cabinet = 0; // quest_xr.c: the cabinet view (its picture is the arcade's: no face layer)
@@ -554,7 +554,7 @@ void publish(const rt::Video &video) {
     g.latest = slot;
 }
 
-// ---- input from the VR thread (quest_sdl.c's events)
+// ---- input from the VR thread (host_sdl.c's events)
 struct Controls {
     int mx = -1, my = -1;
     bool fire = false, reload = false;

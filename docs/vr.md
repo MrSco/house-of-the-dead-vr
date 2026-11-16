@@ -54,7 +54,7 @@ of the Dead VR"): the Quest app (src/quest, compiled with `HOTD_ARCADE`), its
 game the recompiled arcade game.
 
 - src/core/arcade.cpp: SDL_main (the game thread, against
-  quest_sdl.c's SDL subset): rt::GameLoop on files/arcade/hotd.zip or
+  host_sdl.c's SDL subset): rt::GameLoop on files/arcade/hotd.zip or
   hotd.7z (Revision A; the original revision's program ROMs differ), paced at
   57.52 Hz; each frame's polygons in the game camera's space as a VrScene
   (one batch: the guns' aim hits them) and an M2Scene (m2_vr.h) with their

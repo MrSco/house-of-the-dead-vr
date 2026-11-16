@@ -12,7 +12,7 @@ import concurrent.futures, hashlib, os, shutil, subprocess, sys, time, urllib.re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # the repository
 THIRD_PARTY = os.path.join(ROOT, 'third_party', 'quest')
-# the SDL2 headers (the app implements the part of SDL it uses, src/quest/quest_sdl.c) and the Khronos OpenXR loader
+# the SDL2 headers (the app implements the part of SDL it uses, src/core/host_sdl.c) and the Khronos OpenXR loader
 SDL2_SRC = 'https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.zip'
 OPENXR_VER = '1.1.53'
 OPENXR_AAR = ('https://repo1.maven.org/maven2/org/khronos/openxr/openxr_loader_for_android/%s/'

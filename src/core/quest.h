@@ -1,16 +1,16 @@
 // Meta Quest (Android, OpenXR) host: the game runs unchanged on its own thread against a small SDL2 subset
-// (quest_sdl.c); the VR side (quest_xr.c) shows each presented frame on a screen in front of the player and turns
+// (host_sdl.c); the VR side (quest_xr.c) shows each presented frame on a screen in front of the player and turns
 // the controllers into light guns. These are the calls between the two threads.
 #pragma once
 #include <stdint.h>
 
-// ---- game thread -> VR thread (quest_sdl.c)
+// ---- game thread -> VR thread (host_sdl.c)
 // The newest presented frame (RGBA8, w x h). Returns 1 and copies it when it changed since the last call.
 int qframe_take(uint32_t *dst, int max_pixels, int *w, int *h);
 // The size of the frames the game presents (the coordinate space of quest_pointer); 0 before the first frame.
 void qframe_size(int *w, int *h);
 
-// ---- VR thread -> game thread (quest_sdl.c)
+// ---- VR thread -> game thread (host_sdl.c)
 void quest_pointer(int x, int y);               // the active gun's aim, in frame pixels
 void quest_mouse_button(int button, int down);  // SDL_BUTTON_LEFT / SDL_BUTTON_RIGHT
 void quest_key(int sdl_scancode, int sdl_keycode, int down);

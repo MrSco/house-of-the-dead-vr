@@ -1,20 +1,19 @@
-// The part of SDL2 the game thread (arcade_quest.cpp) and online play (src/net) use, implemented for Meta Quest
-// (Android, no Java): they compile against the real SDL2 headers and link with this file instead of libSDL2.
+// The part of SDL2 the game thread (arcade.cpp) and online play (src/net) use, for every app: they compile against
+// the real SDL2 headers and link with this file instead of libSDL2. The app's shell (the VR one, or the flat one)
+// is on the other side of it (quest.h):
 //  - video: SDL_Renderer is a software canvas the size of the game's frame; SDL_RenderPresent hands the finished
-//    frame (the game's 2D layers plus the crosshairs arcade_quest.cpp draws) to the VR thread, which shows it;
-//  - events: a queue the VR thread fills (controller aim and buttons as mouse and keys);
-//  - audio: one AAudio output stream driving the SDL callback (the arcade's SCSP sound);
-//  - timers, threads, mutexes.
+//    frame (the game's 2D layers plus the crosshairs arcade.cpp draws) to the shell, which shows it;
+//  - events: a queue the shell fills (the gun's aim and buttons as mouse and keys);
+//  - audio: the platform's output stream (platform.h: AAudio on Android) driving the SDL callback (the arcade's SCSP
+//    sound), resampled when the device's rate differs, with the voice chat mixed in;
+//  - timers, threads, mutexes, on platform.h's.
 #include <SDL.h>
 #include "quest.h"
 #include "voice.h"
-#include <aaudio/AAudio.h>
-#include <pthread.h>
+#include "platform/platform.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-#include <errno.h>
 
 static char err[256];
 static int set_error(const char *fmt, const char *arg) { snprintf(err, sizeof err, fmt, arg); return -1; }
@@ -22,68 +21,46 @@ const char *SDL_GetError(void) { return err; }
 
 // ---------------------------------------------------------------- init, timers, threads
 static uint64_t t_start;
-static uint64_t now_ns(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
-}
-Uint32 SDL_GetTicks(void) { if (!t_start) t_start = now_ns(); return (Uint32)((now_ns() - t_start) / 1000000ull); }
-Uint64 SDL_GetPerformanceCounter(void) { return now_ns(); }
-void SDL_Delay(Uint32 ms) {
-    struct timespec ts = { (time_t)(ms / 1000), (long)(ms % 1000) * 1000000L };
-    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {}
-}
+Uint32 SDL_GetTicks(void) { if (!t_start) t_start = plat_now_ns(); return (Uint32)((plat_now_ns() - t_start) / 1000000ull); }
+Uint64 SDL_GetPerformanceCounter(void) { return plat_now_ns(); }
+void SDL_Delay(Uint32 ms) { plat_sleep_until_ns(plat_now_ns() + (uint64_t)ms * 1000000ull); }
 
-struct SDL_mutex { pthread_mutex_t m; };
-SDL_mutex *SDL_CreateMutex(void) {
-    SDL_mutex *m = calloc(1, sizeof *m);
-    pthread_mutexattr_t a;
-    pthread_mutexattr_init(&a);
-    pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&m->m, &a);
-    return m;
-}
-int SDL_LockMutex(SDL_mutex *m) { return m ? pthread_mutex_lock(&m->m) : -1; }
+// (SDL's mutexes are recursive; never destroyed here)
+SDL_mutex *SDL_CreateMutex(void) { return (SDL_mutex *)plat_rmutex_new(); }
+int SDL_LockMutex(SDL_mutex *m) { if (!m) return -1; plat_rmutex_lock((plat_rmutex *)m); return 0; }
+int SDL_UnlockMutex(SDL_mutex *m) { if (!m) return -1; plat_rmutex_unlock((plat_rmutex *)m); return 0; }
 // threads (src/net/online.c)
-struct SDL_Thread { pthread_t t; SDL_ThreadFunction fn; void *data; int ret; };
-static void *thread_start(void *p) { SDL_Thread *t = p; t->ret = t->fn(t->data); return NULL; }
 SDL_Thread *SDL_CreateThread(SDL_ThreadFunction fn, const char *name, void *data) {
     (void)name;
-    SDL_Thread *t = calloc(1, sizeof *t);
-    if (!t) return NULL;
-    t->fn = fn; t->data = data;
-    if (pthread_create(&t->t, NULL, thread_start, t)) { free(t); return NULL; }
-    return t;
+    return (SDL_Thread *)plat_thread_start(fn, data);
 }
 void SDL_WaitThread(SDL_Thread *t, int *status) {
     if (!t) return;
-    pthread_join(t->t, NULL);
-    if (status) *status = t->ret;
-    free(t);
+    const int ret = plat_thread_join((plat_thread *)t);
+    if (status) *status = ret;
 }
-int SDL_UnlockMutex(SDL_mutex *m) { return m ? pthread_mutex_unlock(&m->m) : -1; }
 
 // ---------------------------------------------------------------- pause (system menu, headset off)
-static pthread_mutex_t pause_mu = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t pause_cv = PTHREAD_COND_INITIALIZER;
+static plat_lock pause_mu = PLAT_LOCK_INIT;
+static plat_cond pause_cv = PLAT_COND_INIT;
 static volatile int paused;
 void quest_set_paused(int p) {
-    pthread_mutex_lock(&pause_mu);
+    plat_lock_take(&pause_mu);
     paused = p;
-    pthread_cond_broadcast(&pause_cv);
-    pthread_mutex_unlock(&pause_mu);
+    plat_cond_broadcast(&pause_cv);
+    plat_lock_give(&pause_mu);
 }
 static void wait_unpaused(void) {
-    pthread_mutex_lock(&pause_mu);
-    while (paused) pthread_cond_wait(&pause_cv, &pause_mu);
-    pthread_mutex_unlock(&pause_mu);
+    plat_lock_take(&pause_mu);
+    while (paused) plat_cond_wait(&pause_cv, &pause_mu);
+    plat_lock_give(&pause_mu);
 }
 
 // ---------------------------------------------------------------- events
 #define EVQ 256
 static SDL_Event evq[EVQ];
 static int ev_head, ev_tail;
-static pthread_mutex_t ev_mu = PTHREAD_MUTEX_INITIALIZER;
+static plat_lock ev_mu = PLAT_LOCK_INIT;
 static int ptr_x, ptr_y, ptr_buttons;
 
 static void push_locked(const SDL_Event *e) {
@@ -98,15 +75,15 @@ static void push_locked(const SDL_Event *e) {
     ev_tail = n;
 }
 int SDL_PollEvent(SDL_Event *e) {
-    pthread_mutex_lock(&ev_mu);
+    plat_lock_take(&ev_mu);
     int have = ev_head != ev_tail;
     if (have && e) { *e = evq[ev_head]; ev_head = (ev_head + 1) % EVQ; }
-    pthread_mutex_unlock(&ev_mu);
+    plat_lock_give(&ev_mu);
     return have;
 }
 
 void quest_pointer(int x, int y) {
-    pthread_mutex_lock(&ev_mu);
+    plat_lock_take(&ev_mu);
     if (x != ptr_x || y != ptr_y) {
         SDL_Event e;
         memset(&e, 0, sizeof e);
@@ -119,10 +96,10 @@ void quest_pointer(int x, int y) {
         ptr_x = x; ptr_y = y;
         push_locked(&e);
     }
-    pthread_mutex_unlock(&ev_mu);
+    plat_lock_give(&ev_mu);
 }
 void quest_mouse_button(int button, int down) {
-    pthread_mutex_lock(&ev_mu);
+    plat_lock_take(&ev_mu);
     SDL_Event e;
     memset(&e, 0, sizeof e);
     e.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
@@ -134,10 +111,10 @@ void quest_mouse_button(int button, int down) {
     e.button.x = ptr_x; e.button.y = ptr_y;
     if (down) ptr_buttons |= SDL_BUTTON(button); else ptr_buttons &= ~SDL_BUTTON(button);
     push_locked(&e);
-    pthread_mutex_unlock(&ev_mu);
+    plat_lock_give(&ev_mu);
 }
 void quest_key(int scancode, int keycode, int down) {
-    pthread_mutex_lock(&ev_mu);
+    plat_lock_take(&ev_mu);
     SDL_Event e;
     memset(&e, 0, sizeof e);
     e.type = down ? SDL_KEYDOWN : SDL_KEYUP;
@@ -147,15 +124,15 @@ void quest_key(int scancode, int keycode, int down) {
     e.key.keysym.scancode = (SDL_Scancode)scancode;
     e.key.keysym.sym = keycode;
     push_locked(&e);
-    pthread_mutex_unlock(&ev_mu);
+    plat_lock_give(&ev_mu);
 }
 void quest_quit(void) {
-    pthread_mutex_lock(&ev_mu);
+    plat_lock_take(&ev_mu);
     SDL_Event e;
     memset(&e, 0, sizeof e);
     e.type = SDL_QUIT;
     push_locked(&e);
-    pthread_mutex_unlock(&ev_mu);
+    plat_lock_give(&ev_mu);
 }
 
 struct SDL_Cursor { int id; };
@@ -232,36 +209,36 @@ int SDL_RenderCopy(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *src, const S
 }
 
 // ---- the frame shared with the VR thread
-static pthread_mutex_t fr_mu = PTHREAD_MUTEX_INITIALIZER;
+static plat_lock fr_mu = PLAT_LOCK_INIT;
 static uint32_t *shared;
 static int sw, sh, shared_cap;
 static uint32_t shared_seq, taken_seq;
 static volatile int message_shown;      // a message page replaced the game picture for good
 
 static void publish(const uint32_t *px, int w, int h) {
-    pthread_mutex_lock(&fr_mu);
+    plat_lock_take(&fr_mu);
     if (w * h > shared_cap) { free(shared); shared = malloc((size_t)w * h * 4); shared_cap = w * h; }
     memcpy(shared, px, (size_t)w * h * 4);
     sw = w; sh = h;
     shared_seq++;
-    pthread_mutex_unlock(&fr_mu);
+    plat_lock_give(&fr_mu);
 }
 int qframe_take(uint32_t *dst, int max_pixels, int *w, int *h) {
     int got = 0;
-    pthread_mutex_lock(&fr_mu);
+    plat_lock_take(&fr_mu);
     if (shared_seq != taken_seq && sw * sh <= max_pixels) {
         memcpy(dst, shared, (size_t)sw * sh * 4);
         *w = sw; *h = sh;
         taken_seq = shared_seq;
         got = 1;
     }
-    pthread_mutex_unlock(&fr_mu);
+    plat_lock_give(&fr_mu);
     return got;
 }
 void qframe_size(int *w, int *h) {
-    pthread_mutex_lock(&fr_mu);
+    plat_lock_take(&fr_mu);
     *w = sw; *h = sh;
-    pthread_mutex_unlock(&fr_mu);
+    plat_lock_give(&fr_mu);
 }
 void SDL_RenderPresent(SDL_Renderer *r) {
     (void)r;
@@ -360,34 +337,31 @@ void quest_show_message(const char *text) {
 }
 
 
-// ---------------------------------------------------------------- audio: AAudio output
+// ---------------------------------------------------------------- audio: the platform's output stream
 static struct {
     SDL_AudioCallback cb;
     void *ud;
     int rate;                 // the rate the game mixes at
-    int dev_rate;             // the stream's rate (resampled when different)
-    pthread_mutex_t mu;
-    volatile int dev_paused, reopen;
-    AAudioStream *st;
+    plat_lock mu;
+    volatile int dev_paused, open;
     int16_t fifo[2 * 4096];   // resampler input
     int fifo_n;
     double fpos;
-} au = { .mu = PTHREAD_MUTEX_INITIALIZER };
+} au = { .mu = PLAT_LOCK_INIT };
 
 volatile int quest_volume = 100;
-static aaudio_data_callback_result_t au_data(AAudioStream *s, void *ud, void *data, int32_t frames) {
-    (void)s; (void)ud;
-    int16_t *out = data;
+// the platform's audio thread: `frames` stereo frames at the stream's rate
+static void au_fill(int16_t *out, int frames, int dev_rate) {
     if (au.dev_paused || paused || !au.cb) {
         memset(out, 0, (size_t)frames * 4);
-        if (!paused) voice_mix_out(out, frames, au.dev_rate);   // the partner is heard while the game's sound is off
-        return AAUDIO_CALLBACK_RESULT_CONTINUE;
+        if (!paused) voice_mix_out(out, frames, dev_rate);   // the partner is heard while the game's sound is off
+        return;
     }
-    pthread_mutex_lock(&au.mu);
-    if (au.dev_rate == au.rate) {
+    plat_lock_take(&au.mu);
+    if (dev_rate == au.rate) {
         au.cb(au.ud, (Uint8 *)out, frames * 4);
     } else {
-        double step = (double)au.rate / au.dev_rate;
+        double step = (double)au.rate / dev_rate;
         for (int i = 0; i < frames; i++) {
             while (au.fpos + 1 >= au.fifo_n) {
                 int drop = (int)au.fpos;
@@ -405,55 +379,32 @@ static aaudio_data_callback_result_t au_data(AAudioStream *s, void *ud, void *da
             au.fpos += step;
         }
     }
-    pthread_mutex_unlock(&au.mu);
+    plat_lock_give(&au.mu);
     int vol = quest_volume;
     if (vol < 100) for (int i = 0; i < frames * 2; i++) out[i] = (int16_t)(out[i] * vol / 100);
     // voice chat: the partner's voice at its own volume (voice.c), and what plays is the echo canceller's reference
-    voice_mix_out(out, frames, au.dev_rate);
-    {   // QUEST_AUDIO_DUMP=seconds (env.txt, tests): what the headset plays, as audio_dump.raw (16-bit stereo at the
+    voice_mix_out(out, frames, dev_rate);
+    {   // QUEST_AUDIO_DUMP=seconds (env.txt, tests): what the device plays, as audio_dump.raw (16-bit stereo at the
         // stream's rate), from the first sound on
         static int on = -1; static FILE *f; static long left;
-        if (on < 0) { const char *e = getenv("QUEST_AUDIO_DUMP"); on = e && atoi(e) > 0; left = on ? (long)atoi(e) * au.dev_rate : 0; }
+        if (on < 0) { const char *e = getenv("QUEST_AUDIO_DUMP"); on = e && atoi(e) > 0; left = on ? (long)atoi(e) * dev_rate : 0; }
         if (on && left > 0) {
             if (!f) f = fopen("audio_dump.raw", "wb");
             if (f) { long n = frames < left ? frames : left; fwrite(out, 4, (size_t)n, f); left -= n; if (left <= 0) { fclose(f); f = NULL; } }
         }
     }
-    return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
-static void au_error(AAudioStream *s, void *ud, aaudio_result_t e) {
-    (void)s; (void)ud;
-    fprintf(stderr, "audio: stream error %d (%s), reopening\n", e, AAudio_convertResultToText(e));
-    au.reopen = 1;
-}
-static int au_open(void) {
-    AAudioStreamBuilder *b;
-    if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) return 0;
-    AAudioStreamBuilder_setDirection(b, AAUDIO_DIRECTION_OUTPUT);
-    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
-    AAudioStreamBuilder_setChannelCount(b, 2);
-    AAudioStreamBuilder_setSampleRate(b, au.rate);
-    AAudioStreamBuilder_setSharingMode(b, AAUDIO_SHARING_MODE_SHARED);
-    AAudioStreamBuilder_setPerformanceMode(b, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
-    AAudioStreamBuilder_setUsage(b, AAUDIO_USAGE_GAME);
-    AAudioStreamBuilder_setContentType(b, AAUDIO_CONTENT_TYPE_SONIFICATION);
-    AAudioStreamBuilder_setDataCallback(b, au_data, NULL);
-    AAudioStreamBuilder_setErrorCallback(b, au_error, NULL);
-    aaudio_result_t r = AAudioStreamBuilder_openStream(b, &au.st);
-    AAudioStreamBuilder_delete(b);
-    if (r != AAUDIO_OK) { set_error("AAudio: %s", AAudio_convertResultToText(r)); au.st = NULL; return 0; }
-    au.dev_rate = AAudioStream_getSampleRate(au.st);
+static int au_open(int *burst) {
     au.fifo_n = 0; au.fpos = 0;
-    r = AAudioStream_requestStart(au.st);
-    fprintf(stderr, "audio: AAudio %d Hz (game mixes at %d Hz), burst %d frames, start %s\n", au.dev_rate, au.rate,
-            AAudioStream_getFramesPerBurst(au.st), AAudio_convertResultToText(r));
+    char e[160];
+    if (!plat_audio_open(au.rate, au_fill, burst, e, sizeof e)) { set_error("%s", e); return 0; }
+    au.open = 1;
     return 1;
 }
 static void au_close(void) {
-    if (!au.st) return;
-    AAudioStream_requestStop(au.st);
-    AAudioStream_close(au.st);
-    au.st = NULL;
+    if (!au.open) return;
+    plat_audio_close();
+    au.open = 0;
 }
 // (before the process exits: its callback thread otherwise runs on into the C++ globals exit() destroys)
 void quest_audio_shutdown(void) {
@@ -461,11 +412,12 @@ void quest_audio_shutdown(void) {
     au_close();
     au.cb = NULL;
 }
+// the stream failed (the output device changed): open it again
 void quest_audio_service(void) {
-    if (!au.reopen) return;
-    au.reopen = 0;
+    if (!au.open || !plat_audio_lost()) return;
     au_close();
-    au_open();
+    int burst = 0;
+    au_open(&burst);
 }
 SDL_AudioDeviceID SDL_OpenAudioDevice(const char *device, int iscapture, const SDL_AudioSpec *want, SDL_AudioSpec *have, int changes) {
     (void)device; (void)changes;
@@ -473,8 +425,9 @@ SDL_AudioDeviceID SDL_OpenAudioDevice(const char *device, int iscapture, const S
     if (want->format != AUDIO_S16SYS || want->channels != 2) { set_error("%s", "audio: only 16-bit stereo"); return 0; }
     au.cb = want->callback; au.ud = want->userdata; au.rate = want->freq;
     au.dev_paused = 1;
-    if (!au_open()) return 0;
-    if (have) { *have = *want; have->samples = (Uint16)AAudioStream_getFramesPerBurst(au.st); }
+    int burst = want->samples;
+    if (!au_open(&burst)) return 0;
+    if (have) { *have = *want; have->samples = (Uint16)burst; }
     return 2;
 }
 void SDL_PauseAudioDevice(SDL_AudioDeviceID dev, int pause_on) { (void)dev; au.dev_paused = pause_on; }
