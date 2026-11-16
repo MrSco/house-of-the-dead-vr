@@ -50,6 +50,7 @@
 #include "quest_report.h"
 #include "online.h"
 #include "voice.h"
+#include "platform/android/android.h"
 #include "netplay.h"
 #include "m2_vr.h"            // the arcade game's polygons (src/quest, scripts/build_quest.py there)
 #include <errno.h>
@@ -345,7 +346,8 @@ static void setup_files(void) {
     qreport_start(S.app->activity, S.files, S.opt);
     // online co-op (src/net/online.c): this run may be the restart into an online game (online-session.cfg), whose
     // game starts from fresh saves (game_main); voice chat beside it
-    voice_init(S.app->activity);
+    plat_android_set_activity(S.app->activity);   // (the microphone's permission: platform/android/mic.c)
+    voice_init();
     online_restart = request_restart;
     if (online_boot(S.files)) { multicast_lock(); online_start(); apply_options(); }   // (the partner's crosshair)
 }

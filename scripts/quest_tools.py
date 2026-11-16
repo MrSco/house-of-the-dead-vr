@@ -144,12 +144,12 @@ def quest_thirdparty():
     return sdl, os.path.join(xr, 'include'), os.path.join(xr, 'lib')
 
 
-# Voice chat (src/quest/voice.c): Opus, SpeexDSP's echo canceller and RNNoise, all BSD licences
-# (src/quest/VOICE-LICENSES.md). Release archives checked by their sha256: the versions the Time Crisis 2 VR project uses.
+# Voice chat (src/core/voice.c): Opus, SpeexDSP's echo canceller and RNNoise, all BSD licences
+# (src/core/VOICE-LICENSES.md). Release archives checked by their sha256: the versions the Time Crisis 2 VR project uses.
 
 
-# Voice chat (src/quest/voice.c): Opus, SpeexDSP's echo canceller and RNNoise, all BSD licences
-# (src/quest/VOICE-LICENSES.md). Release archives checked by their sha256: the versions the Time Crisis 2 VR project uses.
+# Voice chat (src/core/voice.c): Opus, SpeexDSP's echo canceller and RNNoise, all BSD licences
+# (src/core/VOICE-LICENSES.md). Release archives checked by their sha256: the versions the Time Crisis 2 VR project uses.
 VOICE_LIBS = [
     ('opus-1.5.2', 'https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz',
      '65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1'),
@@ -204,7 +204,7 @@ def voice_jobs(sflags):
                                            'nnet_default.c', 'parse_lpcnet_weights.c', 'rnnoise_data.c', 'rnnoise_tables.c')]
     rflags = ['-w', '-I%s/include' % rnn, '-I%s/src' % rnn, '-I%s/celt' % opus, '-I%s/include' % opus]
     vflags = sflags + ['-I%s/include' % opus, '-I%s/include' % speex, '-I%s/include' % rnn]
-    return ([(s, vflags) for s in ('src/quest/voice.c', 'src/core/voice_dsp.c')] + [(s, oflags) for s in opus_src]
+    return ([(s, vflags) for s in ('src/core/voice.c', 'src/core/voice_dsp.c')] + [(s, oflags) for s in opus_src]
             + [(s, sxflags) for s in speex_src] + [(s, rflags) for s in rnn_src])
 
 

@@ -83,7 +83,7 @@ def main():
     quest = ['src/core/host_sdl.c', 'src/quest/quest_xr.c', 'src/quest/quest_gun.c', 'src/quest/quest_hand.c',
              'src/quest/quest_report.c', 'src/quest/quest_cabinet.c', 'build_quest/glue/android_native_app_glue.c',
              'src/core/quest_menu.c', 'src/core/quest_canvas.c', 'src/core/quest_options.c', 'src/core/m2_gl.c',
-             'src/platform/posix.c', 'src/platform/android/log.c', 'src/platform/android/audio.c']
+             'src/platform/posix.c', 'src/platform/android/log.c', 'src/platform/android/audio.c', 'src/platform/android/mic.c']
     jobs = [(s, sflags) for s in quest] + [(s, sflags) for s in port.net_sources()]
     jobs += port.voice_jobs(sflags)
     objs = port.compile_all(jobs, os.path.join(out, 'obj'), lambda s, o, flags: base + flags + ['-c', s, '-o', o])

@@ -1,7 +1,7 @@
-// voice.c -- see voice.h. Ported from the Time Crisis 2 VR project's quest/tc2_voice.c; this app has no Java, so the
-// microphone is an AAudio input stream and its permission is asked for through JNI on the NativeActivity.
+// voice.c -- see voice.h. Ported from the Time Crisis 2 VR project's quest/tc2_voice.c. The microphone, its
+// permission and the worker thread are platform.h's (Android: an AAudio input stream, the permission over JNI).
 //
-// Send: microphone (AAudio input callback: a queue) -> worker: echo cancellation against what the speakers played and
+// Send: microphone (the platform's input callback: a queue) -> worker: echo cancellation against what the speakers played and
 // noise suppression, 10 ms blocks (voice_dsp.c) -> 20 ms frames -> gate: open mic opens on speech above about
 // -42 dBFS and holds 400 ms (stricter while the partner's voice plays); push to talk sends while the key is held and
 // 200 ms after -> Opus VOIP 20 kbit/s with in-band FEC -> the send queue, which voice_pack empties.
@@ -17,18 +17,12 @@
 #include "voice.h"
 #include "voice_dsp.h"
 #include <opus.h>
+#include "platform/platform.h"
 #include <math.h>
-#include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-#ifdef __ANDROID__
-#include <aaudio/AAudio.h>
-#include <android/native_activity.h>
-#include <jni.h>
-#endif
 
 #define RATE        48000
 #define FRAME       960                   // 20 ms
@@ -54,11 +48,7 @@
 #ifdef VOICE_TEST_CLOCK                   // tests (a host program including this file) run on their own clock
 static int64_t now_ns(void) { return voice_test_now; }
 #else
-static int64_t now_ns(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (int64_t)ts.tv_sec * 1000000000ll + ts.tv_nsec;
-}
+static int64_t now_ns(void) { return (int64_t)plat_now_ns(); }
 #endif
 static int64_t to48(int64_t ns) { return ns * 6 / 125000; }   // the 48 kHz clock voice_dsp.c works on
 
@@ -153,7 +143,7 @@ void voice_mix_out(int16_t *st, int frames, int rate) {
 static OpusEncoder *enc;
 static OpusDecoder *dec;
 typedef struct { uint16_t seq; uint8_t n, start; uint8_t b[MAX_FRAME]; int64_t t; } Frame;   // start: a spurt's first
-static pthread_mutex_t tx_mu = PTHREAD_MUTEX_INITIALIZER;
+static plat_lock tx_mu = PLAT_LOCK_INIT;
 static Frame outq[OUTQ];                  // tx_mu
 static unsigned out_r, out_w;
 static Frame sent_last;                   // tx_mu: sent again in the next block when it fits
@@ -175,10 +165,10 @@ static double mic_phase;
 static int mic_last;
 
 static void queue_frame(const Frame *f) {
-    pthread_mutex_lock(&tx_mu);
+    plat_lock_take(&tx_mu);
     if (out_w - out_r == OUTQ) out_r++;   // never let a stalled link build up old speech
     outq[out_w++ % OUTQ] = *f;
-    pthread_mutex_unlock(&tx_mu);
+    plat_lock_give(&tx_mu);
 }
 static unsigned play_fill(void) { return atomic_load_explicit(&play_w, memory_order_relaxed) - atomic_load_explicit(&play_r, memory_order_acquire); }
 static void encode_frame(const int16_t *pcm, int speech, int64_t now) {
@@ -233,7 +223,7 @@ int voice_pack(uint8_t *out, int max) {
     if (!atomic_load(&inited) || !out || max < HDR + 2) return 0;
     const int64_t now = now_ns();
     int off = 0, count = 0;
-    pthread_mutex_lock(&tx_mu);
+    plat_lock_take(&tx_mu);
     if (max >= budget_peak || now - budget_t > 500 * MS) { budget_peak = max; budget_t = now; atomic_store(&budget, max); }
     // too old to be worth playing, or (encoded for a roomier call) too big for this one for 40 ms: dropped
     while (out_r != out_w && (now - outq[out_r % OUTQ].t > OUT_MAX_AGE * MS
@@ -263,14 +253,14 @@ int voice_pack(uint8_t *out, int max) {
         out[1] = (uint8_t)stream_id;
         out[2] = (uint8_t)first; out[3] = (uint8_t)(first >> 8);
     }
-    pthread_mutex_unlock(&tx_mu);
+    plat_lock_give(&tx_mu);
     atomic_fetch_add(&n_sent, (unsigned)count);
     return off;
 }
 
 // ---------------------------------------------------------------- receive side
 typedef struct { int full, start; uint16_t seq; uint8_t n; uint8_t b[MAX_FRAME]; } Slot;
-static pthread_mutex_t rx_mu = PTHREAD_MUTEX_INITIALIZER;
+static plat_lock rx_mu = PLAT_LOCK_INIT;
 // all rx_mu
 static Slot slot[SLOTS];
 static int rx_stream = -1, rx_restart;
@@ -288,7 +278,7 @@ void voice_unpack(const uint8_t *b, int len) {
     uint16_t seq = (uint16_t)(b[2] | b[3] << 8);
     const int64_t now = now_ns();
     unsigned got = 0;
-    pthread_mutex_lock(&rx_mu);
+    plat_lock_take(&rx_mu);
     if (b[1] != rx_stream) { rx_clear(); rx_stream = b[1]; }   // the partner's voice started over
     for (int off = HDR, spurt = b[0] & 0x20; off < len; seq++, spurt = 0) {
         const int n = b[off++];
@@ -311,7 +301,7 @@ void voice_unpack(const uint8_t *b, int len) {
         if (!have_newest || (int16_t)(seq - newest) > 0) { newest = seq; have_newest = 1; }
         if (!playing) { playing = 1; spurt_new = 1; decoded_any = 0; next_seq = seq; }   // a talk spurt starts
     }
-    pthread_mutex_unlock(&rx_mu);
+    plat_lock_give(&rx_mu);
     if (got) { atomic_fetch_add(&n_received, got); atomic_store(&last_rx_ns, now); }
 }
 
@@ -329,7 +319,7 @@ static void decode_ahead(int64_t now) {
     for (int guard = 0; guard < 8 && play_fill() < TARGET; guard++) {
         uint8_t b[MAX_FRAME];
         int n = 0, how = 0, reset = 0, prebuf = 0;   // how: 0 nothing, 1 the frame, 2 the next frame's FEC, 3 concealment
-        pthread_mutex_lock(&rx_mu);
+        plat_lock_take(&rx_mu);
         if (rx_restart) { rx_restart = 0; reset = 1; }
         if (playing) {
             if (have_newest && (int16_t)(newest - next_seq) > CATCHUP) {   // fell behind (the output stopped a while)
@@ -355,7 +345,7 @@ static void decode_ahead(int64_t now) {
             }
             if (how) { last_played = next_seq++; have_last = 1; decoded_any = 1; }
         }
-        pthread_mutex_unlock(&rx_mu);
+        plat_lock_give(&rx_mu);
         if (reset) opus_decoder_ctl(dec, OPUS_RESET_STATE);
         if (prebuf) { static const int16_t quiet[PREBUF]; play_push(quiet, PREBUF, 0); }
         if (!how) break;
@@ -366,101 +356,33 @@ static void decode_ahead(int64_t now) {
     }
 }
 
-// ---------------------------------------------------------------- the microphone (Android: AAudio, JNI permission)
-#ifdef __ANDROID__
-#define PERMISSION "android.permission.RECORD_AUDIO"
-static ANativeActivity *activity;
-static JNIEnv *jenv;                      // the worker's own, attached once
-static AAudioStream *mic;
-static atomic_int mic_failed;
-static int mic_rate, granted, asked;
+// ---------------------------------------------------------------- the microphone (platform.h)
+#ifndef VOICE_TEST_CLOCK
+static int mic_on, granted;
 static int64_t perm_checked, mic_retry;
-
-// Context.checkSelfPermission / Activity.requestPermissions on the NativeActivity object. NativeActivity ignores the
-// answer (onRequestPermissionsResult), so the worker asks again with checkSelfPermission once a second.
-#define J(x) x; if ((*e)->ExceptionCheck(e)) { (*e)->ExceptionClear(e); goto done; }
-static int perm_granted(void) {
-    JNIEnv *e = jenv;
-    int ok = 0;
-    if (!e || !activity || (*e)->PushLocalFrame(e, 8)) return 0;
-    J(jclass cls = (*e)->GetObjectClass(e, activity->clazz))
-    J(jmethodID check = (*e)->GetMethodID(e, cls, "checkSelfPermission", "(Ljava/lang/String;)I"))
-    J(jstring p = (*e)->NewStringUTF(e, PERMISSION))
-    J(ok = (*e)->CallIntMethod(e, activity->clazz, check, p) == 0)   // PackageManager.PERMISSION_GRANTED
-done:
-    (*e)->PopLocalFrame(e, NULL);
-    return ok;
-}
-static void perm_request(void) {
-    JNIEnv *e = jenv;
-    if (!e || !activity || (*e)->PushLocalFrame(e, 8)) return;
-    J(jclass cls = (*e)->GetObjectClass(e, activity->clazz))
-    J(jmethodID req = (*e)->GetMethodID(e, cls, "requestPermissions", "([Ljava/lang/String;I)V"))
-    J(jclass str = (*e)->FindClass(e, "java/lang/String"))
-    J(jstring p = (*e)->NewStringUTF(e, PERMISSION))
-    J(jobjectArray list = (*e)->NewObjectArray(e, 1, str, p))
-    J((*e)->CallVoidMethod(e, activity->clazz, req, list, (jint)0x766f))
-    fprintf(stderr, "voice: asking for the microphone\n");
-done:
-    (*e)->PopLocalFrame(e, NULL);
-}
-#undef J
-
-static aaudio_data_callback_result_t mic_data(AAudioStream *s, void *ud, void *data, int32_t frames) {
-    (void)s; (void)ud;
-    mic_push((const int16_t *)data, frames, mic_rate);
-    return AAUDIO_CALLBACK_RESULT_CONTINUE;
-}
-static void mic_error(AAudioStream *s, void *ud, aaudio_result_t e) {
-    (void)s; (void)ud;
-    fprintf(stderr, "voice: microphone error %d (%s)\n", e, AAudio_convertResultToText(e));
-    atomic_store(&mic_failed, 1);         // reopened by the worker (not from this callback)
-}
+// while a session runs: the permission (asked once per run: plat_mic_permission), then the stream, reopened after
+// an error
 static void mic_close(void) {
-    if (!mic) return;
-    AAudioStream_requestStop(mic);
-    AAudioStream_close(mic);
-    mic = NULL;
-    fprintf(stderr, "voice: microphone off\n");
+    if (!mic_on) return;
+    plat_mic_close();
+    mic_on = 0;
+    plat_log(PLAT_LOG_INFO, "voice: microphone off");
 }
-static int mic_open(void) {
-    AAudioStreamBuilder *b;
-    if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) return 0;
-    AAudioStreamBuilder_setDirection(b, AAUDIO_DIRECTION_INPUT);
-    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
-    AAudioStreamBuilder_setChannelCount(b, 1);
-    AAudioStreamBuilder_setSampleRate(b, RATE);
-    AAudioStreamBuilder_setSharingMode(b, AAUDIO_SHARING_MODE_SHARED);
-    // voice communication: the platform's own capture path for calls (its echo and noise handling for the
-    // headset's speakers). Not the low-latency mode: that may take the MMAP path, which skips those effects.
-    AAudioStreamBuilder_setInputPreset(b, AAUDIO_INPUT_PRESET_VOICE_COMMUNICATION);
-    AAudioStreamBuilder_setPerformanceMode(b, AAUDIO_PERFORMANCE_MODE_NONE);
-    AAudioStreamBuilder_setDataCallback(b, mic_data, NULL);
-    AAudioStreamBuilder_setErrorCallback(b, mic_error, NULL);
-    aaudio_result_t r = AAudioStreamBuilder_openStream(b, &mic);
-    AAudioStreamBuilder_delete(b);
-    if (r != AAUDIO_OK) { fprintf(stderr, "voice: no microphone: %s\n", AAudio_convertResultToText(r)); mic = NULL; return 0; }
-    mic_rate = AAudioStream_getSampleRate(mic);
-    atomic_store(&mic_failed, 0);
-    r = AAudioStream_requestStart(mic);
-    fprintf(stderr, "voice: microphone on, %d Hz, burst %d frames, start %s\n", mic_rate, AAudioStream_getFramesPerBurst(mic),
-            AAudio_convertResultToText(r));
-    if (r != AAUDIO_OK) { mic_close(); return 0; }
-    return 1;
-}
-// while a session runs: the permission (asked once per run), then the stream, reopened after an error
 static void mic_service(int64_t now) {
     if (!active) { mic_close(); return; }
     if (!granted && now - perm_checked >= 1000 * MS) {
         perm_checked = now;
-        granted = perm_granted();
-        if (!granted && !asked) { asked = 1; perm_request(); }
-        if (granted) fprintf(stderr, "voice: microphone permission granted\n");
-        atomic_store(&st_mic_denied, asked && !granted);
+        const int p = plat_mic_permission();
+        granted = p > 0;
+        if (granted) plat_log(PLAT_LOG_INFO, "voice: microphone permission granted");
+        atomic_store(&st_mic_denied, p < 0);
     }
     if (!granted) return;
-    if (atomic_load(&mic_failed)) { mic_close(); atomic_store(&mic_failed, 0); mic_retry = now + 1000 * MS; }
-    if (!mic && now >= mic_retry && !mic_open()) mic_retry = now + 3000 * MS;
+    if (mic_on && plat_mic_failed()) { mic_close(); mic_retry = now + 1000 * MS; }
+    if (!mic_on && now >= mic_retry) {
+        mic_on = plat_mic_open(RATE, mic_push);
+        if (!mic_on) mic_retry = now + 3000 * MS;
+    }
 }
 #else
 static void mic_service(int64_t now) { (void)now; }   // host builds (tests): samples come through mic_push
@@ -477,22 +399,22 @@ static void start(int64_t now) {
     gate_hold = sending = cap_n = 0;
     mic_phase = 0; mic_last = 0;
     memset(preroll, 0, sizeof preroll);
-    pthread_mutex_lock(&tx_mu);
+    plat_lock_take(&tx_mu);
     out_r = out_w;
     have_sent_last = 0;
     stream_id = (stream_id + 1 + (int)(now % 251)) & 0xFF;
-    pthread_mutex_unlock(&tx_mu);
-    pthread_mutex_lock(&rx_mu);
+    plat_lock_give(&tx_mu);
+    plat_lock_take(&rx_mu);
     rx_clear();
     rx_stream = -1;
-    pthread_mutex_unlock(&rx_mu);
+    plat_lock_give(&rx_mu);
     atomic_store(&last_rx_ns, 0);
     cq_clear(&mic_q);
     cq_clear(&ref_q);
     atomic_store_explicit(&play_cut, atomic_load(&play_w), memory_order_relaxed);
     atomic_fetch_add_explicit(&play_cut_gen, 1, memory_order_release);
     atomic_store_explicit(&out_on, 1, memory_order_release);
-    fprintf(stderr, "voice: on\n");
+    plat_log(PLAT_LOG_INFO, "voice: on");
 }
 static void stop(void) {
     active = 0;
@@ -500,7 +422,7 @@ static void stop(void) {
     atomic_store(&st_talking, 0);
     atomic_store(&st_level, 0);
     atomic_store(&st_partner_level, 0);
-    fprintf(stderr, "voice: off\n");
+    plat_log(PLAT_LOG_INFO, "voice: off");
 }
 
 static int64_t busy_ns, busy_since;
@@ -541,39 +463,32 @@ static void service(void) {
     busy_ns += t1 - t0;
     if (!busy_since) busy_since = t1;
     if (t1 - busy_since >= 60000 * MS) {
-        fprintf(stderr, "voice: worker %.2f%% of a core; sent %u, received %u, lost %u frames\n", 100.0 * busy_ns / (t1 - busy_since),
+        plat_log(PLAT_LOG_INFO, "voice: worker %.2f%% of a core; sent %u, received %u, lost %u frames", 100.0 * busy_ns / (t1 - busy_since),
                 atomic_load(&n_sent), atomic_load(&n_received), atomic_load(&n_lost));
         busy_ns = 0; busy_since = t1;
     }
 }
 
-static pthread_mutex_t wake_mu = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t wake_cv = PTHREAD_COND_INITIALIZER;
-static void wake(void) { pthread_mutex_lock(&wake_mu); pthread_cond_signal(&wake_cv); pthread_mutex_unlock(&wake_mu); }
-static void *worker(void *arg) {
+static plat_lock wake_mu = PLAT_LOCK_INIT;
+static plat_cond wake_cv = PLAT_COND_INIT;
+static void wake(void) { plat_lock_take(&wake_mu); plat_cond_broadcast(&wake_cv); plat_lock_give(&wake_mu); }
+static int worker(void *arg) {
     (void)arg;
-#ifdef __ANDROID__
-    if (activity && activity->vm && (*activity->vm)->AttachCurrentThread(activity->vm, (void *)&jenv, NULL) != JNI_OK) jenv = NULL;
-#endif
     for (;;) {
         service();
         if (active) {                     // 5 ms rounds: 10 ms microphone blocks, 20 ms frames, a 60 ms playback lead
-            struct timespec ts = { 0, 5000000 };
-            nanosleep(&ts, NULL);
+            plat_sleep_until_ns(plat_now_ns() + 5000000ull);
         } else {                          // asleep until a session starts (and once a second regardless)
-            struct timespec ts;
-            clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_sec += 1;
-            pthread_mutex_lock(&wake_mu);
-            if (!wanted()) pthread_cond_timedwait(&wake_cv, &wake_mu, &ts);
-            pthread_mutex_unlock(&wake_mu);
+            plat_lock_take(&wake_mu);
+            if (!wanted()) plat_cond_wait_ms(&wake_cv, &wake_mu, 1000);
+            plat_lock_give(&wake_mu);
         }
     }
-    return NULL;
+    return 0;
 }
 
 // ---------------------------------------------------------------- the interface
-void voice_init(void *native_activity) {
+void voice_init(void) {
     static atomic_int once;
     if (atomic_exchange(&once, 1)) return;
     int err = 0;
@@ -597,21 +512,11 @@ void voice_init(void *native_activity) {
     const int64_t now = now_ns();
     tx_seq = (uint16_t)(now / 1000);
     stream_id = (int)((now / 1000000) & 0xFF);
-#ifdef __ANDROID__
-    activity = native_activity;
-#else
-    (void)native_activity;
-#endif
-    fprintf(stderr, "voice: %s (Opus %s; echo cancellation %s, noise suppression %s)\n", codec_ok ? "ready" : "codec unavailable",
+    plat_log(PLAT_LOG_INFO, "voice: %s (Opus %s; echo cancellation %s, noise suppression %s)", codec_ok ? "ready" : "codec unavailable",
             opus_get_version_string(), stages & 1 ? "on" : "off", stages & 2 ? "on" : "off");
     atomic_store(&inited, 1);
 #ifndef VOICE_TEST_MANUAL                 // (tests run the worker's rounds themselves)
-    pthread_t t;
-    pthread_attr_t at;
-    pthread_attr_init(&at);
-    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
-    if (pthread_create(&t, &at, worker, NULL)) fprintf(stderr, "voice: no worker thread\n");
-    pthread_attr_destroy(&at);
+    if (!plat_thread_start(worker, NULL)) plat_log(PLAT_LOG_ERROR, "voice: no worker thread");   // (runs for good)
 #endif
 }
 void voice_set_active(int linked) { atomic_store(&want_active, linked != 0); wake(); }

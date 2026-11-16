@@ -14,7 +14,7 @@
     <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />
     <uses-permission android:name="org.khronos.openxr.permission.OPENXR" />
     <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
-    <!-- online / LAN co-op (src/net), voice chat (src/quest/voice.c); a host on the local network hears the partner's
+    <!-- online / LAN co-op (src/net), voice chat (src/core/voice.c); a host on the local network hears the partner's
          search (a broadcast) only with Wi-Fi's multicast filter lifted -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

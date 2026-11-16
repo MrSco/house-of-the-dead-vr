@@ -1,15 +1,15 @@
 // Voice chat between linked players (ported from the Time Crisis 2 VR project's quest/tc2_voice.c): 48 kHz mono,
 // Opus in 20 ms frames (~20 kbit/s, in-band FEC), the microphone cleaned up first (SpeexDSP's echo canceller against
 // what the speakers play, RNNoise noise suppression), sent while a voice-activity gate or the push-to-talk key is
-// open, and mixed into the game's own audio output (quest_sdl.c au_data; Android has one output stream for us).
+// open, and mixed into the game's own audio output (host_sdl.c au_fill: the app has one output stream).
 //
-// Threads: the VR thread sets things up and reads the status, the network thread moves the encoded blocks, the two
-// AAudio callbacks (speakers, microphone) only copy samples. The heavy work (clean-up, encoding, decoding) runs on a
+// Threads: the shell's thread sets things up and reads the status, the network thread moves the encoded blocks, the
+// two audio callbacks (speakers, microphone: platform.h) only copy samples. The heavy work (clean-up, encoding, decoding) runs on a
 // worker thread of voice.c's own while voice is active.
 #pragma once
 #include <stdint.h>
 
-void voice_init(void *native_activity /* ANativeActivity* */);   // once at startup (VR thread); inert until active
+void voice_init(void);                    // once at startup (the shell's thread); inert until active
 void voice_set_active(int linked);        // 1 while linked to a partner: capture and playback run only then
 void voice_set_mode(int mode);            // 0 off (neither direction), 1 open mic (default), 2 push to talk
 void voice_set_muted(int muted);          // open mic sends nothing (push to talk ignores it: holding the key is asking)
@@ -29,6 +29,6 @@ typedef struct {
 } voice_status_t;
 void voice_get_status(voice_status_t *s);
 
-// Audio side (quest_sdl.c au_data, the output callback): adds the partner's voice to what is about to play (16-bit
+// Audio side (host_sdl.c au_fill, the output callback): adds the partner's voice to what is about to play (16-bit
 // stereo at rate), then keeps the result as the echo canceller's reference. Lock-free, no allocation.
 void voice_mix_out(int16_t *stereo, int frames, int rate);

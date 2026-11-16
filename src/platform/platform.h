@@ -45,6 +45,7 @@ void plat_lock_take(plat_lock *l);
 void plat_lock_give(plat_lock *l);
 void plat_cond_wait(plat_cond *c, plat_lock *l);
 void plat_cond_broadcast(plat_cond *c);
+void plat_cond_wait_ms(plat_cond *c, plat_lock *l, int ms);   // also returns after ms milliseconds
 // a recursive mutex (SDL's), made at run time
 typedef struct plat_rmutex plat_rmutex;
 plat_rmutex *plat_rmutex_new(void);
@@ -58,6 +59,14 @@ typedef void (*plat_audio_fill)(int16_t *out, int frames, int rate);
 int plat_audio_open(int rate, plat_audio_fill fill, int *burst, char *err, int err_len);
 void plat_audio_close(void);
 int plat_audio_lost(void);   // 1 once the stream has failed (the output device changed): close it, open another
+
+// ---- the microphone for voice chat (Android: AAudio with the voice-communication preset, the RECORD_AUDIO
+// permission over JNI). Called from voice.c's worker thread only; push() runs on the OS's audio thread.
+typedef void (*plat_mic_push)(const int16_t *mono, int frames, int rate);
+int plat_mic_permission(void);     // 1 granted, 0 not yet, -1 asked and refused (asks the first time it is called)
+int plat_mic_open(int rate, plat_mic_push push);   // 1: on (at `rate` or another: push gives the rate)
+void plat_mic_close(void);
+int plat_mic_failed(void);         // 1 once the stream has failed: close it, open it again later
 
 // ---- files (UTF-8 paths)
 int plat_exists(const char *path);                                  // 1 when the path names a file or a folder
