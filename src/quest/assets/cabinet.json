@@ -7,8 +7,8 @@
   "credit": "This work is based on \"The House of the Dead Arcade cabinet\" (https://sketchfab.com/3d-models/the-house-of-the-dead-arcade-cabinet-e03d6a5f5efd49d19cfb7d95a27ad363) by Seraphim Sarov (https://sketchfab.com/Songti) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
   "made_by": "tools/cabinet/export.py (Blender 5.2) from the Sketchfab glTF download",
   "format": "TCCAB001",
-  "changes": "the zombie bursting from the screen and its rig removed, the guns taken out, scaled to 2.09 m, textures 1024 px (base colour and emissive), the game screen fitted to the opening; the guns' coiled cords left out (the app draws them, from the same ports); sharper marquee, control panel and side art (the side art projected straight onto the side panels; the control panel's picture unrolled over its slope, card and speakers) in a 2048 texture (tools/cabinet/art_atlas.py)",
-  "asset_sha256": "48482894fd53d751c6f7a17f21d06017aa7d6df3549af1b70e817758db1d5212",
+  "changes": "the zombie bursting from the screen and its rig removed, the guns taken out, scaled to 2.09 m, textures 1024 px (base colour and emissive), the game screen fitted to the opening; the guns' coiled cords left out (the app draws them, from the same ports); sharper marquee, control panel and side art (the side art scaled evenly onto the side panels, placed by their outlines' corners; the control panel's picture unrolled over its slope, card and speakers) in a 2048 texture (tools/cabinet/art_atlas.py)",
+  "asset_sha256": "e96bbd34c276ebd0f80301c0cee82b3f0601218eab9b9d3ff669133b896b5eef",
   "art": {
     "note": "The cabinet artwork is SEGA's (The House of the Dead, 1996). Sources of the sharper pieces:",
     "marquee": "the project's cleaned, upscaled marquee (docs/cabinet art), drawn across the whole marquee panel",

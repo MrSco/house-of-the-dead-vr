@@ -1,6 +1,6 @@
 # Blender (headless): the House of the Dead light gun (a model made from a photo of the real gun, hotd-lightgun.glb)
 # into the Quest app's TCGUN002 guns, red (player 1) and blue (player 2).
-#   blender -b --factory-startup --python gun_build.py -- GUN.glb CABINET_GUN.tcgun BLUE_PHOTO RED_PHOTO OUTDIR
+#   blender -b --factory-startup --python gun_build.py -- GUN.glb BLUE_PHOTO RED_PHOTO OUTDIR
 #
 # The model (Y is its thickness, Z up, the muzzle towards -X) is a soup of ~1700 surface pieces, 700k triangles, its
 # colour in a 4096 texture. Here:
@@ -8,7 +8,7 @@
 #   - a slot through the frame behind the cylinder, with stray slivers in it (the "hook"), is plugged;
 #   - the pieces become one closed surface (voxel remesh), cut down to TARGET_TRIS triangles;
 #   - the colour is taken from the texture into the vertices (nearest point of the original surface);
-#   - it has no trigger (the guard is empty): the cabinet gun's trigger (CABINET_GUN's part 1, export.py) goes in;
+#   - it has no trigger (the guard is empty): one is made (gun_trigger.py: a curved blade) and goes in;
 #   - placed in the hand as export.py places the cabinet gun: its trigger on the pistol's, so the hands close round
 #     its grip; 26 cm long; the muzzle (the barrel's front) is the file's tip.
 # The blue gun: the same, its colour moved from the model's red to the blue of a photo of a real blue gun. The photo's
@@ -19,7 +19,10 @@ import numpy as np
 from mathutils.bvhtree import BVHTree
 
 argv = sys.argv[sys.argv.index('--') + 1:]
-glb, cab_gun, blue_photo, red_photo, out = argv[:5]
+glb, blue_photo, red_photo, out = argv[:4]
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gun_trigger import make_trigger   # noqa: E402
 
 GUN_LEN = 0.26                     # muzzle to back (metres)
 PISTOL_TRIGGER = (-0.0415, -0.040)  # the pistol's trigger (y, z): where the hands' fingers close (export.py)
@@ -217,28 +220,18 @@ guard = np.array(regions[0])
 g_y = ymin + guard[:, 0] * res; g_z = zmin + guard[:, 1] * res
 print('GUARD opening: z %.4f..%.4f  y %.4f..%.4f (%d cells)' % (g_z.min(), g_z.max(), g_y.min(), g_y.max(), len(guard)))
 
-# the trigger (the cabinet gun's part 1), into the opening: its top at the opening's top, a third of the way back
-# from the opening's front, centred across
-d = open(cab_gun, 'rb').read()
-nv, ni = struct.unpack_from('<II', d, 8)
-CV = np.frombuffer(d, np.float32, nv * 10, 28).reshape(nv, 10).astype(np.float64)
-CI = np.frombuffer(d, np.uint32, ni, 28 + nv * 40).reshape(-1, 3)
-tmask = CV[:, 9] == 1
-tri_t = [t for t in CI if tmask[t].all()]
-tv = sorted(set(int(i) for t in tri_t for i in t))
-remap = {o: k for k, o in enumerate(tv)}
-TP = CV[tv, :3].copy(); TN = CV[tv, 3:6].copy()
-t_lo, t_hi = TP.min(0), TP.max(0)
-open_h = g_y.max() - g_y.min()
-tsc = (0.72 * open_h) / (t_hi[1] - t_lo[1])
-TP = (TP - [(t_lo[0] + t_hi[0]) / 2, t_hi[1], t_lo[2]]) * tsc       # its top-front at the origin
+# the trigger (gun_trigger.py), into the opening: its top tucked into the frame over the opening, a third of the way
+# back from the opening's front (plus half a trigger), centred across
 g_front = g_z.min(); g_back = g_z.max()
 x_mid = (G[:, 0].min() + G[:, 0].max()) / 2
-TP += [x_mid, g_y.max() + 0.003, g_front + 0.30 * (g_back - g_front)]
-print('TRIGGER %d vertices, scaled %.2f, top %.4f, front %.4f' % (len(TP), tsc, TP[:, 1].max(), TP[:, 2].min()))
+top_y, top_z = g_y.max() + 0.0045, g_front + 0.30 * (g_back - g_front) + 0.012
+TP, TN, TT = make_trigger(top_z, top_y, x_mid)
+tri_t = [tuple(int(i) for i in t) for t in TT]
+remap = {k: k for k in range(len(TP))}
+print('TRIGGER %d vertices, top %.4f, middle %.4f' % (len(TP), top_y, top_z))
 
-# placed in the hand: the trigger's centre on the pistol's
-tc = TP.mean(0)
+# placed in the hand: the trigger's middle (where the finger rests) on the pistol's
+tc = np.array([x_mid, top_y - 0.0107, top_z])
 off = np.array([-x_mid, PISTOL_TRIGGER[0] - tc[1], PISTOL_TRIGGER[1] - tc[2]])
 G += off; TP += off
 # the muzzle: the front-most centimetre's centre

@@ -48,8 +48,22 @@ PIECES = [
               'face3d': [(-0.4684, -1.0032, 2.1207), (0.4689, -1.0032, 2.1207), (0.3603, -1.3604, 1.8115),
                          (-0.3602, -1.3604, 1.8115)],                       # the card piece's corners
               'art': [(510, 78), (1661, 78), (1507, 638), (664, 638)]}},      # the picture's green card
-    {'name': 'side-left', 'files': ['side-left'], 'region': (1024, 0, 1536, 1024), 'faces': 'side-', 'side': -1},
-    {'name': 'side-right', 'files': ['side-right'], 'region': (1536, 0, 2048, 1024), 'faces': 'side+', 'side': 1},
+    # The sides: each art's outline is the real cabinet's side (the marquee's overhang, the screen's recess, the control
+    # panel's step, the sloped back); the model's has the same corners in slightly other proportions. The art is only
+    # scaled (evenly: its logo and text undistorted) and placed so its corners land as near the model's as they can
+    # ('outline': art pixel -> Blender (y, z); 'fit_skip': pairs left out of the fit); the edges that overhang are
+    # cropped. Below 'cut' (z) the panel is black (an art that stops above the floor).
+    {'name': 'side-left', 'files': ['side-left'], 'region': (1024, 0, 1536, 1024), 'faces': 'side-', 'side': -1,
+     'outline': [((296, 52), (0.423, 4.562)), ((659, 7), (-0.827, 4.579)), ((805, 7), (-1.330, 4.586)),
+                 ((811, 287), (-1.354, 4.017)), ((757, 360), (-0.999, 3.780)), ((756, 668), (-0.999, 2.241)),
+                 ((867, 902), (-1.555, 1.720)), ((867, 1504), (-1.532, -0.116)), ((123, 1509), (0.683, -0.152)),
+                 ((123, 632), (0.778, 2.241))]},
+    # (kirb's: the other side, front on its left, for a shorter cabinet: it ends a little below the control panel)
+    {'name': 'side-right', 'files': ['side-right'], 'region': (1536, 0, 2048, 1024), 'faces': 'side+', 'side': 1,
+     'outline': [((0, 0), (-1.330, 4.586)), ((1697, 1), (0.423, 4.562)), ((2624, 2051), (0.778, 2.241)),
+                 ((2624, 3228), (0.757, 1.170)), ((0, 3228), (-1.548, 1.170)), ((0, 2706), (-1.555, 1.720)),
+                 ((305, 1921), (-0.999, 2.241)), ((268, 830), (-0.999, 3.780)), ((0, 652), (-1.354, 4.017))],
+     'fit_skip': (3, 4), 'cut': 1.170},
 ]
 # The side art is projected straight onto the flat side panels (the model's old side art sat askew on them, and the
 # panels' outline is not the real cabinet's, so neither can place it): the panel (Blender's y, z: the cabinet's front
@@ -227,6 +241,30 @@ def fill_piece(p, f, atlas, atlas_e):
     return out
 
 
+def outline_fill(p, full, rw, rh, s):
+    """the region's pixels from the art, scaled (the same in both directions: nothing skewed) and placed so its
+    outline's corners land as near the model's as they can (least squares); what overhangs the panel is cropped"""
+    yf, yb, zt = PANEL['y_front'], PANEL['y_back'], PANEL['z_top']
+    sx = -1.0 if p['side'] < 0 else 1.0                  # art x -> Blender y: the left side's front is on its right
+    skip = set(p.get('fit_skip', ()))
+    rows, rhs = [], []
+    for k, ((ax, ay), (my, mz)) in enumerate(p['outline']):
+        if k in skip: continue
+        rows.append((sx * ax, 1, 0)); rhs.append(my)       # y = ty + sx * k * ax
+        rows.append((-ay, 0, 1)); rhs.append(mz)           # z = tz - k * ay
+    (k, ty, tz), *_ = np.linalg.lstsq(np.array(rows, float), np.array(rhs, float), rcond=None)
+    xs, ys = np.meshgrid(np.arange(rw) + 0.5, np.arange(rh) + 0.5)
+    y = yb - xs / s if p['side'] < 0 else yf + xs / s                   # (side_piece's to_reg, inverted)
+    z = zt - ys / s
+    mx = ((y - ty) / (sx * k)).astype(np.float32)
+    my = ((tz - z) / k).astype(np.float32)
+    out = cv2.remap(full.astype(np.float32), mx, my, cv2.INTER_AREA if 1 / (k * s) > 1 else cv2.INTER_LINEAR,
+                    borderMode=cv2.BORDER_REPLICATE)
+    if 'cut' in p: out[z < p['cut']] = SIDE_BLACK
+    print('  %s: %.0f art pixels a metre, the art %.2f x %.2f m' % (p['name'], 1 / k, full.shape[1] * k, full.shape[0] * k))
+    return out
+
+
 def side_piece(p, f, atlas):
     """a side's art projected onto its panel: the region drawn, and the affine (Blender y, z, 1) -> atlas pixels"""
     art = load(f)
@@ -254,6 +292,14 @@ def side_piece(p, f, atlas):
     a = art[:, :, 3:4]
     full = art[:, :, :3] * a + filled * (1 - a)
     reg = np.zeros((rh, rw, 4), np.float32); reg[:, :, :3] = SIDE_BLACK; reg[:, :, 3] = 1
+    if 'outline' in p:
+        reg[:, :, :3] = outline_fill(p, full, rw, rh, s)
+        atlas[ry0:ry1, rx0:rx1] = reg
+        sx = -s if p['side'] < 0 else s
+        ox = rx0 + (yb * s if p['side'] < 0 else -yf * s)
+        P = [[sx, 0, ox], [0, -s, ry0 + zt * s]]
+        print('%s: %s warped onto the panel by its outline (%d corners)' % (p['name'], os.path.basename(f), len(p['outline'])))
+        return {'name': p['name'], 'faces': p['faces'], 'planar': P, 'art': os.path.basename(f)}
     warped = cv2.warpAffine(np.dstack([full, np.ones((ah, aw), np.float32)]), A[:2], (rw, rh),
                             flags=cv2.INTER_AREA if sc < 1 else cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT,
                             borderValue=(0, 0, 0, 0))
