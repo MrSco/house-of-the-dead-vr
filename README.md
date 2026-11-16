@@ -1,6 +1,7 @@
 <p align="center"><img src="docs/images/header.jpg" alt="The House of the Dead" width="100%"></p>
 
-<p align="center"><img src="docs/images/gameplay.gif" alt="Playing on a Quest 3: the cabinet, then standing in the game" width="640"></p>
+<p align="center"><a href="https://www.youtube.com/watch?v=qA4V-auLHN0"><img src="docs/images/gameplay.gif" alt="Playing on a Quest 3: the cabinet, then standing in the game" width="640"></a></p>
+<p align="center"><a href="https://www.youtube.com/watch?v=qA4V-auLHN0"><b>&#9654; Watch the gameplay video on YouTube</b></a></p>
 
 # The House of the Dead VR
 
