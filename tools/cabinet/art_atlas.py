@@ -58,12 +58,12 @@ PIECES = [
                  ((811, 287), (-1.354, 4.017)), ((757, 360), (-0.999, 3.780)), ((756, 668), (-0.999, 2.241)),
                  ((867, 902), (-1.555, 1.720)), ((867, 1504), (-1.532, -0.116)), ((123, 1509), (0.683, -0.152)),
                  ((123, 632), (0.778, 2.241))]},
-    # (kirb's: the other side, front on its left, for a shorter cabinet: it ends a little below the control panel)
+    # (the right side's art: the other way round, its front on its left; it is cut out along its red border line)
     {'name': 'side-right', 'files': ['side-right'], 'region': (1536, 0, 2048, 1024), 'faces': 'side+', 'side': 1,
-     'outline': [((0, 0), (-1.330, 4.586)), ((1697, 1), (0.423, 4.562)), ((2624, 2051), (0.778, 2.241)),
-                 ((2624, 3228), (0.757, 1.170)), ((0, 3228), (-1.548, 1.170)), ((0, 2706), (-1.555, 1.720)),
-                 ((305, 1921), (-0.999, 2.241)), ((268, 830), (-0.999, 3.780)), ((0, 652), (-1.354, 4.017))],
-     'fit_skip': (3, 4), 'cut': 1.170},
+     'outline': [((154, 9), (-1.330, 4.586)), ((307, 9), (-0.855, 4.579)), ((718, 52), (0.423, 4.562)),
+                 ((891, 625), (0.778, 2.241)), ((888, 1510), (0.683, -0.152)), ((132, 1504), (-1.532, -0.116)),
+                 ((130, 864), (-1.555, 1.720)), ((201, 674), (-0.999, 2.241)), ((199, 352), (-0.999, 3.780)),
+                 ((148, 284), (-1.354, 4.017))]},
 ]
 # The side art is projected straight onto the flat side panels (the model's old side art sat askew on them, and the
 # panels' outline is not the real cabinet's, so neither can place it): the panel (Blender's y, z: the cabinet's front

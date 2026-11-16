@@ -89,5 +89,5 @@ was removed on 2026-10-16 and nothing links libvita2d any more (record kept in
 | "Free FPS-Hand's" by Askasknot | Sketchfab | CC BY 4.0 | `src/quest/assets/hands.tchand` (see `hands.json`) |
 | "Lowpoly Pistol" by FireWarden | Sketchfab | CC0 | `src/quest/assets/player-gun.tcgun` |
 | The House of the Dead light gun | made for this project from a photo of the real gun (`tools/cabinet/gun_build.py`, its trigger `gun_trigger.py`) | — | `src/quest/assets/arcade-gun*.tcgun` (see their `.json`) |
-| The cabinet artwork (marquee, control panel, side art) | SEGA's artwork, restored and upscaled for this project; the right side panel a fan re-creation by "kirb" | SEGA's | `docs/cabinet art`, drawn into the cabinet's texture by `tools/cabinet/art_atlas.py` (see `cabinet.json`) |
+| The cabinet artwork (marquee, control panel, side art) | SEGA's artwork, restored and upscaled for this project | SEGA's | `docs/cabinet art`, drawn into the cabinet's texture by `tools/cabinet/art_atlas.py` (see `cabinet.json`) |
 
