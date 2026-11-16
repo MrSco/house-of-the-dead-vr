@@ -66,6 +66,27 @@ What was found in the game to make VR work, with addresses, is in [docs/vr.md](d
 - the reload prompt;
 - the shape of the 3D output.
 
+## On the headset
+
+Captured on a Quest 3 in one session, switching back and forth: hold the gun hand's thumbstick click to go between the
+arcade cabinet and standing in the game.
+
+<table>
+  <tr><th>Cabinet view</th><th>Immersive view</th></tr>
+  <tr>
+    <td><img src="docs/images/play-cabinet.jpg" alt="The cabinet in the courtyard"></td>
+    <td><img src="docs/images/play-immersive-bridge.jpg" alt="On the bridge, a zombie leaping in"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/play-cabinet-hit.jpg" alt="Shooting a zombie on the cabinet's screen"></td>
+    <td><img src="docs/images/play-immersive-hit.jpg" alt="A zombie hit on the bridge"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/play-cabinet-aim.jpg" alt="Aiming the light gun at the cabinet"></td>
+    <td><img src="docs/images/play-immersive-reload.jpg" alt="Racking the slide after a new magazine"></td>
+  </tr>
+</table>
+
 ## Playing it
 
 You need a **Meta Quest 3**. The Quest 3S has the same processor and should work, but it hasn't been tested.
