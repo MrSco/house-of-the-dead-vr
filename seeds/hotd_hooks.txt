@@ -1,0 +1,10 @@
+# hotd: hooks (m2recomp --hooks). "ADDRESS name": the recompiled code calls rt::hook_<name>(c) just before the
+# instruction at ADDRESS (src/games/hooks.h). Addresses only, our own analysis.
+#
+# apply_settings (Revision A): the operator settings from the EEPROM, applied at boot.
+0000dc20 hotd_settings
+#
+# scenery_cull (Revision A): 0x4b3a4..0x4b63c draws the scenery pieces of the current area's list. Each piece's
+# bounding sphere goes to the TGPx4 (FIFO 0x3d807b7b, then x, y, z and the model's radius); "cmpr g4,+0.0;
+# ble 0x4b630" at 0x4b484 skips the piece unless the answer is above 0. In VR the hook makes it 1.0.
+0004b484 hotd_scenery_cull

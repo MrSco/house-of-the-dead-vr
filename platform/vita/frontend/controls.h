@@ -1,0 +1,305 @@
+// Vita input mapping, independent of SDL and VitaSDK so it can be host-tested.
+#pragma once
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+
+#include "../../src/runtime/board/cabinet_controls.h"
+
+namespace vita {
+enum Button : uint32_t {
+    Cross = 1u << 0, Circle = 1u << 1, Square = 1u << 2, Triangle = 1u << 3,
+    Up = 1u << 4, Down = 1u << 5, Left = 1u << 6, Right = 1u << 7,
+    L = 1u << 8, R = 1u << 9, Start = 1u << 10, Select = 1u << 11
+};
+struct Pad {
+    uint32_t buttons = 0;
+    uint8_t lx = 128, ry = 128, ly = 128; // ly: a joystick's up/down
+    bool touch = false;                   // the front touch screen, in screen pixels (960x544)
+    float tx = 0.f, ty = 0.f;
+};
+// Steering smoothing, as a wheel turns rather than jumps. Each board frame
+// (57.52 Hz; the wheel's range is -1 to 1) the wheel moves d / (1 + |d| / r)
+// of the distance d to the input: a short correction almost all at once
+// (what is left is about d * d / r), a long one at up to r a frame; and r
+// shrinks toward the ends of the wheel's travel (half of it at full lock), so
+// the wheel is slower there.
+//
+// The user sets it in milliseconds: the time the wheel takes to reach 90 % of
+// full lock from the centre, the stick pushed fully and at once (0 = off, no
+// smoothing). steer_rate_for_ms turns it into r (by bisection on the very
+// recurrence steer_step runs, so the setting means what it says).
+inline constexpr int kSteerMsMax = 500, kSteerMsStep = 10;
+inline constexpr float kBoardFrameMs = 1000.f / 57.52f;
+inline float steer_step(float wheel, float input, float r_centre) {
+    const float d = input - wheel;
+    if (r_centre <= 0.f) return input;
+    const float r = r_centre * (1.f - 0.5f * std::min(std::abs(wheel), 1.f));
+    return wheel + d / (1.f + std::abs(d) / r);
+}
+// Board frames (fractional, interpolated) for a wheel at the centre to reach
+// 90 % of full lock when the input jumps to full lock, at rate r_centre.
+inline float steer_frames_to_90(float r_centre) {
+    float wheel = 0.f;
+    for (int n = 1; n <= 2000; ++n) {
+        const float next = steer_step(wheel, 1.f, r_centre);
+        if (next >= 0.9f) return float(n - 1) + (0.9f - wheel) / (next - wheel);
+        wheel = next;
+    }
+    return 2000.f;
+}
+inline float steer_rate_for_ms(int ms) {
+    if (ms <= 0) return 0.f;
+    const float frames = float(std::min(ms, kSteerMsMax)) / kBoardFrameMs;
+    float lo = 0.002f, hi = 20.f; // a small r is slow: more frames
+    for (int i = 0; i < 40; ++i) {
+        const float mid = 0.5f * (lo + hi);
+        if (steer_frames_to_90(mid) > frames) lo = mid; else hi = mid;
+    }
+    return 0.5f * (lo + hi);
+}
+struct Input {
+    uint8_t steer = 0x80, accel = 0x20, brake = 0x20;
+    uint8_t in0 = 0xff, in1 = 0x8f, in2 = 0xff;
+    uint8_t handbrake = 0; // rt::Inputs::handbrake (0xff: pulled)
+    uint16_t gun_x = 0x17c, gun_y = 0x0e6; // rt::Inputs::gun_x/gun_y (light gun games)
+};
+
+// Where the game's 496x384 picture is on the screen (render/gl_internal.h):
+// scaled to the 544 lines and centred, black margins left and right.
+inline constexpr float kPictureScale = 544.0f / 384.0f;
+inline constexpr float kPictureX = (960.0f - 496.0f * kPictureScale) * 0.5f;
+inline bool menu_chord(uint32_t buttons) {
+    return (buttons & (Start | Select)) == (Start | Select);
+}
+inline float axis(uint8_t value, float deadzone = 0.12f) {
+    deadzone = std::clamp(deadzone, 0.0f, 0.4f);
+    const float x = value < 128 ? (int(value) - 128) / 128.f : (int(value) - 128) / 127.f;
+    const float magnitude = std::abs(x);
+    if (magnitude <= deadzone) return 0.f;
+    return std::copysign((magnitude - deadzone) / (1.f - deadzone), x);
+}
+
+// The game's controls (rt::Game::control_list; src/runtime/board/cabinet_controls.h), each
+// bound to one button and listed on the Controls page; the indices are rt::Control's
+// (the first twelve in the order vita.cfg has always saved them). The analog sticks
+// and the system chords (Start+Select menu, Select+Triangle test, Select+Square
+// service) stay fixed: the left stick steers (or is the joystick), the right stick
+// works the pedals, when the game has them.
+using rt::Control;
+inline constexpr int ControlCount = rt::kControlCount;
+inline constexpr uint32_t kButtonMask = 0xfffu;
+// rt::PadButton is in Button's bit order.
+inline uint32_t pad_bit(rt::PadButton button) { return 1u << unsigned(button); }
+
+struct Layout {
+    const rt::ControlDef *defs = nullptr;
+    int count = 0;
+    const rt::ControlDef *find(Control c) const {
+        for (int i = 0; i < count; ++i)
+            if (defs[i].control == c) return &defs[i];
+        return nullptr;
+    }
+    bool has(Control c) const { return find(c) != nullptr; }
+    const char *name(int control) const {
+        const rt::ControlDef *d = control >= 0 && control < ControlCount ? find(Control(control)) : nullptr;
+        return d ? d->name : "?";
+    }
+};
+
+inline bool single_button(uint32_t button) {
+    return button && !(button & ~kButtonMask) && !(button & (button - 1));
+}
+inline const char *button_name(uint32_t button) {
+    static const char *names[] = {"CROSS", "CIRCLE", "SQUARE", "TRIANGLE", "UP", "DOWN",
+        "LEFT", "RIGHT", "L", "R", "START", "SELECT"};
+    if (!single_button(button)) return "NONE";
+    int bit = 0;
+    while (!(button & (1u << bit))) ++bit;
+    return names[bit];
+}
+struct Bindings {
+    // One button per control the game uses; 0 for the others.
+    uint32_t button[ControlCount] = {};
+    // The game's defaults (each control's PadButton).
+    static Bindings defaults(const Layout &layout) {
+        Bindings b;
+        for (int i = 0; i < layout.count; ++i) b.button[int(layout.defs[i].control)] = pad_bit(layout.defs[i].button);
+        return b;
+    }
+    // Gives `control` the button `value`; a control that had it takes the old one
+    // instead, so no control the game uses is ever left without a button.
+    void bind(int control, uint32_t value) {
+        if (control < 0 || control >= ControlCount || !button[control] || !single_button(value)) return;
+        for (uint32_t &other : button)
+            if (other == value) other = button[control];
+        button[control] = value;
+    }
+    // Next/previous button in the fixed order above (Left/Right on the Controls page).
+    void cycle(int control, int direction) {
+        if (control < 0 || control >= ControlCount || !button[control]) return;
+        int bit = 0;
+        while (bit < 11 && !(button[control] & (1u << bit))) ++bit;
+        bind(control, 1u << ((bit + (direction < 0 ? 11 : 1)) % 12));
+    }
+    // Saved files may be edited by hand, or written for another layout: any control
+    // the game uses without a valid, unshared button resets all to the defaults; the
+    // others are cleared.
+    void sanitize(const Layout &layout) {
+        uint32_t seen = 0;
+        for (int c = 0; c < ControlCount; ++c) {
+            if (!layout.has(Control(c))) { button[c] = 0; continue; }
+            if (!single_button(button[c]) || (seen & button[c])) { *this = defaults(layout); return; }
+            seen |= button[c];
+        }
+    }
+};
+
+class Controls {
+public:
+    // The game's controls: only these are read, with their bindings.
+    void set_layout(const Layout &layout) {
+        layout_ = layout;
+        steering_ = layout.has(Control::SteerLeft) || layout.has(Control::SteerRight);
+        pedals_ = layout.has(Control::Accelerate) || layout.has(Control::Brake);
+        joystick_ = layout.has(Control::Up) || layout.has(Control::Down) || layout.has(Control::Left) ||
+                    layout.has(Control::Right);
+        bindings_.sanitize(layout_);
+    }
+    const Layout &layout() const { return layout_; }
+    bool steering() const { return steering_; }
+    // A light gun game (rt::Game::gun): its range; x_max 0: none.
+    void set_gun(uint16_t x_min, uint16_t x_max, uint16_t y_min, uint16_t y_max) {
+        gun_x_min_ = x_min, gun_x_max_ = x_max, gun_y_min_ = y_min, gun_y_max_ = y_max;
+        aim_x_ = uint16_t((x_min + x_max) / 2), aim_y_ = uint16_t((y_min + y_max) / 2);
+    }
+
+    Input sample(Pad pad) {
+        Input in;
+        const auto &b = bindings_.button;
+        auto held = [&](Control c) { return (pad.buttons & b[int(c)]) != 0; }; // 0: not used
+        const uint32_t previous = held_;
+        const uint32_t pressed = pad.buttons & ~held_;
+        if (pressed & b[int(Control::Coin)]) coin_used_ = false;
+        held_ = pad.buttons;
+        // The menu chord must not inject a coin or start a race.
+        if (menu_chord(pad.buttons)) { coin_used_ = true; set_gear(in); return in; }
+        // Cabinet controls consume the modifier and view buttons.
+        if (pad.buttons & Select) {
+            const bool test = (pad.buttons & Triangle) != 0;
+            const bool service = (pad.buttons & Square) != 0;
+            if (test || service) {
+                coin_used_ = true;
+                if (test) in.in0 &= uint8_t(~0x04);
+                if (service) in.in0 &= uint8_t(~0x08);
+                set_gear(in);
+                return in;
+            }
+        }
+        float steer = 0.f, accel = 0.f, brake = 0.f;
+        if (steering_) {
+            steer = axis(pad.lx, deadzone_);
+            if (steer_curve_ == 1) steer *= std::abs(steer);
+            else if (steer_curve_ == 2) steer = steer * steer * steer;
+            if (held(Control::SteerLeft) || held(Control::SteerRight))
+                steer = float(held(Control::SteerRight)) - float(held(Control::SteerLeft));
+            if (steer_invert_) steer = -steer;
+            steer_ = steer_step(steer_, steer, steer_rate_);
+            steer = steer_;
+        }
+        if (pedals_) {
+            const float pedal = axis(pad.ry, deadzone_);
+            accel = held(Control::Accelerate) ? 1.f : std::max(-pedal, 0.f);
+            brake = held(Control::Brake) ? 1.f : std::max(pedal, 0.f);
+        }
+        in.steer = uint8_t(std::lround(128.f + 96.f * steer));
+        in.accel = uint8_t(std::lround(32.f + 192.f * accel));
+        in.brake = uint8_t(std::lround(32.f + 192.f * brake));
+        if (joystick_) {
+            // The joystick: its directions as the wheel and pedals at their ends
+            // (runtime/board/cabinet_controls.h), from the buttons or the left stick.
+            const float x = axis(pad.lx, deadzone_), y = axis(pad.ly, deadzone_);
+            const bool left = held(Control::Left) || x < -0.5f, right = held(Control::Right) || x > 0.5f;
+            const bool up = held(Control::Up) || y < -0.5f, down = held(Control::Down) || y > 0.5f;
+            in.steer = left == right ? 0x80 : left ? 0x20 : 0xe0;
+            in.accel = up && !down ? 0xe0 : 0x20;
+            in.brake = down && !up ? 0xe0 : 0x20;
+        }
+        // Shift only on edges, including when several board frames are run.
+        const int shift = int(bool(pressed & b[int(Control::ShiftUp)])) - int(bool(pressed & b[int(Control::ShiftDown)]));
+        gear_ = std::clamp(gear_ + shift, 1, 4);
+        set_gear(in);
+        // Coin on release leaves time to distinguish Select-based chords.
+        if ((previous & b[int(Control::Coin)]) && !(pad.buttons & b[int(Control::Coin)]) && !coin_used_) in.in0 &= uint8_t(~0x01);
+        if (held(Control::Start)) in.in0 &= uint8_t(~0x10);
+        if (held(Control::View1) || held(Control::Punch)) in.in0 &= uint8_t(~0x20);
+        if (held(Control::View2) || held(Control::Kick)) in.in0 &= uint8_t(~0x40);
+        if (held(Control::View3) || held(Control::Guard)) in.in0 &= uint8_t(~0x80);
+        if (held(Control::View4)) in.in1 &= uint8_t(~0x01);
+        if (held(Control::HandBrake)) in.handbrake = 0xff;
+        if (gun_x_max_) {
+            // A touch on the picture aims there and pulls the trigger; on the
+            // black margins it points off the screen and pulls it (a reload).
+            // Without a touch the gun stays at the last aim on the picture; the
+            // trigger's button fires there.
+            bool fire = held(Control::Trigger);
+            in.gun_x = aim_x_, in.gun_y = aim_y_;
+            if (pad.touch) {
+                const rt::GunAim a = rt::aim_gun((pad.tx - kPictureX) / kPictureScale, pad.ty / kPictureScale,
+                                                 gun_x_min_, gun_x_max_, gun_y_min_, gun_y_max_);
+                in.gun_x = a.x, in.gun_y = a.y;
+                if (a.on_screen) aim_x_ = a.x, aim_y_ = a.y;
+                fire = true;
+            }
+            if (fire) in.in1 &= uint8_t(~0x01);
+        }
+        return in;
+    }
+    void latch(uint32_t buttons) { held_ = buttons; if (buttons & bindings_.button[int(Control::Coin)]) coin_used_ = true; }
+    int gear() const { return gear_; }
+    void set_deadzone(float value) { deadzone_ = std::clamp(value, 0.0f, 0.4f); }
+    void set_steer_curve(int value) { steer_curve_ = std::clamp(value, 0, 2); }
+    void set_steer_invert(bool value) { steer_invert_ = value; }
+    // Milliseconds, centre to 90 % of full lock (0 off).
+    void set_steer_smoothing_ms(int value) { steer_rate_ = steer_rate_for_ms(std::clamp(value, 0, kSteerMsMax)); }
+    void set_bindings(const Bindings &value) { bindings_ = value; bindings_.sanitize(layout_); }
+    const Bindings &bindings() const { return bindings_; }
+private:
+    void set_gear(Input &in) const {
+        // Same gearbox encoding as src/app/controls.cpp.
+        constexpr uint8_t codes[] = {0, 2, 1, 6, 5};
+        in.in1 = uint8_t((in.in1 & ~0x70) | (codes[gear_] << 4));
+    }
+    Layout layout_;
+    Bindings bindings_;
+    uint32_t held_ = 0;
+    int gear_ = 1, steer_curve_ = 0;
+    float steer_rate_ = 0.f; // steer_rate_for_ms: r at the wheel's centre (0 off)
+    float deadzone_ = 0.12f, steer_ = 0.f; // steer_: the smoothed wheel
+    bool steer_invert_ = false, coin_used_ = false, steering_ = false, pedals_ = false, joystick_ = false;
+    uint16_t gun_x_min_ = 0, gun_x_max_ = 0, gun_y_min_ = 0, gun_y_max_ = 0, aim_x_ = 0, aim_y_ = 0;
+};
+
+// Host time only; each simulation step still advances at GameLoop::kFrameHz.
+class FrameClock {
+public:
+    explicit FrameClock(double hz, int max_steps = 4)
+        : step_(1.0 / hz), max_steps_(std::clamp(max_steps, 1, 4)) {}
+    int advance(double seconds) {
+        if (!std::isfinite(seconds) || seconds < 0) { reset(); return 0; }
+        pending_ = std::min(pending_ + seconds, step_ * 4);
+        int count = 0;
+        while (pending_ >= step_ && count < max_steps_) { pending_ -= step_; ++count; }
+        // Under load, present each completed frame instead of computing up to
+        // four complete rasters and displaying only the last. Discard overdue
+        // host-time debt, not guest instructions; preserve fractional time so
+        // 57.524 Hz on a 60 Hz display does not accidentally become 30 Hz.
+        if (pending_ >= step_) pending_ = std::fmod(pending_, step_);
+        return count;
+    }
+    void reset() { pending_ = 0; }
+private:
+    double step_, pending_ = 0;
+    int max_steps_;
+};
+} // namespace vita

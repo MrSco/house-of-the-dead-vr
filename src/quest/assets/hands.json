@@ -1,0 +1,20 @@
+{
+  "model": "Free FPS-Hand's",
+  "author": "Askasknot",
+  "license": "CC BY 4.0",
+  "url": "https://sketchfab.com/3d-models/free-fps-hands-2111009606fa4a07b355413ffa3c74f9",
+  "changes": "forearms cut behind the wrist, outline shell removed, posed on the gun grip, textures packed",
+  "format": "TCHAND01 (tools/vr/hands_import.py)",
+  "hands": [
+    "left",
+    "right"
+  ],
+  "vertices": [
+    1154,
+    1154
+  ],
+  "triangles": [
+    1759,
+    1761
+  ]
+}

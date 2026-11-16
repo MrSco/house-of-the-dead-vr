@@ -1,0 +1,8 @@
+crash: signal 6 code -1 addr 0x55e1 thread 22050
+  build-id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  pc libc.so+0x5d2a8 (abort)
+  lr libc.so+0x5d1f0 (abort)
+  at libhotdvr.so+0x1203f0 (host_fatal)
+  at libhotdvr.so+0x2a1100 (sub_4a2b10)
+  at libhotdvr.so+0x2a1100 (sub_4a2b10)
+  at 0x0

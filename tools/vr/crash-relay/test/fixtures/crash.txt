@@ -1,0 +1,9 @@
+crash: signal 11 code 1 addr 0x8 thread 22049
+  build-id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  pc libhotdvr.so+0x5a1f30 (qmenu_update)
+  lr libhotdvr.so+0x5a1e00 (qmenu_update)
+  at libhotdvr.so+0x58c2a4 (frame)
+  at libhotdvr.so+0x58f010 (android_main)
+  at libhotdvr.so+0x5b3c88 (?)
+  at libc.so+0x6a1b4 (__pthread_start(void*))
+  at libc.so+0x5f2c0 (__start_thread)

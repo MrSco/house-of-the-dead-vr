@@ -1,0 +1,82 @@
+// Scripted inputs for the headless tools (m2run, m2gpushot): scripts/inputs.
+#pragma once
+
+#include "runtime/board/game_loop.h"
+
+#include <cstdint>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace tools {
+
+// scripts/inputs format: "frames N", "<from>-<to> name=value" or "<at> name=value". "poke<hex address>=value"
+// writes that byte of the game's memory before each frame in the range (pokes(): e.g. poke51f290=3 keeps HOTD's
+// player 1 alive, to reach a scene far into a stage).
+struct Script {
+    struct Line {
+        uint64_t from, to;
+        std::string name;
+        unsigned value;
+    };
+    std::vector<Line> lines;
+    void load(const std::string &path) {
+        std::ifstream f(path);
+        if (!f) throw std::runtime_error("cannot open " + path);
+        std::string s;
+        while (std::getline(f, s)) {
+            if (s.empty() || s[0] == '#' || s.compare(0, 6, "frames") == 0) continue;
+            std::istringstream in(s);
+            std::string range, kv;
+            in >> range >> kv;
+            const auto dash = range.find('-'), eq = kv.find('=');
+            if (eq == std::string::npos) continue;
+            Line l;
+            l.from = std::stoull(range.substr(0, dash));
+            l.to = dash == std::string::npos ? l.from : std::stoull(range.substr(dash + 1));
+            l.name = kv.substr(0, eq);
+            l.value = unsigned(std::stoul(kv.substr(eq + 1), nullptr, 0));
+            lines.push_back(l);
+        }
+    }
+    template <class Board> void pokes(uint64_t frame, Board &board) const {
+        for (const Line &l : lines)
+            if (frame >= l.from && frame <= l.to && l.name.compare(0, 4, "poke") == 0)
+                board.write_byte(uint32_t(std::stoul(l.name.substr(4), nullptr, 16)), uint8_t(l.value));
+    }
+    rt::Inputs at(uint64_t frame) const {
+        rt::Inputs in;
+        static const struct {
+            const char *name;
+            int port; // 0: IN0, 1: IN1
+            uint8_t bit;
+        } buttons[] = {{"coin", 0, 0x01}, {"test", 0, 0x04}, {"service", 0, 0x08}, {"start", 0, 0x10}, {"vr1", 0, 0x20},
+                       {"vr2", 0, 0x40},  {"vr3", 0, 0x80},  {"vr4", 1, 0x01}};
+        static const uint8_t gearvalue[5] = {0, 2, 1, 6, 5}; // MAME daytona_gearbox_r
+        for (const Line &l : lines) {
+            if (frame < l.from || frame > l.to) continue;
+            if (l.name == "steer") in.steer = uint8_t(l.value);
+            else if (l.name == "accel") in.accel = uint8_t(l.value);
+            else if (l.name == "brake") in.brake = uint8_t(l.value);
+            else if (l.name == "handbrake") in.handbrake = uint8_t(l.value); // srallyc
+            else if (l.name == "gunx") in.gun_x = uint16_t(l.value);         // vcop: the light gun, in MAME's units
+            else if (l.name == "guny") in.gun_y = uint16_t(l.value);
+            else if (l.name == "trigger" && l.value) in.in1 &= uint8_t(~0x01);
+            else if (l.name == "gun2x") in.gun2_x = uint16_t(l.value);       // hotd: player 2's gun
+            else if (l.name == "gun2y") in.gun2_y = uint16_t(l.value);
+            else if (l.name == "trigger2" && l.value) in.in1 &= uint8_t(~0x02);
+            else if (l.name == "start2" && l.value) in.in0 &= uint8_t(~0x20); // (vr1's bit: Daytona's VR buttons)
+            else if (l.name.compare(0, 4, "gear") == 0 && l.value) {
+                const int g = l.name[4] - '0';
+                if (g >= 0 && g < 5) in.in1 = uint8_t((in.in1 & ~0x70) | (gearvalue[g] << 4));
+            } else
+                for (const auto &b : buttons)
+                    if (l.name == b.name && l.value) (b.port ? in.in1 : in.in0) &= uint8_t(~b.bit); // active low
+        }
+        return in;
+    }
+};
+
+} // namespace tools

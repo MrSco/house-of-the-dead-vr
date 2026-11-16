@@ -1,0 +1,21 @@
+// The crash relay (README.md). Deploy: npx wrangler deploy; secrets: npx wrangler secret put GITHUB_TOKEN (and
+// optionally REPORT_KEY).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hotd-crash-relay",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "vars": {
+    // the private repository the crash issues go to
+    "GITHUB_REPO": "MrSco/house-of-the-dead-recomp-vr",
+    // new crash issues (new signatures) accepted per 24 hours; occurrences of known crashes are always counted
+    "NEW_ISSUES_PER_DAY": "20"
+  },
+  // per-address and overall limits (period: 10 or 60 seconds). A headset sends at most 5 reports per start.
+  "ratelimits": [
+    { "name": "LIMITER", "namespace_id": "4711", "simple": { "limit": 6, "period": 60 } },
+    { "name": "GLOBAL_LIMITER", "namespace_id": "4712", "simple": { "limit": 30, "period": 60 } }
+  ]
+}

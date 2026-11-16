@@ -1,0 +1,9 @@
+{
+  "model": "The House of the Dead light gun",
+  "source": "hotd-lightgun.glb: made by the project from a photo of the real Sega gun with an image-to-3D tool",
+  "trigger": "from \"The House of the Dead Arcade cabinet\" by Seraphim Sarov (Songti), CC-BY-4.0: https://sketchfab.com/3d-models/the-house-of-the-dead-arcade-cabinet-e03d6a5f5efd49d19cfb7d95a27ad363",
+  "made_by": "tools/cabinet/gun_build.py (Blender 5.2)",
+  "format": "TCGUN002",
+  "changes": "the red (player 1) gun: the hammer moved onto the slide, a slot with stray slivers behind the cylinder plugged, the pieces welded, cut to 150,000 triangles shaded with the original surface's normals, colours from its texture, the cabinet gun's trigger fitted into the empty guard as part 1, 26 cm long, placed so the hands hold its grip",
+  "asset_sha256": "74b699751c3baa196ff6ba45d5f11b6742543d963e72a9ac2637206fae32f2e5"
+}
