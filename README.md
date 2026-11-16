@@ -49,12 +49,6 @@ Captured on a Quest 3. Hold the gun hand's thumbstick click to switch between th
   to talk.
 - **Made for the headset.** In-VR menus for the guns, hands, view, comfort, graphics and sound. Settings are saved.
 
-<p align="center"><img src="docs/images/world-all-round.jpg" alt="Ahead, left, right and behind from the fountain" width="100%"></p>
-<p align="center"><sub>Standing by the fountain: what the game sends now, all round you. On the arcade's screen only the
-view ahead existed.</sub></p>
-
-<p align="center"><img src="docs/images/guns.jpg" alt="The cabinet's light guns" width="80%"></p>
-
 ## How it works
 
 | Part of the arcade board | Here |
