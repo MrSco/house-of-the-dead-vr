@@ -61,6 +61,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--apk-only', action='store_true', help='build the APK, do not install it')
     ap.add_argument('--no-launch', action='store_true', help='install but do not start it')
+    ap.add_argument('--release', action='store_true', help='a release: refuse to build without the release key')
     a = ap.parse_args()
     os.chdir(ARCADE)                     # (quest_tools' paths are relative to the repository's root)
     tools = port.find_android()
@@ -95,7 +96,7 @@ def main():
               '-lz', '-lm', '-Wl,-u,ANativeActivity_onCreate', '-Wl,-soname,libhotdvr.so', '-Wl,-z,max-page-size=16384',
               '-Wl,--build-id=sha1', '-Wl,--no-undefined'], cwd=ARCADE)
     port.keep_symbols(so)
-    apk = port.package_apk(tools, out, so, xr_lib, PKG, LABEL)
+    apk = port.package_apk(tools, out, so, xr_lib, PKG, LABEL, release=a.release)
     if not a.apk_only:
         port.quest_deploy(tools, apk, PKG, not a.no_launch)
 

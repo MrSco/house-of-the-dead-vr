@@ -2915,6 +2915,10 @@ void android_main(struct android_app *app) {
     }
     LOGI("activity destroyed: exiting");
     online_quit();                          // the partner hears us go at once (else they wait out a timeout)
-    // the game thread cannot be stopped from outside; its saves are written as it goes
-    exit(0);
+    // The audio stream stops first: its callback thread would run on into what exit()'s destructors tear down (a
+    // crash on every quit, "pthread_mutex_lock called on a destroyed mutex"). Then _exit: no destructors at all, as
+    // the game thread cannot be stopped from outside and is still running; its saves are written as it goes.
+    quest_audio_shutdown();
+    fflush(NULL);
+    _exit(0);
 }

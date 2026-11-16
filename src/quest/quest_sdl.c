@@ -455,6 +455,12 @@ static void au_close(void) {
     AAudioStream_close(au.st);
     au.st = NULL;
 }
+// (before the process exits: its callback thread otherwise runs on into the C++ globals exit() destroys)
+void quest_audio_shutdown(void) {
+    au.dev_paused = 1;
+    au_close();
+    au.cb = NULL;
+}
 void quest_audio_service(void) {
     if (!au.reopen) return;
     au.reopen = 0;

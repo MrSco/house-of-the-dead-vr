@@ -4,6 +4,7 @@ libraries (fetched once into third_party/quest), compiling, packaging and signin
 crash reports' symbols.
 
     python scripts/quest_tools.py symbols      # upload the builds' symbols for crash reports (private repository)
+    python scripts/quest_tools.py release-key  # make the app's release key (once; outside the repository)
 
 Paths are relative to the repository's root (build_quest.py works there).
 """
@@ -207,21 +208,59 @@ def voice_jobs(sflags):
             + [(s, sxflags) for s in speex_src] + [(s, rflags) for s in rnn_src])
 
 
+# The release key: the app's own, kept outside the repository (never commit it). Every build signs with it once it
+# exists (python scripts/quest_tools.py release-key makes it), so a release and the builds installed over USB update
+# each other; without it, the debug key. Lose it and players must uninstall (losing their saves) to take the next
+# release: back up the folder. HOTD_RELEASE_KEY=<folder> puts it elsewhere.
+RELEASE_DIR = os.environ.get('HOTD_RELEASE_KEY', os.path.join(os.path.expanduser('~'), '.android', 'hotdvr-release'))
+RELEASE_PROPS = os.path.join(RELEASE_DIR, 'release.properties')
+
+
+def keytool_path(tools):
+    keytool = os.path.join(os.path.dirname(tools['java']), 'keytool' + ('.exe' if os.name == 'nt' else ''))
+    if not os.path.exists(keytool):
+        props = subprocess.run([tools['java'], '-XshowSettings:properties', '-version'], capture_output=True, text=True).stderr
+        home = next((l.split('=', 1)[1].strip() for l in props.splitlines() if l.strip().startswith('java.home')), '')
+        keytool = os.path.join(home, 'bin', os.path.basename(keytool))
+    return keytool
+
+
 def quest_keystore(tools):
     """The usual Android debug key (~/.android/debug.keystore), made in build_quest/ if this machine has none."""
     ks = os.path.join(os.path.expanduser('~'), '.android', 'debug.keystore')
     if os.path.exists(ks): return ks
     ks = os.path.join(ROOT, 'build_quest', 'debug.keystore')
     if not os.path.exists(ks):
-        keytool = os.path.join(os.path.dirname(tools['java']), 'keytool' + ('.exe' if os.name == 'nt' else ''))
-        if not os.path.exists(keytool):
-            props = subprocess.run([tools['java'], '-XshowSettings:properties', '-version'], capture_output=True, text=True).stderr
-            home = next((l.split('=', 1)[1].strip() for l in props.splitlines() if l.strip().startswith('java.home')), '')
-            keytool = os.path.join(home, 'bin', os.path.basename(keytool))
-        run([keytool, '-genkeypair', '-keystore', ks, '-storepass', 'android', '-keypass', 'android',
+        run([keytool_path(tools), '-genkeypair', '-keystore', ks, '-storepass', 'android', '-keypass', 'android',
              '-alias', 'androiddebugkey', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000',
              '-dname', 'CN=Android Debug,O=Android,C=US'])
     return ks
+
+
+def release_key():
+    """The release key's keystore, alias and password (release.properties), or None."""
+    if not os.path.exists(RELEASE_PROPS): return None
+    p = dict(l.strip().split('=', 1) for l in open(RELEASE_PROPS, encoding='utf-8') if '=' in l and not l.startswith('#'))
+    ks = p.get('storeFile', '')
+    if not os.path.isabs(ks): ks = os.path.join(RELEASE_DIR, ks)
+    if not os.path.exists(ks): sys.exit('%s names %s, which is missing' % (RELEASE_PROPS, ks))
+    return ks, p.get('keyAlias', 'hotdvr'), p['storePassword']
+
+
+def make_release_key():
+    """python scripts/quest_tools.py release-key: the app's release key (once), with a random password."""
+    import secrets
+    if os.path.exists(RELEASE_PROPS): return log('the release key is there already: %s' % RELEASE_DIR)
+    tools = find_android()
+    os.makedirs(RELEASE_DIR, exist_ok=True)
+    ks, pw = os.path.join(RELEASE_DIR, 'hotdvr-release.jks'), secrets.token_urlsafe(24)
+    run([keytool_path(tools), '-genkeypair', '-keystore', ks, '-storetype', 'PKCS12', '-storepass:env', 'HOTD_KS_PASS',
+         '-keypass:env', 'HOTD_KS_PASS', '-alias', 'hotdvr', '-keyalg', 'RSA', '-keysize', '4096', '-validity', '36500',
+         '-dname', 'CN=House of the Dead VR'], env=dict(os.environ, HOTD_KS_PASS=pw))
+    with open(RELEASE_PROPS, 'w', encoding='utf-8') as f:
+        f.write('# The House of the Dead VR release key (scripts/quest_tools.py). Back this folder up; never commit it.\n'
+                'storeFile=hotdvr-release.jks\nkeyAlias=hotdvr\nstorePassword=%s\n' % pw)
+    log('release key: %s (back this folder up)' % RELEASE_DIR)
 
 
 def quest_dex(tools, out):
@@ -241,7 +280,7 @@ def quest_dex(tools, out):
     return dex
 
 
-def package_apk(tools, out, so, xr_lib, pkg, label):
+def package_apk(tools, out, so, xr_lib, pkg, label, release=False):
     man = os.path.join(out, 'AndroidManifest.xml')
     text = open(os.path.join(ROOT, 'src', 'quest', 'AndroidManifest.xml'), encoding='utf-8').read()
     open(man, 'w', encoding='utf-8').write(text.replace('@PACKAGE@', pkg).replace('@LABEL@', label))
@@ -262,9 +301,17 @@ def package_apk(tools, out, so, xr_lib, pkg, label):
             if not n.endswith('.json'): z.write(os.path.join(adir, n), 'assets/' + n)
     run([tools['zipalign'], '-p', '-f', '4', unaligned, aligned])
     apk = os.path.join(out, pkg.rsplit('.', 1)[-1] + '.apk')
-    run([tools['java'], '-jar', tools['apksigner'], 'sign', '--ks', quest_keystore(tools), '--ks-pass', 'pass:android',
-         '--key-pass', 'pass:android', '--ks-key-alias', 'androiddebugkey', '--out', apk, aligned])
-    log('APK: %s (%.1f MB)' % (apk, os.path.getsize(apk) / 1e6))
+    key = release_key()
+    if release and not key: sys.exit('no release key (%s): python scripts/quest_tools.py release-key' % RELEASE_PROPS)
+    if key:
+        ks, alias, pw = key
+        run([tools['java'], '-jar', tools['apksigner'], 'sign', '--ks', ks, '--ks-pass', 'env:HOTD_KS_PASS',
+             '--key-pass', 'env:HOTD_KS_PASS', '--ks-key-alias', alias, '--out', apk, aligned],
+            env=dict(os.environ, HOTD_KS_PASS=pw))
+    else:
+        run([tools['java'], '-jar', tools['apksigner'], 'sign', '--ks', quest_keystore(tools), '--ks-pass', 'pass:android',
+             '--key-pass', 'pass:android', '--ks-key-alias', 'androiddebugkey', '--out', apk, aligned])
+    log('APK: %s (%.1f MB, %s key)' % (apk, os.path.getsize(apk) / 1e6, 'release' if key else 'debug'))
     return apk
 
 
@@ -367,4 +414,5 @@ def quest_deploy(tools, apk, pkg, launch=True):
 
 if __name__ == '__main__':
     if sys.argv[1:] == ['symbols']: quest_symbols()
+    elif sys.argv[1:] == ['release-key']: make_release_key()
     else: sys.exit(__doc__)
