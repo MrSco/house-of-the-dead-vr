@@ -161,9 +161,17 @@ def cached(build, key):
     return None
 
 
+def shown(path):
+    """path for a message: relative to the repository, or as it is when it is on another drive (Windows)."""
+    try:
+        return os.path.relpath(path, ROOT)
+    except ValueError:
+        return path
+
+
 def configure_and_build(build, romset=None):
     romset = romset or catalogue().main_set(catalogue().DEFAULT)
-    say(f"Configuring and building ({romset}, in {os.path.relpath(build, ROOT)})")
+    say(f"Configuring and building ({romset}, in {shown(build)})")
     gen_root = os.path.join(ROOT, catalogue().gen_root(romset))  # the set's recompiled code (scripts/games.py)
     game = catalogue().game_of(romset)  # the desktop executable's name
     cmd = ["cmake", "-S", ".", "-B", build, "-DCMAKE_BUILD_TYPE=Release", "-DM2_ROMSET=" + romset, "-DM2_GAME=" + game,
@@ -291,7 +299,7 @@ def main():
     run(["ctest", "--test-dir", build, "-C", "Release", "--output-on-failure"], check=False)
     say("Done")
     for label, exe in built:
-        print(f"\n{label} is built. Start it with:\n\n    " + os.path.relpath(exe, ROOT))
+        print(f"\n{label} is built. Start it with:\n\n    " + shown(exe))
     if built:
         print()
 
