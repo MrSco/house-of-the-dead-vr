@@ -9,7 +9,7 @@
   "observability": { "enabled": true },
   "vars": {
     // the private repository the crash issues go to
-    "GITHUB_REPO": "MrSco/house-of-the-dead-recomp-vr",
+    "GITHUB_REPO": "MrSco/house-of-the-dead-vr-crashes",
     // new crash issues (new signatures) accepted per 24 hours; occurrences of known crashes are always counted
     "NEW_ISSUES_PER_DAY": "20"
   },

@@ -20,7 +20,7 @@ QUEST_API = 29          # the APK's minimum (Quest 2 and later run Android 10+)
 # Crash reports (src/quest/quest_report.c, tools/vr/crash-relay): the private repository whose issues they land in, and
 # the release there that holds each build's unstripped libhotdvr.so, named by its GNU build id. The library holds the
 # recompiled game, so it only ever goes to that private repository.
-CRASH_REPO = os.environ.get('HOTD_CRASH_REPO', 'MrSco/house-of-the-dead-recomp-vr')
+CRASH_REPO = os.environ.get('HOTD_CRASH_REPO', 'MrSco/house-of-the-dead-vr-crashes')
 SYMBOLS_TAG = 'crash-symbols'
 SYMBOLS_KEEP = 30       # builds kept in build_quest/symbols
 

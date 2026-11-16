@@ -40,9 +40,9 @@ headset ──(next start after a crash)──> crash relay (Cloudflare Worker) 
 ## One-time setup
 
 1. **The label** (once):
-   `gh label create crash --repo MrSco/house-of-the-dead-recomp-vr --color B60205 --description "Automatic crash report"`
+   `gh label create crash --repo MrSco/house-of-the-dead-vr-crashes --color B60205 --description "Automatic crash report"`
 2. **A GitHub token for the relay**: github.com > Settings > Developer settings > Fine-grained tokens > Generate:
-   resource owner MrSco, *Only select repositories*: `house-of-the-dead-recomp-vr`, permissions: *Issues: Read and
+   resource owner MrSco, *Only select repositories*: `house-of-the-dead-vr-crashes`, permissions: *Issues: Read and
    write* (Metadata: read is added by itself), an expiry you will remember to renew.
 3. **Deploy the Worker** (a free Cloudflare account is enough):
    ```
@@ -60,10 +60,12 @@ headset ──(next start after a crash)──> crash relay (Cloudflare Worker) 
 5. **Symbols**: after each Quest build you install, `python scripts/quest_tools.py symbols` (needs `gh auth login`). It
    creates the release `crash-symbols` the first time. Reports from builds without uploaded symbols are still
    analysed, from the dynamic symbol names only.
-6. **Triage**: add the repository secret `ANTHROPIC_API_KEY`
-   (`gh secret set ANTHROPIC_API_KEY --repo MrSco/house-of-the-dead-recomp-vr`) and push
-   `.github/workflows/crash-triage.yml` to the default branch (issue workflows only run from there). Workflows must
-   be allowed in the repository's Actions settings.
+6. **Triage**: the reports and the symbols live in the private `MrSco/house-of-the-dead-vr-crashes`, the code in the
+   public `MrSco/house-of-the-dead-vr`; the workflow runs in the private one (where the issues are) and checks the
+   public one out to read the code. Add the secret `ANTHROPIC_API_KEY`
+   (`gh secret set ANTHROPIC_API_KEY --repo MrSco/house-of-the-dead-vr-crashes`) and keep a copy of
+   `.github/workflows/crash-triage.yml` on that repository's default branch (issue workflows only run from there).
+   Workflows must be allowed in its Actions settings.
 7. **Try it**: `QUEST_CRASH_TEST=20` in the headset's `env.txt` crashes the app on purpose 20 s after it starts; start
    it again and the report goes out (`crash-reports/last-result.txt`, then the issue). Remove the line afterwards.
 

@@ -9,7 +9,7 @@ This isn't an emulator. The arcade board's programs were **statically recompiled
 for the headset, and the board's graphics and sound hardware were rebuilt in C++ and GPU shaders. The game logic, the
 enemies and the rail camera are the arcade's own code, running at the arcade's exact 57.52 frames a second.
 
-**This repository contains no game code or data, and neither does the app.** You load your own MAME ROM set of the
+**This repository contains no game code or data.** You load your own MAME ROM set of the
 arcade game (`hotd`, Revision A) in the headset the first time the app starts.
 
 <p align="center">
