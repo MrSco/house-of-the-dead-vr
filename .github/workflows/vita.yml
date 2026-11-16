@@ -14,6 +14,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      # (SDL 3's configure needs the desktop's development packages: setup.sh's list for Ubuntu)
+      - name: SDL 3's build packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev             libxfixes-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libdrm-dev libgbm-dev libegl-dev             libwayland-dev libdecor-0-dev libudev-dev libdbus-1-dev
       - name: Fetch the pinned dependencies of the root build
         run: python3 scripts/setup.py --no-build
       - name: Vita host tests (platform/vita code against host mocks)
@@ -44,6 +49,7 @@ jobs:
           os.makedirs(setup.EXTERN, exist_ok=True)
           setup.fetch(*setup.SOFTFLOAT, "softfloat")
           setup.fetch(*setup.YMFM, "ymfm")
+          setup.fetch(*setup.IMGUI, "imgui")   # (the Vita frontend's menu)
           PY
       - name: Compile the ARM runtime and Vita frontend without ROM data
         run: python3 scripts/build_vita.py --compile-check --jobs 2
