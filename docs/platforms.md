@@ -1,6 +1,6 @@
 # The House of the Dead VR on every platform
 
-Plan only (2026-11-16); no code changes yet. It follows GoldenEye VR's platform work
+Plan (2026-11-16); P0 under way on the `multi-platform` branch (see "Progress"). It follows GoldenEye VR's platform work
 (goldeneye-vr `docs/pc-platforms.md`, `docs/mobile-platforms.md`): one codebase, one CMake platform switch, a "no
 headset" flat shell beside the VR one, and online play at parity across all of them.
 
@@ -124,6 +124,34 @@ Linux is out of scope.
 | P5 | **Vision Pro**: a spike first (Compositor Services, hands, one eye pass each), then the port | Plays online with the others |
 
 Each phase ends with the crossplay check against every platform already done, and the determinism replay.
+
+## Progress
+
+**P0, done so far (2026-11-16):**
+- `src/core` holds the shared code, moved from `src/quest`: the bridge (`arcade.cpp`, was `arcade_quest.cpp`),
+  `arcade_net`, `m2_gl.c`, the menu, canvas and options, the voice DSP, and the headers between the game thread and
+  a shell (`quest.h`, `m2_vr.h`, `d3d_vr.h`). `netplay.h` moved to `src/net` beside `online.c`. File and function
+  names keep their `quest_` prefixes for now; renaming them is a mechanical pass for later.
+- `src/platform/platform.h` is the OS seam: log, monotonic clock, sleep-until, files, a helper thread's priority.
+  `posix.c` (Android, later Apple) and `android/log.c` implement it; `gl.h` picks the GL ES 3.0 header.
+  `src/core` no longer includes any Android header.
+- The Quest APK builds from the new layout; its library has 0.3.0's symbols plus the `plat_*` ones.
+- `m2nettest` runs with the VR scenery hook on, as the apps do. **`scripts/crossplay_check.py`** records a host run
+  on each of the PC (x64, MSVC `/fp:strict`) and the Quest (arm64, NDK clang) and replays it on the other:
+  30 of 30 checksums matched both ways over 1,800 frames.
+
+**P0, left:**
+- On the headset: play a stage and an online game with this build (the desk check was blocked by a Guardian dialog).
+- The SDL2 shim (`src/quest/quest_sdl.c`) splits in two: the game-facing half (event queue, the software canvas,
+  the frame handoff, pause) into `src/core`, and the OS half (AAudio output, pthreads, timers) behind
+  `platform.h`. It is done with P1's Windows shell, which it serves, so the desktop target that links the core is
+  P1's first step. Because the shim defines SDL's own symbols, a flat shell cannot also link the real SDL2: the
+  Windows shell uses GLFW for its window, GL context and input, and its own audio backend (WASAPI) under
+  `platform.h`.
+- `src/xr`: the OpenXR shell (`quest_xr.c`, guns, hands, cabinet room) leaves `src/quest` when Steam Frame (P2)
+  or PCVR (P4) needs it; until then `src/quest` is the Android VR shell, with the voice capture, the crash reports
+  and the Java activities.
+- Run the crossplay check with clang-cl too (CI's compiler); it was not installed on the dev PC for this run.
 
 ## Risks
 
