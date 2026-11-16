@@ -15,17 +15,35 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "hotdvr", __VA_ARGS__)
 
 typedef struct { float pos[3], normal[3], uv[2], color[3], part; } GunVertex;
-static struct {
+// two models (qgun_use): yours, and your partner's online (the other colour, or the pistol)
+static struct GunModel {
     GLuint vao, vbo, ibo, tex, prog, flash_prog, flash_vao, flash_vbo;
     GLuint cap_vao, cap_vbo, cap_ibo; GLsizei cap_count; float cap_top[3];   // the grip's base plate (qgun_draw_cap)
+    GLuint whole_vao, whole_vbo, whole_ibo; GLsizei whole_count;   // the gun before the cut (qgun_draw's whole)
     GLsizei count;
     float muzzle[3];
     float grip[3];                       // the grip's base (qgun_grip_base)
     float butt[3];                       // its lowest point (qgun_butt): the grip's base before a cut
     int articulated;
+    float fit_s, fit_d[3];               // the fit (qgun_fit): gun space -> the hand's, scaled then moved
     GLint u_view, u_proj, u_model, u_recoil, u_trigger, u_tint, u_albedo;
     GLint f_view, f_proj, f_model, f_tip, f_size, f_strength;
-} G;
+} GMS[2];
+static struct GunModel *GP = &GMS[0];
+#define G (*GP)
+void qgun_use(int slot) { GP = &GMS[slot ? 1 : 0]; }
+void qgun_fit(float scale, float dx, float dy, float dz) {
+    G.fit_s = scale > 0.1f ? scale : 1; G.fit_d[0] = dx; G.fit_d[1] = dy; G.fit_d[2] = dz;
+}
+static float fit_s(void) { return G.fit_s > 0 ? G.fit_s : 1; }
+static void fit_point(const float *p, float *o) { for (int i = 0; i < 3; i++) o[i] = fit_s() * p[i] + G.fit_d[i]; }
+// model * the fit
+static void fit_model(float *o, const float *model) {
+    const float s = fit_s(), f[16] = { s, 0, 0, 0,  0, s, 0, 0,  0, 0, s, 0,  G.fit_d[0], G.fit_d[1], G.fit_d[2], 1 };
+    for (int col = 0; col < 4; col++)
+        for (int row = 0; row < 4; row++)
+            o[col * 4 + row] = model[row] * f[col * 4] + model[4 + row] * f[col * 4 + 1] + model[8 + row] * f[col * 4 + 2] + model[12 + row] * f[col * 4 + 3];
+}
 
 static GLuint compile(GLenum type, const char *src) {
     GLuint s = glCreateShader(type);
@@ -81,6 +99,16 @@ static const char *FS_FLASH =
     "#version 300 es\nprecision highp float;\n"
     "in float glow; uniform float strength; out vec4 frag;\n"
     "void main() { float a = glow * strength; frag = vec4(vec3(1.0, 0.62 + 0.28 * glow, 0.12 + 0.60 * glow) * a, a); }\n";
+
+// the vertex layout of a GunVertex buffer, for the bound VAO
+static void gun_attribs(void) {
+    for (int i = 0; i < 3; i++) {
+        glEnableVertexAttribArray(i);
+        glVertexAttribPointer(i, i == 2 ? 2 : 3, GL_FLOAT, GL_FALSE, sizeof(GunVertex), (void *)(size_t)(i == 0 ? 0 : i == 1 ? 12 : 24));
+    }
+    glEnableVertexAttribArray(3); glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(GunVertex), (void *)32);
+    glEnableVertexAttribArray(4); glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(GunVertex), (void *)44);
+}
 
 static float srgb_to_linear(float c) { return c <= .04045f ? c / 12.92f : powf((c + .055f) / 1.055f, 2.4f); }
 
@@ -139,6 +167,12 @@ int qgun_load(struct AAssetManager *am, const char *name) {
             glDeleteBuffers(2, cb);
             G.cap_vao = G.cap_vbo = G.cap_ibo = 0; G.cap_count = 0;
         }
+        if (G.whole_vao) {
+            glDeleteVertexArrays(1, &G.whole_vao);
+            GLuint wb[2] = { G.whole_vbo, G.whole_ibo };
+            glDeleteBuffers(2, wb);
+            G.whole_vao = G.whole_vbo = G.whole_ibo = 0; G.whole_count = 0;
+        }
         glDeleteVertexArrays(1, &G.vao); glDeleteVertexArrays(1, &G.flash_vao);
         GLuint b[3] = { G.vbo, G.ibo, G.flash_vbo };
         glDeleteBuffers(3, b);
@@ -175,12 +209,7 @@ int qgun_load(struct AAssetManager *am, const char *name) {
     glGenBuffers(1, &G.ibo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, G.ibo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)n[1] * 4, idx, GL_STATIC_DRAW);
-    for (int i = 0; i < 3; i++) {
-        glEnableVertexAttribArray(i);
-        glVertexAttribPointer(i, i == 2 ? 2 : 3, GL_FLOAT, GL_FALSE, sizeof(GunVertex), (void *)(size_t)(i == 0 ? 0 : i == 1 ? 12 : 24));
-    }
-    glEnableVertexAttribArray(3); glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(GunVertex), (void *)32);
-    glEnableVertexAttribArray(4); glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(GunVertex), (void *)44);
+    gun_attribs();
 
     // the grip's base plate (TCGUN002 guns with no slide: the cabinet's): the triangles of the grip's lowest
     // QGUN_CAP_H, dark, yellow along their top, as their own copy
@@ -298,10 +327,18 @@ int qgun_load(struct AAssetManager *am, const char *name) {
                         n[0] += nh + 1;
                     }
                 }
+                // the buffers as loaded stay, as the whole gun (no magazine reload: the grip as the cabinet's gun
+                // has it); the cut gun gets its own
+                G.whole_vao = G.vao; G.whole_vbo = G.vbo; G.whole_ibo = G.ibo; G.whole_count = (GLsizei)n[1];
+                glGenVertexArrays(1, &G.vao);
+                glBindVertexArray(G.vao);
+                glGenBuffers(1, &G.vbo);
                 glBindBuffer(GL_ARRAY_BUFFER, G.vbo);
                 glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)n[0] * sizeof *v, v, GL_STATIC_DRAW);
+                glGenBuffers(1, &G.ibo);
                 glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, G.ibo);
                 glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)kept * 4, idx, GL_STATIC_DRAW);
+                gun_attribs();
                 n[1] = kept;
                 G.butt[0] = G.grip[0]; G.butt[1] = G.grip[1]; G.butt[2] = G.grip[2];
                 G.grip[0] = G.cap_top[0]; G.grip[1] = top; G.grip[2] = G.cap_top[2];   // magazines go in at the cut
@@ -313,12 +350,7 @@ int qgun_load(struct AAssetManager *am, const char *name) {
                 glGenBuffers(1, &G.cap_ibo);
                 glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, G.cap_ibo);
                 glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)nci * 4, ci, GL_STATIC_DRAW);
-                for (int i = 0; i < 3; i++) {
-                    glEnableVertexAttribArray(i);
-                    glVertexAttribPointer(i, i == 2 ? 2 : 3, GL_FLOAT, GL_FALSE, sizeof(GunVertex), (void *)(size_t)(i == 0 ? 0 : i == 1 ? 12 : 24));
-                }
-                glEnableVertexAttribArray(3); glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(GunVertex), (void *)32);
-                glEnableVertexAttribArray(4); glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(GunVertex), (void *)44);
+                gun_attribs();
                 glBindVertexArray(0);
                 G.cap_count = (GLsizei)nci;
                 LOGI("gun: the grip's base plate, %u triangles", nci / 3);
@@ -361,12 +393,12 @@ done:
     return ok;
 }
 
-float qgun_muzzle_z(void) { return G.count ? -G.muzzle[2] : 0.0f; }
-float qgun_muzzle_y(void) { return G.count ? G.muzzle[1] : 0.0f; }
+float qgun_muzzle_z(void) { float m[3]; fit_point(G.muzzle, m); return G.count ? -m[2] : 0.0f; }
+float qgun_muzzle_y(void) { float m[3]; fit_point(G.muzzle, m); return G.count ? m[1] : 0.0f; }
 int qgun_has_slide(void) { return G.count && G.articulated; }
 int qgun_cap_top(float out[3]) {
     if (!G.count || !G.cap_count) return 0;
-    out[0] = G.cap_top[0]; out[1] = G.cap_top[1]; out[2] = G.cap_top[2];
+    fit_point(G.cap_top, out);
     return 1;
 }
 void qgun_draw_cap(const float *view, const float *proj, const float *model) {
@@ -379,7 +411,9 @@ void qgun_draw_cap(const float *view, const float *proj, const float *model) {
     glUseProgram(G.prog);
     glUniformMatrix4fv(G.u_view, 1, GL_FALSE, view);
     glUniformMatrix4fv(G.u_proj, 1, GL_FALSE, proj);
-    glUniformMatrix4fv(G.u_model, 1, GL_FALSE, model);
+    float fm[16];
+    fit_model(fm, model);
+    glUniformMatrix4fv(G.u_model, 1, GL_FALSE, fm);
     glUniform1f(G.u_recoil, 0);
     glUniform1f(G.u_trigger, 0);
     glUniform3f(G.u_tint, 1, 1, 1);
@@ -391,20 +425,21 @@ void qgun_draw_cap(const float *view, const float *proj, const float *model) {
     glBindVertexArray(0);
 }
 void qgun_butt(float out[3]) {
-    if (G.count && G.cap_count) { out[0] = G.butt[0]; out[1] = G.butt[1]; out[2] = G.butt[2]; return; }
+    if (G.count && G.cap_count) { fit_point(G.butt, out); return; }
     qgun_grip_base(out);
 }
 void qgun_grip_base(float out[3]) {
     static const float fallback[3] = { 0, -0.11f, 0.11f };   // the boxes drawn without a model
-    const float *g = G.count && (G.grip[1] || G.grip[2]) ? G.grip : fallback;
-    out[0] = g[0]; out[1] = g[1]; out[2] = g[2];
+    if (G.count && (G.grip[1] || G.grip[2])) { fit_point(G.grip, out); return; }
+    out[0] = fallback[0]; out[1] = fallback[1]; out[2] = fallback[2];
 }
 
-void qgun_draw(const float *view, const float *proj, const float *model, float recoil, float trigger, float flash, const float *tint) {
+void qgun_draw(const float *view, const float *proj, const float *model, float recoil, float trigger, float flash, const float *tint,
+               int whole) {
     if (!G.count) return;
     float kick = fminf(1, fmaxf(0, recoil));
     float m[16];
-    memcpy(m, model, sizeof m);
+    fit_model(m, model);
     if (!G.articulated) {     // no moving slide: the whole gun kicks back and up a little
         float c = cosf(.09f * kick), s = sinf(.09f * kick), r[16] = { 1, 0, 0, 0,  0, c, s, 0,  0, -s, c, 0,  0, 0, .014f * kick, 1 }, o[16];
         for (int col = 0; col < 4; col++)
@@ -427,8 +462,8 @@ void qgun_draw(const float *view, const float *proj, const float *model, float r
     glUniform1i(G.u_albedo, 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, G.tex);
-    glBindVertexArray(G.vao);
-    glDrawElements(GL_TRIANGLES, G.count, GL_UNSIGNED_INT, 0);
+    if (whole && G.whole_vao) { glBindVertexArray(G.whole_vao); glDrawElements(GL_TRIANGLES, G.whole_count, GL_UNSIGNED_INT, 0); }
+    else { glBindVertexArray(G.vao); glDrawElements(GL_TRIANGLES, G.count, GL_UNSIGNED_INT, 0); }
     if (flash > 0) {
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE);

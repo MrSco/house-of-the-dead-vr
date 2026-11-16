@@ -18,8 +18,10 @@
 // hand touched to the gun's grip, or aiming at the floor). Every reload is one short press of the game's reload, so
 // a grip held while playing never keeps the gun off the screen. A / X skip scenes (Space). The left menu button
 // opens the VR menu (quest_menu.c: settings, RECENTER, the game's own Esc menu, QUIT), which pauses the game. The gun
-// is in your right hand, your left, or both (the hand that fired last aims). Hand tracking works through the simple
-// controller profile (pinch fires).
+// is in your right hand, your left, or both (the hand that fired last aims). Hand tracking: the hand's aim ray aims,
+// an index pinch fires and clicks in the menu, the off hand's middle-finger pinch is A / X (coins, Start, skip), the left
+// palm's menu gesture opens the menu (XR_FB_hand_tracking_aim,
+// with the simple controller profile as well).
 //
 // Files: the app's external files dir (/sdcard/Android/data/<package>/files) holds game/ (your game folder), save/,
 // port.log, vr-options.cfg (the menu's settings) and env.txt (KEY=VALUE lines, the PORT_* switches of the other
@@ -168,8 +170,15 @@ static int is_gun(int h) {
 }
 // the hand without a gun (-1: a gun in each), and whether it reloads by magazine and slide
 static int free_hand(void) { int m = S.opt[QOPT_HAND]; return m == QHAND_BOTH ? -1 : m == QHAND_LEFT ? 1 : 0; }
-// the reload gesture that applies: Reload gesture's, or none in the cabinet view when Cabinet reload is OFF SCREEN
-static int gesture(void) { return S.cabinet && S.opt[QOPT_CAB_RELOAD] == QCABRELOAD_OFFSCREEN ? QGESTURE_OFF : S.opt[QOPT_GESTURE]; }
+// Your bare hands are playing (hand tracking; ht_update): no grips to squeeze, so you reload as on the cabinet, by
+// shooting off the screen, whatever the HANDS tab says (the settings stay: the controllers picked up, they apply again)
+static int using_hands;
+// the reload gesture that applies: Reload gesture's, or none in the cabinet view when Cabinet reload is OFF SCREEN,
+// or while your hands play
+static int gesture(void) {
+    if (using_hands) return QGESTURE_OFF;
+    return S.cabinet && S.opt[QOPT_CAB_RELOAD] == QCABRELOAD_OFFSCREEN ? QGESTURE_OFF : S.opt[QOPT_GESTURE];
+}
 static int mag_reload(void) { return gesture() == QGESTURE_MAGAZINE && free_hand() >= 0; }
 // how far back the slide is drawn by hand (0..1): held, or springing forward after
 static float slide_by_hand(void) {
@@ -350,7 +359,7 @@ static void relaunch(void) {
     jclass ic = (*env)->FindClass(env, "android/content/Intent"), ac = (*env)->GetObjectClass(env, a->clazz);
     jobject in = (*env)->NewObject(env, ic, (*env)->GetMethodID(env, ic, "<init>", "()V"));
     jstring pkg = (jstring)(*env)->CallObjectMethod(env, a->clazz, (*env)->GetMethodID(env, ac, "getPackageName", "()Ljava/lang/String;"));
-    jstring cls = (*env)->NewStringUTF(env, "org.hotdrecomp.vr.RestartActivity"), key = (*env)->NewStringUTF(env, "pid");
+    jstring cls = (*env)->NewStringUTF(env, "com.mrsco.hotdvr.RestartActivity"), key = (*env)->NewStringUTF(env, "pid");
     (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "setClassName", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;"), pkg, cls);
     (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "putExtra", "(Ljava/lang/String;I)Landroid/content/Intent;"), key, (jint)getpid());
     (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "addFlags", "(I)Landroid/content/Intent;"), (jint)0x10000000);   // NEW_TASK
@@ -381,7 +390,7 @@ static void start_import(void) {
     jclass ic = (*env)->FindClass(env, "android/content/Intent"), ac = (*env)->GetObjectClass(env, a->clazz);
     jobject in = (*env)->NewObject(env, ic, (*env)->GetMethodID(env, ic, "<init>", "()V"));
     jstring pkg = (jstring)(*env)->CallObjectMethod(env, a->clazz, (*env)->GetMethodID(env, ac, "getPackageName", "()Ljava/lang/String;"));
-    jstring cls = (*env)->NewStringUTF(env, "org.hotdrecomp.vr.ImportActivity"), key = (*env)->NewStringUTF(env, "pid");
+    jstring cls = (*env)->NewStringUTF(env, "com.mrsco.hotdvr.ImportActivity"), key = (*env)->NewStringUTF(env, "pid");
     (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "setClassName", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;"), pkg, cls);
     (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "putExtra", "(Ljava/lang/String;I)Landroid/content/Intent;"), key, (jint)getpid());
     (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "addFlags", "(I)Landroid/content/Intent;"), (jint)0x10000000);   // NEW_TASK
@@ -623,6 +632,9 @@ static int cabinet_room(void) {
     return r;
 }
 static int gun_cabinet;   // (load_gun: the cabinet's gun is in your hand)
+// The gun's tilt in your hand at Gun angle 0 (degrees, + raises the barrel): the angle that feels right held as a
+// pistol is (players set -15 on the old 0)
+#define GUN_PITCH_BASE (-15.0f)
 // from the muzzle o to the aim ray's point t ahead of the aim pose m: the direction (d) and the length
 static float muzzle_beam(const float *m, V3 o, float t, V3 *d) {
     V3 e = xform(m, 0, 0, -t);
@@ -865,16 +877,34 @@ static float lin(uint32_t c8) { float c = (float)(c8 & 255) / 255.0f; return pow
 
 // The gun model (Gun model): the arcade cabinet's own in the player's colour (player 1's red on the left, player 2's
 // blue on the right, as the operator's manual has it; the cabinet's model, CC-BY: arcade-gun.json), or the pistol. Again when the setting or your player (online) changes.
-static int gun_slot = -1, gun_kind = -1, gun_cabinet;   // gun_cabinet: the cabinet's gun is in your hand
+static int gun_slot = -1, gun_kind = -1, gun_size = -1, gun_cabinet;   // gun_cabinet: the cabinet's gun is in your hand
+// Each model's fit in the hand (qgun_fit, at Gun size 100%): the hands were posed on a grip; this brings each gun's
+// grip into the palm and its trigger in front of the trigger finger. QUEST_GUN_FIT=scale,dx,dy,dz (env.txt, metres)
+// overrides it, for fitting by eye.
+static const float gun_fits[2][4] = {
+    // the cabinet's gun at its own size (players liked it so; 82%, 5 mm left, 3 mm up, 2 mm ahead fits the hands'
+    // grip exactly, by previews of hands.tchand on arcade-gun.tcgun, but reads as a toy)
+    [QGUN_CABINET] = { 1.0f, 0.0f, 0.0f, 0.0f },
+    [QGUN_PISTOL] = { 1.0f, 0.0f, 0.0f, 0.0f },             // (the gun the hands were posed on)
+};
+static void gun_fit(int cabinet, int size_pct) {
+    float f[4];
+    memcpy(f, gun_fits[cabinet ? QGUN_CABINET : QGUN_PISTOL], sizeof f);
+    const char *e = getenv("QUEST_GUN_FIT");
+    if (e) sscanf(e, "%f,%f,%f,%f", &f[0], &f[1], &f[2], &f[3]);
+    qgun_fit(f[0] * size_pct / 100.0f, f[1], f[2], f[3]);
+}
 static void load_gun(void) {
     gun_slot = net_local;
     gun_kind = S.opt[QOPT_GUN_MODEL];
+    gun_size = S.opt[QOPT_GUN_SIZE];
     gun_cabinet = 0;
     if (gun_kind == QGUN_CABINET) {
         S.gun_model = qgun_load(S.app->activity->assetManager, net_local == 1 ? "arcade-gun-blue.tcgun" : "arcade-gun.tcgun");
-        if (S.gun_model) { gun_cabinet = 1; return; }
+        if (S.gun_model) gun_cabinet = 1;
     }
-    S.gun_model = qgun_load(S.app->activity->assetManager, "player-gun.tcgun");
+    if (!gun_cabinet) S.gun_model = qgun_load(S.app->activity->assetManager, "player-gun.tcgun");
+    gun_fit(gun_cabinet, gun_size);
 }
 static void game_gl_init(void) {
     m2_gl_init();
@@ -1353,6 +1383,153 @@ static void draw_rack_hint(const float *pv) {
 // The hands (quest_hand.c): on each gun, holding its grip, the trigger finger following the trigger; the free hand
 // closing with the grip and the trigger as your fingers do on the controller, round the magazine while it holds one,
 // round the slide while it racks, and lit while it is near enough to take the slide.
+// ---------------------------------------------------------------- online: your partner's guns and hands
+// Your guns and hands as drawn this frame (ME: draw_guns and draw_hands fill it) go to your partner (pose_send), in
+// the frame you stand in (stand_frame); theirs come back (pose_recv) and are drawn beside you in yours, player 1 on
+// the left and player 2 on the right as at the cabinet. Either view: each player's cabinet is their own, but the
+// guns and hands are where they are at it.
+#define PARTNER_SIDE 0.62f      // metres between the two players
+#define POSE_VER 1
+#define POSE_HAND 23            // a hand: flags, position (3 x int16, mm), turn (4 x int16), 5 curls, slide, trigger, flash
+#define POSE_LEN (2 + 2 * POSE_HAND)
+static struct {
+    int hand[2], gun[2];        // drawn this frame: the hand model; a gun
+    float m[2][16], curl[2][5], slide[2], trig[2], flash[2];
+} ME;
+static struct {
+    int on, loaded, gun_ok;     // drawing them; their gun model loaded (kind * 2 + slot, -1 none), and it loaded
+    int kind;                   // 1 the cabinet's gun, 0 the pistol
+    int hand[2], gun[2], seen[2];
+    float pos[2][3], q[2][4];   // smoothed (their stand frame)
+    float m[2][16], curl[2][5], slide[2], trig[2], flash[2];
+} PR = { .loaded = -1 };
+static int partner_slot(void) { return net_local == 1 ? 0 : 1; }
+static void rigid_inv(float *o, const float *m) {   // (o may be m)
+    float r[16] = { m[0], m[4], m[8], 0,  m[1], m[5], m[9], 0,  m[2], m[6], m[10], 0,  0, 0, 0, 1 };
+    r[12] = -(r[0] * m[12] + r[4] * m[13] + r[8] * m[14]);
+    r[13] = -(r[1] * m[12] + r[5] * m[13] + r[9] * m[14]);
+    r[14] = -(r[2] * m[12] + r[6] * m[13] + r[10] * m[14]);
+    memcpy(o, r, sizeof r);
+}
+static void mat_quat(const float *m, float *q) {   // a rigid matrix's turn (x, y, z, w)
+    const float tr = m[0] + m[5] + m[10];
+    if (tr > 0) { float s = sqrtf(tr + 1) * 2; q[3] = 0.25f * s; q[0] = (m[6] - m[9]) / s; q[1] = (m[8] - m[2]) / s; q[2] = (m[1] - m[4]) / s; }
+    else if (m[0] > m[5] && m[0] > m[10]) { float s = sqrtf(1 + m[0] - m[5] - m[10]) * 2; q[3] = (m[6] - m[9]) / s; q[0] = 0.25f * s; q[1] = (m[4] + m[1]) / s; q[2] = (m[8] + m[2]) / s; }
+    else if (m[5] > m[10]) { float s = sqrtf(1 + m[5] - m[0] - m[10]) * 2; q[3] = (m[8] - m[2]) / s; q[0] = (m[4] + m[1]) / s; q[1] = 0.25f * s; q[2] = (m[9] + m[6]) / s; }
+    else { float s = sqrtf(1 + m[10] - m[0] - m[5]) * 2; q[3] = (m[1] - m[4]) / s; q[0] = (m[8] + m[2]) / s; q[1] = (m[9] + m[6]) / s; q[2] = 0.25f * s; }
+}
+// The frame you stand in (world <- it): the floor where you stand, facing the screen. Immersive: under where you
+// recentered; the cabinet view: where the cabinet's default place has you, moved and turned as the cabinet is.
+static void stand_frame(float *m) {
+    const float floor_y = S.floor_y - S.home[13];
+    const float t[16] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, floor_y, 0, 1 };
+    if (!S.cabinet || !S.cab_model) { memcpy(m, t, sizeof t); return; }
+    float zf;   // the default placement (place_cabinet's with the options at 0, on a floor at 0), undone after cab_pl
+    const float z = cab_front_z(0, CAB_BASE_SIZE, &zf) - CAB_BASE_DIST, a = CAB_BASE_TURN * 3.14159265f / 180.0f;
+    const float c = cosf(a), sn = sinf(a);
+    const float d[16] = { c, 0, -sn, 0,  0, 1, 0, 0,  sn, 0, c, 0,  CAB_BASE_SIDE, CAB_BASE_HEIGHT, z, 1 };
+    float di[16];
+    rigid_inv(di, d);
+    mat_mul(m, cab_pl, di);
+}
+static void put16(uint8_t *p, float v) {
+    long k = lroundf(v);
+    if (k < -32767) k = -32767;
+    if (k > 32767) k = 32767;
+    p[0] = (uint8_t)k; p[1] = (uint8_t)((uint16_t)k >> 8);
+}
+static float get16(const uint8_t *p) { return (float)(int16_t)(p[0] | p[1] << 8); }
+static uint8_t unit8(float x) { return (uint8_t)(fminf(1, fmaxf(0, x)) * 255 + 0.5f); }
+static void pose_send(void) {
+    if (!online_session()) return;
+    float st[16], sti[16];
+    stand_frame(st);
+    rigid_inv(sti, st);
+    uint8_t b[POSE_LEN];
+    memset(b, 0, sizeof b);
+    b[0] = POSE_VER; b[1] = (uint8_t)(gun_cabinet ? 1 : 0);
+    for (int h = 0; h < 2; h++) {
+        uint8_t *o = b + 2 + h * POSE_HAND;
+        o[0] = (uint8_t)((ME.hand[h] ? 1 : 0) | (ME.gun[h] ? 2 : 0));
+        if (!o[0]) continue;
+        float r[16], q[4];
+        mat_mul(r, sti, ME.m[h]);
+        mat_quat(r, q);
+        for (int k = 0; k < 3; k++) put16(o + 1 + 2 * k, r[12 + k] * 1000);
+        for (int k = 0; k < 4; k++) put16(o + 7 + 2 * k, q[k] * 32767);
+        for (int k = 0; k < 5; k++) o[15 + k] = unit8(ME.curl[h][k]);
+        o[20] = unit8(ME.slide[h]); o[21] = unit8(ME.trig[h]); o[22] = unit8(ME.flash[h]);
+    }
+    online_pose_out(b, sizeof b);
+}
+static void pose_recv(float dt) {
+    uint8_t b[ONLINE_POSE_MAX];
+    uint32_t age = 0;
+    const int n = online_session() ? online_pose_in(b, &age) : 0;
+    PR.on = n >= POSE_LEN && b[0] == POSE_VER && age < 700;      // (silent that long: gone, or not in a game)
+    if (!PR.on) { PR.seen[0] = PR.seen[1] = 0; return; }
+    PR.kind = b[1] ? 1 : 0;
+    float st[16], base[16];
+    stand_frame(st);
+    const float off[16] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  partner_slot() == 1 ? PARTNER_SIDE : -PARTNER_SIDE, 0, 0, 1 };
+    mat_mul(base, st, off);
+    const float k = dt > 0 ? 1 - expf(-dt * 30) : 1;   // smoothed towards each datagram's (they come at ~60 Hz)
+    for (int h = 0; h < 2; h++) {
+        const uint8_t *o = b + 2 + h * POSE_HAND;
+        PR.hand[h] = o[0] & 1; PR.gun[h] = (o[0] & 2) != 0;
+        if (!(o[0] & 3)) { PR.seen[h] = 0; continue; }
+        float p[3], q[4], l = 0;
+        for (int j = 0; j < 3; j++) p[j] = get16(o + 1 + 2 * j) / 1000;
+        for (int j = 0; j < 4; j++) { q[j] = get16(o + 7 + 2 * j) / 32767; l += q[j] * q[j]; }
+        if (l < 1e-6f) { PR.seen[h] = 0; continue; }
+        const float dx = p[0] - PR.pos[h][0], dy = p[1] - PR.pos[h][1], dz = p[2] - PR.pos[h][2];
+        if (!PR.seen[h] || dx * dx + dy * dy + dz * dz > 0.25f) {   // new, or a jump: there at once
+            memcpy(PR.pos[h], p, sizeof p); memcpy(PR.q[h], q, sizeof q); PR.seen[h] = 1;
+        } else {
+            float dot = 0;
+            for (int j = 0; j < 4; j++) dot += q[j] * PR.q[h][j];
+            const float sg = dot < 0 ? -1.0f : 1.0f;
+            for (int j = 0; j < 3; j++) PR.pos[h][j] += (p[j] - PR.pos[h][j]) * k;
+            for (int j = 0; j < 4; j++) PR.q[h][j] += (sg * q[j] - PR.q[h][j]) * k;
+        }
+        l = 0;
+        for (int j = 0; j < 4; j++) l += PR.q[h][j] * PR.q[h][j];
+        l = 1 / sqrtf(l);
+        for (int j = 0; j < 4; j++) PR.q[h][j] *= l;
+        XrPosef ps = { { PR.q[h][0], PR.q[h][1], PR.q[h][2], PR.q[h][3] }, { PR.pos[h][0], PR.pos[h][1], PR.pos[h][2] } };
+        float rel[16];
+        mat_pose(rel, ps);
+        mat_mul(PR.m[h], base, rel);
+        for (int j = 0; j < 5; j++) PR.curl[h][j] = o[15 + j] / 255.0f;
+        PR.slide[h] = o[20] / 255.0f; PR.trig[h] = o[21] / 255.0f; PR.flash[h] = o[22] / 255.0f;
+    }
+}
+// their gun model: the cabinet's in their colour, or the pistol (model slot 1)
+static void partner_gun_load(void) {
+    if (!PR.on) return;
+    const int want = PR.kind * 2 + partner_slot();
+    if (want == PR.loaded) return;
+    PR.loaded = want;
+    qgun_use(1);
+    PR.gun_ok = qgun_load(S.app->activity->assetManager,
+                          !PR.kind ? "player-gun.tcgun" : partner_slot() == 1 ? "arcade-gun-blue.tcgun" : "arcade-gun.tcgun");
+    gun_fit(PR.kind, 100);
+    qgun_use(0);
+}
+static void draw_partner(const float *proj, const float *view) {
+    if (!PR.on) return;
+    static const float lit[3] = { 1, 1, 1 };
+    for (int h = 0; h < 2; h++) {
+        if (!PR.seen[h]) continue;
+        if (PR.gun[h] && PR.gun_ok) {
+            qgun_use(1);
+            qgun_draw(view, proj, PR.m[h], PR.slide[h], PR.trig[h], PR.flash[h], lit, 1);
+            qgun_use(0);
+        }
+        if (PR.hand[h] && S.hands_model) qhand_draw(view, proj, PR.m[h], h, PR.curl[h], lit);
+    }
+}
+
 static float get_float(XrAction a, XrPath sub);
 static void draw_hands(const float *proj, const float *view) {
     if (!S.hands_model) return;
@@ -1375,6 +1552,7 @@ static void draw_hands(const float *proj, const float *view) {
             mat_mul(sm, S.aim_m[1 - h], t);
             c[QHAND_THUMB] = 0.8f; c[QHAND_INDEX] = 0.7f; c[QHAND_MIDDLE] = 0.72f; c[QHAND_RING] = 0.75f; c[QHAND_PINKY] = 0.8f;
             qhand_draw(view, proj, sm, h, c, lit);
+            ME.hand[h] = 1; memcpy(ME.m[h], sm, sizeof sm); memcpy(ME.curl[h], c, sizeof c);
             continue;
         } else if (mag_reload() && S.mag_hold) {         // round the magazine
             c[QHAND_THUMB] = 0.85f; c[QHAND_INDEX] = 0.8f; c[QHAND_MIDDLE] = 0.85f; c[QHAND_RING] = 0.88f; c[QHAND_PINKY] = 0.9f;
@@ -1388,6 +1566,7 @@ static void draw_hands(const float *proj, const float *view) {
             if ((mag_reload() && S.slide_near) || S.sup_near) tint = near;
         }
         qhand_draw(view, proj, S.aim_m[h], h, c, tint);
+        ME.hand[h] = 1; memcpy(ME.m[h], S.aim_m[h], sizeof ME.m[h]); memcpy(ME.curl[h], c, sizeof c);
     }
 }
 // The cabinet gun's magazines' base: its grip's base (quest_gun.c cuts it off the gun), contoured as the grip is:
@@ -1419,16 +1598,22 @@ static void draw_mag_caps(const float *proj, const float *view) {
     }
 }
 static void draw_guns(const float *proj, const float *view) {
+    ME.hand[0] = ME.hand[1] = ME.gun[0] = ME.gun[1] = 0;
     for (int h = 0; h < 2 && S.gun_model; h++) {
         if (!S.aim_ok[h] || !is_gun(h)) continue;
         float age = S.shot_t[h] ? (float)(S.now - S.shot_t[h]) / 1e6f : -1;
         static const float lit[3] = { 1, 1, 1 }, dim[3] = { 0.55f, 0.55f, 0.6f };   // the gun that aims, the other
         float slide = fmaxf(qgun_recoil(age), mag_reload() ? slide_by_hand() : 0);
         if (host_player_ammo(net_local) == 0 && qgun_has_slide()) slide = 1;   // empty: the slide locked back
-        qgun_draw(view, proj, S.aim_m[h], slide, S.fire[h] ? 1.0f : 0.0f, qgun_flash(age), h == S.active ? lit : dim);
+        // no magazine reload (another gesture, OFF SCREEN in the cabinet, a gun in each hand): the grip uncut
+        qgun_draw(view, proj, S.aim_m[h], slide, S.fire[h] ? 1.0f : 0.0f, qgun_flash(age), h == S.active ? lit : dim,
+                  !mag_reload());
+        ME.gun[h] = 1; memcpy(ME.m[h], S.aim_m[h], sizeof ME.m[h]);
+        ME.slide[h] = slide; ME.trig[h] = S.fire[h] ? 1.0f : 0.0f; ME.flash[h] = qgun_flash(age);
     }
     draw_mag_caps(proj, view);
     draw_hands(proj, view);
+    draw_partner(proj, view);
 }
 // The arcade game's world is drawn with a near plane of its own, WORLD_NEAR (the eyes' 5 cm spends most of the depth
 // buffer on what is at your face: far off, the mansion's windows fought their walls), and the depth is cleared
@@ -1641,6 +1826,78 @@ static float get_float(XrAction a, XrPath sub) {
     XrActionStateFloat st = { XR_TYPE_ACTION_STATE_FLOAT };
     return XR_SUCCEEDED(xrGetActionStateFloat(S.sess, &gi, &st)) && st.isActive ? st.currentState : 0.0f;
 }
+// Hand tracking (XR_EXT_hand_tracking with XR_FB_hand_tracking_aim): your bare hands as guns. The runtime's aim ray
+// from each hand aims, an index pinch fires (and clicks in the menu), the left palm's menu gesture opens the menu.
+// Added to the controllers' actions, not instead: whichever is in your hands works.
+static struct {
+    int ext, ok;
+    XrHandTrackerEXT tr[2];
+    PFN_xrCreateHandTrackerEXT create;
+    PFN_xrLocateHandJointsEXT locate;
+    int active[2], valid[2], fire[2], menu;   // this frame: the hand tracked; its aim ray; an index pinch; the menu gesture
+    int skip;                            // a middle-finger pinch (the off hand): A / X, coins and Start
+    int touch;                           // the controllers' profile is current (an interaction profile change says)
+    int ctl_ok[2];                       // the controllers' own aim poses this frame
+    float pinch[2];                      // the index pinch's strength (the hand model's trigger finger)
+    XrPosef aim[2];                      // the aim ray's pose (LOCAL)
+} HT = { .touch = 1 };                   // (no profile change heard yet: a tracked controller counts)
+static void ht_init(void) {
+    if (!HT.ext) return;
+    xrGetInstanceProcAddr(S.inst, "xrCreateHandTrackerEXT", (PFN_xrVoidFunction *)&HT.create);
+    xrGetInstanceProcAddr(S.inst, "xrLocateHandJointsEXT", (PFN_xrVoidFunction *)&HT.locate);
+    XrSystemHandTrackingPropertiesEXT hp = { XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT };
+    XrSystemProperties sp = { XR_TYPE_SYSTEM_PROPERTIES };
+    sp.next = &hp;
+    if (!HT.create || !HT.locate || !XR_SUCCEEDED(xrGetSystemProperties(S.inst, S.sys, &sp)) || !hp.supportsHandTracking) {
+        LOGI("hand tracking: not available");
+        return;
+    }
+    for (int h = 0; h < 2; h++) {
+        XrHandTrackerCreateInfoEXT ci = { XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT };
+        ci.hand = h ? XR_HAND_RIGHT_EXT : XR_HAND_LEFT_EXT;
+        ci.handJointSet = XR_HAND_JOINT_SET_DEFAULT_EXT;
+        if (!XR(HT.create(S.sess, &ci, &HT.tr[h]))) { LOGE("hand tracking: no tracker"); return; }
+    }
+    HT.ok = 1;
+    LOGI("hand tracking: on (aim, pinch, menu gesture)");
+}
+// this frame's hands (t: the frame's display time)
+static void ht_update(XrTime t) {
+    HT.menu = HT.skip = 0;
+    for (int h = 0; h < 2; h++) {
+        HT.active[h] = HT.valid[h] = HT.fire[h] = 0; HT.pinch[h] = 0;
+        if (!HT.ok) continue;
+        XrHandJointLocationEXT j[XR_HAND_JOINT_COUNT_EXT];
+        XrHandTrackingAimStateFB aim = { XR_TYPE_HAND_TRACKING_AIM_STATE_FB };
+        XrHandJointLocationsEXT jl = { XR_TYPE_HAND_JOINT_LOCATIONS_EXT };
+        jl.next = &aim; jl.jointCount = XR_HAND_JOINT_COUNT_EXT; jl.jointLocations = j;
+        XrHandJointsLocateInfoEXT li = { XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT };
+        li.baseSpace = S.local; li.time = t;
+        if (!XR_SUCCEEDED(HT.locate(HT.tr[h], &li, &jl)) || !jl.isActive) continue;
+        HT.active[h] = 1;
+        if (!(aim.status & XR_HAND_TRACKING_AIM_VALID_BIT_FB)) continue;
+        HT.valid[h] = 1;
+        HT.aim[h] = aim.aimPose;
+        // (a hand making the system's gesture, palm to your face, neither fires nor aims at anything)
+        const int gesture = (aim.status & XR_HAND_TRACKING_AIM_SYSTEM_GESTURE_BIT_FB) != 0;
+        HT.fire[h] = !gesture && (aim.status & XR_HAND_TRACKING_AIM_INDEX_PINCHING_BIT_FB);
+        HT.pinch[h] = gesture ? 0 : aim.pinchStrengthIndex;
+        if (aim.status & XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB) HT.menu = 1;
+        // thumb to middle finger on the off hand (the one without a gun; a gun in each: the left), the index not
+        // pinching too (a fist pinches every finger): the skip button. Never the gun hand's: it shoots.
+        const int off = free_hand() >= 0 ? free_hand() : 0;
+        if (h == off && !gesture && (aim.status & XR_HAND_TRACKING_AIM_MIDDLE_PINCHING_BIT_FB) && !HT.fire[h]) HT.skip = 1;
+    }
+}
+// which plays, after the poses: a tracked hand makes it the hands; a controller tracked while no hand is (the
+// controllers' profile current) makes it the controllers again. A hand lost from view changes nothing.
+static void ht_who_plays(void) {
+    const int hands = HT.active[0] || HT.active[1];
+    if (hands && !using_hands) { using_hands = 1; LOGI("hands: playing (reload: shoot off the screen)"); }
+    else if (!hands && using_hands && HT.touch && (HT.ctl_ok[0] || HT.ctl_ok[1])) { using_hands = 0; LOGI("controllers: playing"); }
+}
+// hand h's trigger: the controller's, or a tracked hand's index pinch
+static int fire_down(int h) { return get_bool(S.a_fire, S.hand[h]) || HT.fire[h]; }
 // One press of the game's reload (its right button: the gun off the screen with the trigger pulled), long enough
 // for the game to see it, and never two within RELOAD_GAP: a twitching grip or a gesture can't chatter it.
 #define RELOAD_PRESS_NS 70000000LL
@@ -1666,7 +1923,7 @@ static void release_all(void) {
 static void apply_options(void) {
     S.scale = S.base_scale * (float)S.opt[QOPT_WORLD] / 100.0f;
     S.panel_m = (float)S.opt[QOPT_HUD] / 100.0f;
-    S.gun_pitch = (float)S.opt[QOPT_PITCH];
+    S.gun_pitch = GUN_PITCH_BASE + (float)S.opt[QOPT_PITCH];
     {
         int cab = S.opt[QOPT_VIEW] == QVIEW_CABINET;
         if (cab != S.cabinet) { S.cabinet = cab; S.cab_dirty = 1; }
@@ -1755,7 +2012,7 @@ static void menu_set_open(int open) {
     if (open == S.menu_open) return;
     S.menu_open = open;
     if (open) { release_all(); menu_place(); qmenu_open(-1); S.mfire[0] = S.mfire[1] = 1; }
-    else for (int h = 0; h < 2; h++) S.fire_hold[h] = get_bool(S.a_fire, S.hand[h]);   // the click that closed it
+    else for (int h = 0; h < 2; h++) S.fire_hold[h] = fire_down(h);   // the click that closed it
     update_pause();
     LOGI("menu %s", open ? "open" : "closed");
 }
@@ -1800,7 +2057,7 @@ static void menu_input(XrTime t) {
     in.now = (double)t / 1e9;
     int fire[2];
     for (int h = 0; h < 2; h++) {
-        fire[h] = get_bool(S.a_fire, S.hand[h]);
+        fire[h] = fire_down(h);
         if (fire[h] && !S.mfire[h]) S.active = h;           // the hand that pulls its trigger points
     }
     float px[2] = { 0, 0 }, py[2] = { 0, 0 };
@@ -1810,7 +2067,7 @@ static void menu_input(XrTime t) {
     in.press = fire[h] && !S.mfire[h]; in.release = !fire[h] && S.mfire[h]; in.held = fire[h];
     if (in.press && in.pointer) haptic(h, 0.15f, 12);
     S.mfire[0] = fire[0]; S.mfire[1] = fire[1];
-    int sel = get_bool(S.a_skip, XR_NULL_PATH), back = get_bool(S.a_back, XR_NULL_PATH);
+    int sel = get_bool(S.a_skip, XR_NULL_PATH) || HT.skip, back = get_bool(S.a_back, XR_NULL_PATH);
     in.select = sel && !S.sel_btn; in.back = back && !S.back_btn;
     S.sel_btn = sel; S.back_btn = back;
     for (int k = 0; k < 2; k++) {
@@ -1859,13 +2116,6 @@ static void shot_confirm(XrTime t) {
             for (int k = 0; k < 2; k++) if (S.pend_t[k]) S.pend_ammo[k] = a;    // the other gun's pull: from here
         } else if (t - S.pend_t[h] > wait) S.pend_t[h] = 0;
     }
-}
-static void rigid_inv(float *o, const float *m) {
-    float r[16] = { m[0], m[4], m[8], 0,  m[1], m[5], m[9], 0,  m[2], m[6], m[10], 0,  0, 0, 0, 1 };
-    r[12] = -(r[0] * m[12] + r[4] * m[13] + r[8] * m[14]);
-    r[13] = -(r[1] * m[12] + r[5] * m[13] + r[9] * m[14]);
-    r[14] = -(r[2] * m[12] + r[6] * m[13] + r[10] * m[14]);
-    memcpy(o, r, sizeof r);
 }
 // TWO HANDS (one gun): squeeze the free hand's grip with that controller just under and beside the gun hand's (within
 // SUP_R of SUP_X/Y/Z, gun space, x towards the free hand) and it takes hold of the gun round your gun hand. The gun
@@ -2077,13 +2327,14 @@ static void update_input(XrTime t) {
     XrActionsSyncInfo si = { XR_TYPE_ACTIONS_SYNC_INFO };
     si.countActiveActionSets = 1; si.activeActionSets = &as;
     if (xrSyncActions(S.sess, &si) != XR_SUCCESS) return;
+    ht_update(t);
     int fw, fh;
     qframe_size(&fw, &fh);
     if (!fw) { fw = 640; fh = 480; }
     // the grips: squeezed past 85%, let go below 50% (the runtime's own click point is soft, and a resting
     // hand hovers about it)
     for (int h = 0; h < 2; h++) {     // for the hands' fingers
-        S.trig[h] = get_float(S.a_trig, S.hand[h]);
+        S.trig[h] = fmaxf(get_float(S.a_trig, S.hand[h]), HT.pinch[h]);
         S.thumb[h] = get_bool(S.a_thumb, S.hand[h]);
     }
     for (int h = 0; h < 2; h++) {
@@ -2097,6 +2348,8 @@ static void update_input(XrTime t) {
         XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
         const XrSpaceLocationFlags need = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
         S.aim_ok[h] = XR_SUCCEEDED(xrLocateSpace(S.aim[h], S.local, t, &loc)) && (loc.locationFlags & need) == need;
+        HT.ctl_ok[h] = S.aim_ok[h] && !HT.active[h];
+        if (!S.aim_ok[h] && HT.valid[h]) { loc.pose = HT.aim[h]; S.aim_ok[h] = 1; }   // a tracked hand's aim ray
         S.on_screen[h] = 0;
         static double shot_at = -2;
         static XrTime shot_t0;
@@ -2124,6 +2377,7 @@ static void update_input(XrTime t) {
             mat_mul(S.aim_m[h], S.aim_m[h], r);
         }
     }
+    ht_who_plays();
     two_hands();
     cabinet_grab(t);
     reload_step();
@@ -2145,11 +2399,11 @@ static void update_input(XrTime t) {
     reload_release(0);
     // the menu button opens and closes the VR menu (with the game's files missing: quits)
     if (S.need_files) {                     // the setup page: the trigger chooses your game's folder
-        int f = get_bool(S.a_fire, S.hand[0]) || get_bool(S.a_fire, S.hand[1]);
+        int f = fire_down(0) || fire_down(1);
         if (f && !S.need_fire && !S.import_started) { S.import_started = 1; start_import(); }
         S.need_fire = f;
     }
-    int menu = get_bool(S.a_menu, XR_NULL_PATH);
+    int menu = get_bool(S.a_menu, XR_NULL_PATH) || HT.menu;
     if (menu && !S.menu) {
         if (S.game_failed || S.need_files) S.exit_requested = 1;
         else menu_set_open(!S.menu_open);
@@ -2158,7 +2412,7 @@ static void update_input(XrTime t) {
     if (S.menu_open) { menu_input(t); return; }
     if (S.opt[QOPT_HAND] != QHAND_BOTH) S.active = S.opt[QOPT_HAND] == QHAND_LEFT ? 0 : 1;
     for (int h = 0; h < 2; h++) {
-        int fire = is_gun(h) && get_bool(S.a_fire, S.hand[h]), back = get_bool(S.a_back, S.hand[h]);
+        int fire = is_gun(h) && fire_down(h), back = get_bool(S.a_back, S.hand[h]);
         if (S.fire_hold[h]) {           // still held from the menu: a shot only once it is let go
             if (!fire) S.fire_hold[h] = 0;
             fire = 0;
@@ -2244,7 +2498,7 @@ static void update_input(XrTime t) {
         LOGI("view: %s", S.cabinet ? "cabinet" : "immersive");
     }
     S.mode_btn = mode;
-    int skip = get_bool(S.a_skip, XR_NULL_PATH);
+    int skip = get_bool(S.a_skip, XR_NULL_PATH) || HT.skip;
     if (skip != S.skip) quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, skip);
     S.skip = skip;
 }
@@ -2365,7 +2619,7 @@ static int xr_init(void) {
     XrExtensionProperties *props = calloc(n ? n : 1, sizeof *props);
     for (uint32_t i = 0; i < n; i++) props[i].type = XR_TYPE_EXTENSION_PROPERTIES;
     XR(xrEnumerateInstanceExtensionProperties(NULL, n, &n, props));
-    const char *ext[10];
+    const char *ext[12];
     uint32_t ne = 0;
     ext[ne++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
     ext[ne++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
@@ -2377,6 +2631,8 @@ static int xr_init(void) {
     if (perf) ext[ne++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
     PT.ext = has_ext(props, n, XR_FB_PASSTHROUGH_EXTENSION_NAME);
     if (PT.ext) ext[ne++] = XR_FB_PASSTHROUGH_EXTENSION_NAME;
+    HT.ext = has_ext(props, n, XR_EXT_HAND_TRACKING_EXTENSION_NAME) && has_ext(props, n, XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME);
+    if (HT.ext) { ext[ne++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME; ext[ne++] = XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME; }
     free(props);
 
     XrInstanceCreateInfoAndroidKHR ia = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
@@ -2419,6 +2675,7 @@ static int xr_init(void) {
     rs.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
     if (!XR(xrCreateReferenceSpace(S.sess, &rs, &S.local))) return 0;
     pt_init();
+    ht_init();
     {
         XrReferenceSpaceCreateInfo vs = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
         vs.poseInReferenceSpace.orientation.w = 1;
@@ -2501,6 +2758,19 @@ static void poll_xr_events(void) {
             if (S.state != XR_SESSION_STATE_FOCUSED) release_all();
         } else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
             S.exit_requested = 1;
+        } else if (ev.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
+            // controllers or hands in use (the hands' reload follows: ht_who_plays)
+            HT.touch = 0;
+            for (int h = 0; h < 2; h++) {
+                XrInteractionProfileState ps = { XR_TYPE_INTERACTION_PROFILE_STATE };
+                char name[XR_MAX_PATH_LENGTH] = "none";
+                uint32_t len = 0;
+                if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(S.sess, S.hand[h], &ps)) && ps.interactionProfile != XR_NULL_PATH) {
+                    xrPathToString(S.inst, ps.interactionProfile, sizeof name, &len, name);
+                    if (strstr(name, "touch_controller")) HT.touch = 1;
+                }
+                LOGI("input, %s hand: %s", h ? "right" : "left", name);
+            }
         }
         ev.type = XR_TYPE_EVENT_DATA_BUFFER;
         ev.next = NULL;
@@ -2536,6 +2806,15 @@ static void frame(void) {
     }
     if (S.cabinet && fs.shouldRender) render_cabinet_view();
     if (gun_slot != net_local || gun_kind != S.opt[QOPT_GUN_MODEL]) load_gun();   // the setting, or your player online
+    else if (gun_size != S.opt[QOPT_GUN_SIZE]) { gun_size = S.opt[QOPT_GUN_SIZE]; gun_fit(gun_cabinet, gun_size); }
+    {   // online: ours out (as drawn last frame), the partner's in
+        static XrTime last;
+        const float dt = last ? (float)(fs.predictedDisplayTime - last) / 1e9f : 0.0f;
+        last = fs.predictedDisplayTime;
+        pose_send();
+        pose_recv(dt > 0 && dt < 0.2f ? dt : 0.0f);
+        partner_gun_load();
+    }
     pt_update();
     {
         static XrTime last;

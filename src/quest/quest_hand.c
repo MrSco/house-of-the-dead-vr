@@ -76,6 +76,92 @@ static void axis_rot(float *m, const float *ax, float ang) {
     memcpy(m, r, sizeof r);
 }
 
+// The sleeves end open (the model is cut off at the forearm): each hole closed with a fan of triangles round its
+// middle, of the sleeve's own cloth. The holes are the loops of edges only one triangle has, with the corners at the
+// same place taken as one (the texture's seams split a mesh's corners without opening it). Vertex: 16 floats
+// (position, normal, uv, joints, weights). Grows *v and *idx; returns how many holes it closed.
+static int edge_cmp(const void *x, const void *y) {
+    const uint32_t *p = x, *q = y;   // { lo, hi, from, to }
+    return p[0] != q[0] ? (p[0] < q[0] ? -1 : 1) : p[1] != q[1] ? (p[1] < q[1] ? -1 : 1) : 0;
+}
+static int cap_holes(float **pv, uint32_t *pnv, uint32_t **pidx, uint32_t *pni) {
+    float *v = *pv; uint32_t *idx = *pidx; const uint32_t nv = *pnv, ni = *pni;
+    uint32_t *weld = malloc((size_t)nv * 4), *e = malloc((size_t)ni * 16), *from = NULL, *to = NULL, *next = NULL;
+    uint8_t *used = NULL;
+    int holes = 0;
+    if (!weld || !e) goto out;
+    for (uint32_t i = 0; i < nv; i++) {             // the first corner at each place
+        weld[i] = i;
+        for (uint32_t j = 0; j < i; j++) {
+            const float *a = v + i * 16, *b = v + j * 16;
+            if (fabsf(a[0] - b[0]) < 1e-5f && fabsf(a[1] - b[1]) < 1e-5f && fabsf(a[2] - b[2]) < 1e-5f) { weld[i] = weld[j]; break; }
+        }
+    }
+    for (uint32_t t = 0; t < ni; t++) {             // every edge, as the triangle runs it
+        const uint32_t a = idx[t], b = idx[t % 3 == 2 ? t - 2 : t + 1], wa = weld[a], wb = weld[b];
+        uint32_t *r = e + t * 4;
+        r[0] = wa < wb ? wa : wb; r[1] = wa < wb ? wb : wa; r[2] = a; r[3] = b;
+    }
+    qsort(e, ni, 16, edge_cmp);
+    from = malloc((size_t)ni * 4); to = malloc((size_t)ni * 4); next = malloc((size_t)ni * 4); used = calloc(ni, 1);
+    if (!from || !to || !next || !used) goto out;
+    uint32_t nb = 0;                                 // the edges only one triangle has
+    for (uint32_t k = 0; k < ni;) {
+        uint32_t m = k + 1;
+        while (m < ni && e[m * 4] == e[k * 4] && e[m * 4 + 1] == e[k * 4 + 1]) m++;
+        if (m - k == 1) { from[nb] = e[k * 4 + 2]; to[nb] = e[k * 4 + 3]; nb++; }
+        k = m;
+    }
+    for (uint32_t k = 0; k < nb; k++) {              // each edge's successor: the one leaving where it ends
+        next[k] = UINT32_MAX;
+        for (uint32_t j = 0; j < nb; j++) if (j != k && weld[from[j]] == weld[to[k]]) { next[k] = j; break; }
+    }
+    for (uint32_t k0 = 0; k0 < nb; k0++) {
+        if (used[k0]) continue;
+        uint32_t loop[512], n = 0, k = k0;
+        while (k != UINT32_MAX && !used[k] && n < 512) { used[k] = 1; loop[n++] = k; k = next[k]; }
+        if (k != k0 || n < 3) continue;              // (not closed: leave it)
+        // the middle, and a normal facing out of the hole (the triangles round it run its edges one way: the cap's
+        // run them back, as one surface)
+        float c[3] = { 0, 0, 0 }, nrm[3] = { 0, 0, 0 };
+        for (uint32_t i = 0; i < n; i++) for (int j = 0; j < 3; j++) c[j] += v[from[loop[i]] * 16 + j] / (float)n;
+        for (uint32_t i = 0; i < n; i++) {
+            const float *a = v + to[loop[i]] * 16, *b = v + from[loop[i]] * 16;   // (the cap's order: to, from)
+            const float ax = a[0] - c[0], ay = a[1] - c[1], az = a[2] - c[2], bx = b[0] - c[0], by = b[1] - c[1], bz = b[2] - c[2];
+            nrm[0] += ay * bz - az * by; nrm[1] += az * bx - ax * bz; nrm[2] += ax * by - ay * bx;
+        }
+        const float l = sqrtf(nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]);
+        if (l < 1e-9f) continue;
+        for (int j = 0; j < 3; j++) nrm[j] /= l;
+        // new corners (the cap's normal, the edge's cloth, its skinning) and the middle, then the fan
+        float *v2 = realloc(v, ((size_t)*pnv + n + 1) * 64);
+        if (!v2) break;
+        v = v2;
+        uint32_t *i2 = realloc(idx, ((size_t)*pni + 3 * (size_t)n) * 4);
+        if (!i2) break;
+        idx = i2;
+        const uint32_t base = *pnv;
+        for (uint32_t i = 0; i < n; i++) {
+            memcpy(v + (base + i) * 16, v + from[loop[i]] * 16, 64);
+            memcpy(v + (base + i) * 16 + 3, nrm, 12);
+        }
+        memcpy(v + (base + n) * 16, v + from[loop[0]] * 16, 64);   // the middle: the first corner's cloth and bones
+        memcpy(v + (base + n) * 16, c, 12);
+        memcpy(v + (base + n) * 16 + 3, nrm, 12);
+        for (uint32_t i = 0; i < n; i++) {           // corner i runs from[loop[i]] -> to[loop[i]] = corner i + 1
+            idx[*pni + 3 * i] = base + n;
+            idx[*pni + 3 * i + 1] = base + (i + 1) % n;
+            idx[*pni + 3 * i + 2] = base + i;
+        }
+        *pnv += n + 1; *pni += 3 * n;
+        holes++;
+    }
+out:
+    free(weld); free(e); free(from); free(to); free(next); free(used);
+    *pv = v; *pidx = idx;
+    return holes;
+}
+
 int qhand_load(struct AAssetManager *am, const char *name) {
     AAsset *a = am ? AAssetManager_open(am, name, AASSET_MODE_STREAMING) : NULL;
     if (!a) { LOGE("hands: no asset %s", name); return 0; }
@@ -103,6 +189,10 @@ int qhand_load(struct AAssetManager *am, const char *name) {
         for (uint32_t i = 0; i < n[1]; i++) if (idx[i] >= n[0]) goto done;
         for (uint32_t i = 0; i < n[0]; i++)
             for (int k = 8; k < 12; k++) if (!(v[i * 16 + k] >= 0 && v[i * 16 + k] < h->nbones)) goto done;
+        {
+            const int holes = cap_holes(&v, &n[0], &idx, &n[1]);
+            if (holes) LOGI("hands: %s hand, %d opening(s) closed", s ? "right" : "left", holes);
+        }
         glGenVertexArrays(1, &h->vao);
         glBindVertexArray(h->vao);
         glGenBuffers(1, &h->vbo);

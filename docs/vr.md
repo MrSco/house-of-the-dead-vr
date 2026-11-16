@@ -49,8 +49,8 @@ frame runs to the instruction cap): more to gain.
 
 ## The Quest app (2026-11-15: it runs)
 
-`python scripts/build_quest.py` builds org.hotdrecomp.arcadevr ("HOTD
-Arcade VR"): the Quest app (src/quest, compiled with `HOTD_ARCADE`), its
+`python scripts/build_quest.py` builds com.mrsco.hotdvr ("House
+of the Dead VR"): the Quest app (src/quest, compiled with `HOTD_ARCADE`), its
 game the recompiled arcade game.
 
 - src/quest/arcade_quest.cpp: SDL_main (the game thread, against

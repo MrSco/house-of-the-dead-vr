@@ -50,6 +50,7 @@ static const RowDef GUN_ROWS[] = {
       "CABINET: the arcade cabinet's own gun, on its cord. PISTOL: a handgun whose slide kicks and racks and whose magazine drops out.",
       T_SEG, { "CABINET", "PISTOL" }, 2, 1, "", false },
     { QOPT_PITCH, "Gun angle", "Lower it if shots land high", "Tilts the barrel about your hand. + raises it.", T_SLIDER, { 0 }, 0, 1, "\xC2\xB0", true },
+    { QOPT_GUN_SIZE, "Gun size", "Smaller or bigger in your hand", "Scales the gun about your hand, so your hand fits its grip.", T_SLIDER, { 0 }, 0, 5, "%", false },
     { QOPT_RUMBLE, "Rumble", "A kick in your hand on each shot", "The controller vibrates when you shoot and reload.", T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
 static const RowDef HANDS_ROWS[] = {

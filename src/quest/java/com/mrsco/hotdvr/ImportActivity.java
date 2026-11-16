@@ -1,4 +1,4 @@
-package org.hotdrecomp.vr;
+package com.mrsco.hotdvr;
 
 import android.app.Activity;
 import android.content.Intent;

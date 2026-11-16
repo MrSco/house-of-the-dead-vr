@@ -605,6 +605,7 @@ struct Ring {
     size_t rd = 0, wr = 0, n = 0;
 } ring;
 std::atomic<float> volume{1.0f};
+float sound_peak = 0; // the loudest sample the board made since the last "frame ms" line (game thread)
 
 void SDLCALL audio_cb(void *ud, Uint8 *stream, int len) {
     (void)ud;
@@ -621,6 +622,7 @@ void SDLCALL audio_cb(void *ud, Uint8 *stream, int len) {
 
 void push_audio(snd::Board &sb) {
     std::vector<float> pcm = sb.take_pcm();
+    for (float f : pcm) sound_peak = std::max(sound_peak, std::fabs(f));
     const float gain = volume.load() * (float(quest_volume) / 100.0f) * rt::game().output_gain;
     std::lock_guard<std::mutex> lock(ring.mu);
     for (float f : pcm) {
@@ -660,30 +662,39 @@ bool draw_overlay(const rt::Video &video, std::vector<uint16_t> &px, std::vector
         for (size_t i = 0; i < n; i += 7) same += front[i] == c;
         if (lum > 3 * 0x60 && same * 7 > n * 9 / 10) return false;
     }
-    // The slash: pure red in 4 x 4 blocks, joined into shapes; a shape taller than kSlashTall is the slash (its
-    // every pixel, the dark edges too), the rest (the RELOAD box's red letters among them) stays on the overlay.
-    constexpr int kB = 4, BW = rt::Video::W / kB, BH = kHudTop / kB, kSlashTall = 160 / kB;
+    // The slash: pure red in 4 x 4 blocks, joined into shapes; a shape taller than kSlashTall is a slash. A mark is
+    // more than its tallest piece (a bite's two halves, a slash its own dark band cuts in two): the shapes within
+    // kNear blocks of a slash's box go with it, and every slash grows a block all round (its dark edges), so a mark
+    // is never split between your face and the picture (two depths in stereo). Red shapes wholly in the HUD's strip
+    // (its "1P") and the rest (the RELOAD box's red letters among them) stay on the overlay; a mark may reach into
+    // the strip.
+    constexpr int kB = 4, BW = rt::Video::W / kB, BH = rt::Video::H / kB, kHudB = kHudTop / kB, kSlashTall = 160 / kB,
+                  kNear = 6;
     static uint8_t red[BW * BH], slash[BW * BH];
     static int stack[BW * BH];
     std::fill(std::begin(red), std::end(red), uint8_t(0));
     std::fill(std::begin(slash), std::end(slash), uint8_t(0));
-    if (!arcade_view_cabinet && front.size() >= n)
+    // (only over a 3D scene: a hit comes in play; the 2D screens' red, the start's warning and the title among
+    // them, stays in the picture)
+    if (!arcade_view_cabinet && scene && front.size() >= n)
         for (int y = 0; y < BH * kB; y++)
             for (int x = 0; x < rt::Video::W; x++) {
                 const uint32_t f = front[size_t(y) * rt::Video::W + size_t(x)];
                 if ((f >> 24) && (f & 0xffff) == 0 && (f & 0xff0000)) red[(y / kB) * BW + x / kB] = 1;
             }
+    struct Shape { int x0, y0, x1, y1; std::vector<int> blocks; };
+    std::vector<Shape> shapes;
     for (int b0 = 0; b0 < BW * BH; b0++) {
         if (red[b0] != 1) continue;
-        int top = BH, bottom = -1, sp = 0, first_member = 0;
-        std::vector<int> members;
+        Shape sh{BW, BH, -1, -1, {}};
+        int sp = 0;
         stack[sp++] = b0;
         red[b0] = 2;
         while (sp) {
             const int b = stack[--sp];
-            members.push_back(b);
+            sh.blocks.push_back(b);
             const int bx = b % BW, by = b / BW;
-            top = std::min(top, by), bottom = std::max(bottom, by);
+            sh.x0 = std::min(sh.x0, bx), sh.x1 = std::max(sh.x1, bx), sh.y0 = std::min(sh.y0, by), sh.y1 = std::max(sh.y1, by);
             for (int d = 0; d < 4; d++) {
                 const int nx = bx + (d == 0) - (d == 1), ny = by + (d == 2) - (d == 3);
                 if (nx < 0 || nx >= BW || ny < 0 || ny >= BH) continue;
@@ -691,16 +702,34 @@ bool draw_overlay(const rt::Video &video, std::vector<uint16_t> &px, std::vector
                 if (red[nb] == 1) red[nb] = 2, stack[sp++] = nb;
             }
         }
-        (void)first_member;
-        if (bottom - top + 1 >= kSlashTall)
-            for (int b : members) slash[b] = 1;
+        if (sh.y0 < kHudB) shapes.push_back(std::move(sh));   // (wholly in the HUD's strip: never a mark)
     }
+    std::vector<char> in(shapes.size(), 0);
+    for (size_t k = 0; k < shapes.size(); k++) in[k] = shapes[k].y1 - shapes[k].y0 + 1 >= kSlashTall;
+    for (size_t k = 0; k < shapes.size(); k++) {      // the pieces near a slash
+        if (in[k] != 1) continue;                     // (a slash's own box only: no chains of pieces)
+        const Shape &a = shapes[k];
+        for (size_t j = 0; j < shapes.size(); j++) {
+            const Shape &b = shapes[j];
+            if (!in[j] && b.x1 >= a.x0 - kNear && b.x0 <= a.x1 + kNear && b.y1 >= a.y0 - kNear && b.y0 <= a.y1 + kNear) in[j] = 2;
+        }
+    }
+    for (size_t k = 0; k < shapes.size(); k++)
+        if (in[k])
+            for (int b : shapes[k].blocks) {          // each block and the eight round it
+                const int bx = b % BW, by = b / BW;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++) {
+                        const int x = bx + dx, y = by + dy;
+                        if (x >= 0 && x < BW && y >= 0 && y < BH) slash[y * BW + x] = 1;
+                    }
+            }
     face_any = false;
     for (size_t i = 0; i < n; i++) {
         const uint32_t f = i < front.size() ? front[i] : 0;
         const int y = int(i / rt::Video::W), x = int(i % rt::Video::W);
         face[i] = 0;
-        if ((f >> 24) && y < BH * kB && slash[(y / kB) * BW + x / kB]) {
+        if ((f >> 24) && slash[(y / kB) * BW + x / kB]) {
             // RGBA bytes, a little see-through
             face[i] = 0xd0000000u | ((f & 0xff) << 16) | (f & 0xff00) | ((f >> 16) & 0xff);
             face_any = true;
@@ -1086,9 +1115,10 @@ extern "C" int SDL_main(int argc, char **argv) {
             const uint64_t tg = tgpx4_ns_total();
             const double k = 1e-6 / double(prof.frames);
             LOGI("frame ms: board %.2f (i960 and TGP %.2f, TGPx4 %.2f, geometrizer %.2f, 2D layers %.2f), scene and "
-                 "overlay %.2f; sound thread %.2f",
+                 "overlay %.2f; sound thread %.2f (peak %.3f)",
                  double(prof.board) * k, double(prof.core) * k, double(tg - prof.tgpx4_at) * k, double(prof.geo) * k,
-                 double(prof.video) * k, double(prof.scene) * k, double(prof.sound) * k);
+                 double(prof.video) * k, double(prof.scene) * k, double(prof.sound) * k, double(sound_peak));
+            sound_peak = 0;
             prof = {};
             prof.tgpx4_at = tg;
         }

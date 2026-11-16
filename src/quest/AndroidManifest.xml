@@ -51,7 +51,7 @@
             </intent-filter>
         </activity>
         <activity
-            android:name="org.hotdrecomp.vr.RestartActivity"
+            android:name="com.mrsco.hotdvr.RestartActivity"
             android:process=":restart"
             android:exported="false"
             android:excludeFromRecents="true"
@@ -59,7 +59,7 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <!-- loading your own game files (src/quest/java/.../ImportActivity.java): a 2D panel with the folder picker -->
         <activity
-            android:name="org.hotdrecomp.vr.ImportActivity"
+            android:name="com.mrsco.hotdvr.ImportActivity"
             android:process=":import"
             android:exported="false"
             android:excludeFromRecents="true"

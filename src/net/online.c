@@ -19,6 +19,8 @@
 //   guest 'G': its run's id, the last frame it has without a gap (the host sends on from there and goes back to
 //             it when nothing moves on), its gun (state, with counters of trigger pulls / reloads / skips so a quick
 //             pull between two datagrams still counts once), a voice block.
+// Each side's guns and hands in VR (online_pose_out) ride along at the datagram's end: the host's length in its
+// byte 11, there only when the bundles leave room; the guest's length in its last byte, the pose just before it.
 // A datagram the receiver can't use (a gap before it) is dropped; the host's history makes every loss good.
 #include "online.h"
 #include "net.h"
@@ -48,7 +50,7 @@ static void voice_get_status(voice_status_t *s) { memset(s, 0, sizeof *s); }
 
 void host_log(const char *fmt, ...);
 
-#define ONLINE_VER     1                // the link version: only equal versions share a room
+#define ONLINE_VER     2                // the link version: only equal versions share a room
 #define FRAME_SIZE     256              // what a server gives a game it doesn't list
 #define DEFAULT_SERVER "zonesync.net"
 #define NAME_LEN       12
@@ -283,6 +285,33 @@ static volatile uint32_t ack;           // frames received without a gap (= push
 static int host_gone;
 static struct { int flags, x, y; uint8_t ct, cr, ck; } gun, gun_sent;   // the guest's gun (gun under mu)
 static uint32_t ack_sent;
+// the players' poses (under mu): ours to send (a serial for each new one), the partner's latest
+static uint8_t pose_me[ONLINE_POSE_MAX], pose_them[ONLINE_POSE_MAX];
+static int pose_me_n, pose_them_n;
+static uint32_t pose_me_seq, pose_sent_seq, pose_them_t;
+static int pose_take(uint8_t *out, int room) {   // ours, if it fits in room: its length (0: none or no room)
+    lock();
+    int n = pose_me_n <= room ? pose_me_n : 0;
+    if (n) { memcpy(out, pose_me, (size_t)n); pose_sent_seq = pose_me_seq; }
+    unlock();
+    return n;
+}
+static int pose_fresh(void) { lock(); int f = pose_me_n && pose_me_seq != pose_sent_seq; unlock(); return f; }
+static void pose_got(const uint8_t *p, int n) {
+    if (n <= 0 || n > ONLINE_POSE_MAX) return;
+    lock(); memcpy(pose_them, p, (size_t)n); pose_them_n = n; pose_them_t = now_ms(); unlock();
+}
+void online_pose_out(const uint8_t *pose, int len) {
+    if (!role || len <= 0 || len > ONLINE_POSE_MAX) return;
+    lock(); memcpy(pose_me, pose, (size_t)len); pose_me_n = len; pose_me_seq++; unlock();
+}
+int online_pose_in(uint8_t *pose, uint32_t *age_ms) {
+    lock();
+    int n = pose_them_n;
+    if (n) { memcpy(pose, pose_them, (size_t)n); *age_ms = now_ms() - pose_them_t; }
+    unlock();
+    return n;
+}
 static uint32_t n_tx, n_rx;
 
 static int rto_ms(void) { int p = eng_net_ping_ms(); return p > 0 ? 2 * p + 60 : 200; }
@@ -298,12 +327,14 @@ static int frame_out(uint8_t *buf) {
     memset(buf, 0, FRAME_SIZE);
     if (role == 1) {
         if (!guest_id) return 0;                       // nobody to send to yet
+        const int pf = pose_fresh();                   // (mu, never taken under hmu)
         SDL_LockMutex(hmu);
         uint32_t newest = hn;
         if (cursor <= gack) cursor = gack + 1;
         if (cursor > gack + 1 && (int)(now - ack_moved) > rto_ms()) { cursor = gack + 1; ack_moved = now; }   // lost: again
         int fresh = cursor <= newest && cursor - gack <= WINDOW;
-        if (!fresh && now - last_tx < 40) { SDL_UnlockMutex(hmu); return 0; }
+        // (a new pose of ours goes out at up to ~80 Hz on its own)
+        if (!fresh && !(pf && now - last_tx >= 12) && now - last_tx < 40) { SDL_UnlockMutex(hmu); return 0; }
         buf[0] = 'H'; buf[1] = ONLINE_VER;
         wr32(buf + 2, my_id);
         wr32(buf + 6, cursor);
@@ -322,6 +353,11 @@ static int frame_out(uint8_t *buf) {
         buf[10] = (uint8_t)n;
         cursor += (uint32_t)n;
         SDL_UnlockMutex(hmu);
+        {   // our pose, at the end, where the bundles left room (a guest catching up fills it: none then)
+            uint8_t pose[ONLINE_POSE_MAX];
+            int p = pose_take(pose, FRAME_SIZE - at);
+            if (p) { memcpy(buf + FRAME_SIZE - p, pose, (size_t)p); buf[11] = (uint8_t)p; }
+        }
         last_tx = now; n_tx++;
         return 1;
     }
@@ -331,7 +367,7 @@ static int frame_out(uint8_t *buf) {
         gun_sent = gun;
         unlock();
         uint32_t a = ack;
-        if (!changed && a == ack_sent && now - last_tx < 30) return 0;
+        if (!changed && a == ack_sent && !(pose_fresh() && now - last_tx >= 12) && now - last_tx < 30) return 0;
         buf[0] = 'G'; buf[1] = ONLINE_VER;
         wr32(buf + 2, my_id);
         wr32(buf + 6, a);
@@ -339,8 +375,13 @@ static int frame_out(uint8_t *buf) {
         buf[11] = (uint8_t)gun_sent.x; buf[12] = (uint8_t)(gun_sent.x >> 8);
         buf[13] = (uint8_t)gun_sent.y; buf[14] = (uint8_t)(gun_sent.y >> 8);
         buf[15] = gun_sent.ct; buf[16] = gun_sent.cr; buf[17] = gun_sent.ck;
-        int v = voice_into(buf + 19, FRAME_SIZE - 19);
+        int v = voice_into(buf + 19, 120);
         buf[18] = (uint8_t)v;
+        {   // our pose, just before the last byte (its length)
+            uint8_t pose[ONLINE_POSE_MAX];
+            int p = pose_take(pose, FRAME_SIZE - 1 - (19 + v));
+            if (p) { memcpy(buf + FRAME_SIZE - 1 - p, pose, (size_t)p); buf[FRAME_SIZE - 1] = (uint8_t)p; }
+        }
         ack_sent = a; last_tx = now; n_tx++;
         return 1;
     }
@@ -383,6 +424,10 @@ static void frame_in(int slot, const uint8_t *buf, uint32_t seq) {
         net_host_input(1, flags | pressed, (float)x, (float)y, 0, key);
         net_unlock();
         if (buf[18]) voice_unpack(buf + 19, buf[18]);
+        {
+            int p = buf[FRAME_SIZE - 1];
+            if (p && 19 + buf[18] + p <= FRAME_SIZE - 1) pose_got(buf + FRAME_SIZE - 1 - p, p);
+        }
         return;
     }
     if (role == 2 && buf[0] == 'H') {
@@ -398,6 +443,7 @@ static void frame_in(int slot, const uint8_t *buf, uint32_t seq) {
         int n = buf[10], v = buf[16], at = 17 + v;
         host_newest = rd32(buf + 12);
         if (v) voice_unpack(buf + 17, v);
+        if (buf[11] && 17 + v + buf[11] <= FRAME_SIZE) pose_got(buf + FRAME_SIZE - buf[11], buf[11]);
         uint8_t cur[MAX_BUNDLE], prev[MAX_BUNDLE];
         int have_prev = 0;
         for (int i = 0; i < n; i++) {

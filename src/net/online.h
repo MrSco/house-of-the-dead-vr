@@ -63,5 +63,11 @@ void online_talk_key(bool held);         // every VR frame: push to talk (a thum
 bool online_push_to_talk(void);          // voice chat sends only while the talk key is held
 int online_lag_ms(void);                 // a guest: how much later its own shots come back from the host (0: not a guest)
 
+// ---- the players in VR: each one's guns and hands (quest_xr.c's pose block, opaque here) ----
+// Sent with the datagrams (the host's only where its game frames leave room: never while a guest catches up).
+#define ONLINE_POSE_MAX 64
+void online_pose_out(const uint8_t *pose, int len);      // this player's, every VR frame
+int online_pose_in(uint8_t *pose, uint32_t *age_ms);     // the partner's latest: its length (0: none this session)
+
 // A short message over the game (a partner joined / left, waiting for the host); false = nothing to show
 bool online_toast(char *text, size_t n, unsigned *serial);

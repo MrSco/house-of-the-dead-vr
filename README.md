@@ -73,7 +73,7 @@ You need a **Meta Quest 3**. The Quest 3S has the same processor and should work
 1. Install the APK (from this repository's releases) with SideQuest or `adb install`.
 2. Copy your ROM set to the headset, for example into Download. It must be MAME's `hotd.zip` or `hotd.7z`,
    Revision A.
-3. Start **HOTD Arcade VR** from Unknown Sources. Pull the trigger and choose the ROM set. The app checks it, keeps its
+3. Start **House of the Dead VR** from Unknown Sources. Pull the trigger and choose the ROM set. The app checks it, keeps its
    own copy and offers to delete the one you copied.
 
 The left menu button opens the VR menu, and a thumbstick click switches between standing in the game and the cabinet.

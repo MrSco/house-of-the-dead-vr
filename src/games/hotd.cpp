@@ -105,6 +105,9 @@ extern const Game hotd_game = {
     .idle = {{0x18d4, 0x18e7}, {0, 0}},
     .sound = SoundBoardType::Scsp, .native_sound = nullptr,
     .io = {port, nullptr}, .link = false,
+    // +14.8 dB: the attract's peaks at -1.2 dBFS (2.5 minutes of attract on the Quest peak -16.2 dBFS at the board;
+    // its mean -43 dBFS was too quiet to hear at a middling headset volume)
+    .output_gain = 5.5f,
     .control_list = kControls,
     // MAME hotd P1_X/P1_Y PORT_MINMAX: the screen's edges in the gun's units;
     // player 2: MAME's P2_X/P2_Y defaults.

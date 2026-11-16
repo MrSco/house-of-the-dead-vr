@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The arcade game in the Quest VR app: an APK of its own (org.hotdrecomp.arcadevr).
+"""The arcade game in the Quest VR app: an APK of its own (com.mrsco.hotdvr).
 
   python scripts/build_quest.py [--apk-only] [--no-launch]
 
@@ -10,7 +10,7 @@ libraries, compiles, packages and signs.
 
 Needs the generated code first (python scripts/recompile.py --game houseofthedead on the desktop). The ROM set is the
 player's: the app asks for hotd.zip on its first start (ImportActivity), or
-  adb push hotd.zip /sdcard/Android/data/org.hotdrecomp.arcadevr/files/arcade/hotd.zip
+  adb push hotd.zip /sdcard/Android/data/com.mrsco.hotdvr/files/arcade/hotd.zip
 """
 import argparse
 import glob
@@ -22,8 +22,8 @@ ARCADE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import quest_tools as port  # noqa: E402
 
-PKG = 'org.hotdrecomp.arcadevr'
-LABEL = 'HOTD Arcade VR'
+PKG = 'com.mrsco.hotdvr'
+LABEL = 'House of the Dead VR'
 SET = 'hotd'
 
 

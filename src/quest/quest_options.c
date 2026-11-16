@@ -7,17 +7,18 @@
 #include <string.h>
 
 const QOptDef qopt_defs[QOPT_COUNT] = {
-    [QOPT_AIM] = { "aim_guide", 0, 3, QAIM_LASER },
-    [QOPT_PITCH] = { "gun_pitch", -60, 60, 0 },
+    [QOPT_AIM] = { "aim_guide", 0, 3, QAIM_TRACER },
+    [QOPT_PITCH] = { "gun_pitch", -60, 60, 0 },          // (from quest_xr.c's GUN_PITCH_BASE)
     [QOPT_GUN_Y] = { "gun_offset_y_mm", -200, 200, 0 },
     [QOPT_GUN_Z] = { "gun_offset_z_mm", -200, 200, 0 },
     [QOPT_RUMBLE] = { "rumble", 0, 1, 1 },
-    [QOPT_CROSSHAIR] = { "cabinet_crosshair", 0, 1, 1 },
+    [QOPT_CROSSHAIR] = { "cabinet_crosshair", 0, 1, 0 },
     [QOPT_GUN_MODEL] = { "gun_model", 0, 1, QGUN_CABINET },
+    [QOPT_GUN_SIZE] = { "gun_size_pct", 70, 130, 100 },  // (of quest_xr.c's fit for each model)
     [QOPT_HAND] = { "gun_hand", 0, 2, QHAND_RIGHT },
     [QOPT_GESTURE] = { "reload_gesture", 0, 2, QGESTURE_MAGAZINE },
     [QOPT_GRIP] = { "grip_reload", 0, 1, 1 },
-    [QOPT_CAB_RELOAD] = { "cabinet_reload", 0, 1, QCABRELOAD_GESTURE },
+    [QOPT_CAB_RELOAD] = { "cabinet_reload", 0, 1, QCABRELOAD_OFFSCREEN },
     [QOPT_VIEW] = { "view", 0, 1, QVIEW_IMMERSIVE },
     [QOPT_WORLD] = { "world_scale", 50, 200, 100 },
     [QOPT_HUD] = { "hud_distance_cm", 100, 300, 150 },

@@ -1,5 +1,7 @@
 # Local working notes — never committed.
 CLAUDE.md
+# Private business files (agreements, signature, payment QR codes) — never committed.
+work/
 
 # ---- Vendored / fetched dependencies ----
 # MAME, SDL3, SoftFloat, Musashi, Dear ImGui etc. Separate repositories with
