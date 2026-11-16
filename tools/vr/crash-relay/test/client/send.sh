@@ -13,7 +13,7 @@ srv=$!
 trap 'kill $srv; rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/files"
 gcc -std=gnu11 -Wall -Wextra -Wno-unused-parameter -D_GNU_SOURCE -I"$here/stub" -I"$jdk/include" -I"$jdk/include/linux" \
-    -I"$root/src/quest" "$here/send.c" "$root/src/quest/quest_report.c" "$root/src/quest/quest_options.c" -o "$tmp/s" \
+    -I"$root/src/quest" -I"$root/src/core" "$here/send.c" "$root/src/quest/quest_report.c" "$root/src/core/quest_options.c" -o "$tmp/s" \
     -L"$jdk/lib/server" -ljvm -Wl,-rpath,"$jdk/lib/server" -lpthread
 sleep 1
 "$tmp/s" "$tmp/files" "http://127.0.0.1:$port/report" "http://127.0.0.1:$((port + 1))/report"

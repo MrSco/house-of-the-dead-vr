@@ -1,4 +1,4 @@
-// m2nettest: the arcade game's online play (src/quest/arcade_net.cpp) without a network: one run hosts, with
+// m2nettest: the arcade game's online play (src/core/arcade_net.cpp) without a network: one run hosts, with
 // player 1 and player 2 from an input script (player 2 coming in as a guest's gun does), and records every bundle;
 // another run plays those bundles as the guest and compares the state checksums (one every 60 frames) the host put
 // in them. Two runs of one machine, or one on the PC and the other on the Quest (both compute the same game).
@@ -6,9 +6,11 @@
 //   m2nettest IMAGES_DIR FRAMES --host BUNDLES --inputs scripts/inputs/hotd_2p.txt
 //   m2nettest IMAGES_DIR FRAMES --guest BUNDLES [--shots DIR]
 //
+// Both runs have the VR scenery hook on, as the apps do (M2_VR=0: off, matching only other runs without it).
+//
 // The script's coin and start become player 1's skip button (coins and Start, arcade_net's), start2 player 2's;
 // gun2x / gun2y / trigger2 player 2's gun.
-#include "quest/arcade_net.h"
+#include "core/arcade_net.h"
 #include "runtime/board/game_loop.h"
 #include "../common/input_script.h"
 
@@ -63,6 +65,9 @@ int main(int argc, char **argv) {
     }
     rt::GameLoop game(dir);
     game_ptr = &game;
+    // with all the scenery sent (hook_hotd_scenery_cull), as every app runs (docs/platforms.md): it moves the wait
+    // loop's spare-time counters, so the checksums only match runs that have it too. M2_VR=0 turns it off.
+    if (!std::getenv("M2_VR") || std::atoi(std::getenv("M2_VR")) != 0) game.board().set_vr(true);
     const rt::GunRange &gun = rt::game().gun;
     rt::Inputs prev;
     uint64_t f = 0;

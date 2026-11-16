@@ -1,6 +1,6 @@
 // Online play for the arcade game: see arcade_net.h. The C API (net_*) is main's src/netplay.h's, as online.c uses
 // it; the lockstep follows netplay.c (whose bundle layout this keeps).
-#include "quest/arcade_net.h"
+#include "core/arcade_net.h"
 
 #include "runtime/board/cabinet_controls.h"
 

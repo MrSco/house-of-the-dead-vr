@@ -8,16 +8,16 @@
 // test decides, and each step in that order sits a little further out along its own view ray (M2Vert.prio), so
 // that coplanar ones (shadows, decals) keep the arcade's choice. The screen's effects come last, over the world.
 #include "m2_vr.h"
-#include <GLES3/gl3.h>
-#include <android/log.h>
+#include "platform/gl.h"
+#include "platform/platform.h"
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
 
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "hotdarcade", __VA_ARGS__)
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "hotdarcade", __VA_ARGS__)
+#define LOGE(...) plat_log(PLAT_LOG_ERROR, __VA_ARGS__)
+#define LOGI(...) plat_log(PLAT_LOG_INFO, __VA_ARGS__)
 
 static const char *VS =
     "#version 300 es\n"

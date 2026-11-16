@@ -15,8 +15,9 @@
 //    button, the skip button as two coins and Start; online, the lockstep of
 //    arcade_net.cpp (two players, as at the cabinet);
 //  - sound: the SCSP board's output through the SDL audio callback.
-#include "quest/m2_vr.h"
-#include "quest/arcade_net.h"
+#include "core/m2_vr.h"
+#include "core/arcade_net.h"
+#include "platform/platform.h"
 
 #include "games/game.h"
 #include "runtime/board/cabinet_controls.h"
@@ -26,7 +27,6 @@
 #include "tools/common/nvram.h"
 
 #include <SDL.h>
-#include <android/log.h>
 
 #include <algorithm>
 #include <array>
@@ -45,9 +45,6 @@
 #include <chrono>
 #include <thread>
 
-#include <sys/resource.h>
-#include <sys/stat.h>
-#include <time.h>
 #include <tuple>
 #include <vector>
 
@@ -56,8 +53,8 @@ extern "C" {
 #include "quest.h"
 }
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "hotdarcade", __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "hotdarcade", __VA_ARGS__)
+#define LOGI(...) plat_log(PLAT_LOG_INFO, __VA_ARGS__)
+#define LOGE(...) plat_log(PLAT_LOG_ERROR, __VA_ARGS__)
 
 // ---- what the VR side (quest_xr.c, quest_sdl.c) shares with its game
 extern "C" {
@@ -74,7 +71,7 @@ int host_player_playing(int p) { return p >= 0 && p < 2 ? g_playing[p].load() : 
 void host_log(const char *fmt, ...) {
     va_list a;
     va_start(a, fmt);
-    __android_log_vprint(ANDROID_LOG_INFO, "hotdarcade", fmt, a);
+    plat_vlog(PLAT_LOG_INFO, fmt, a);
     va_end(a);
 }
 // (online play, the net_* calls online.c makes: arcade_net.cpp)
@@ -890,9 +887,10 @@ void update_ammo(rt::GameLoop &game) {
 const char *const kImageFiles[] = {"program", "main_data", "copro_tables", "copro_data", "polygons", "textures",
                                    "sound_program", "pcm1", "pcm2", "samples"};
 std::string set_stamp(const std::string &set) {
-    struct stat st;
-    if (stat(set.c_str(), &st)) return "";
-    return set + " " + std::to_string(uint64_t(st.st_size)) + " " + std::to_string(uint64_t(st.st_mtime));
+    uint64_t size;
+    int64_t mtime;
+    if (plat_file_info(set.c_str(), &size, &mtime)) return "";
+    return set + " " + std::to_string(size) + " " + std::to_string(uint64_t(mtime));
 }
 bool cache_matches(const std::string &dir, const std::string &stamp) {
     FILE *f = std::fopen((dir + "/stamp.txt").c_str(), "r");
@@ -903,7 +901,7 @@ bool cache_matches(const std::string &dir, const std::string &stamp) {
     return std::string(b, n) == stamp;
 }
 void write_cache(const std::string &dir, const rt::M2Board::Images &img, const std::string &stamp) {
-    mkdir(dir.c_str(), 0775);
+    plat_mkdir(dir.c_str());
     std::remove((dir + "/stamp.txt").c_str());
     const std::vector<uint8_t> *parts[] = {&img.program, &img.main_data, &img.copro_tables, &img.copro_data, &img.polygons,
                                            &img.textures, &img.sound_program, &img.pcm1, &img.pcm2, &img.samples};
@@ -928,16 +926,9 @@ void show_status(SDL_Renderer *ren, const char *line1, const char *line2) {
     SDL_RenderPresent(ren);
 }
 
-bool exists(const std::string &p) {
-    struct stat st;
-    return stat(p.c_str(), &st) == 0;
-}
+bool exists(const std::string &p) { return plat_exists(p.c_str()); }
 
-uint64_t now_ns() {
-    timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return uint64_t(ts.tv_sec) * 1000000000ull + uint64_t(ts.tv_nsec);
-}
+uint64_t now_ns() { return plat_now_ns(); }
 
 } // namespace
 
@@ -1038,7 +1029,7 @@ extern "C" int SDL_main(int argc, char **argv) {
             // two games side by side give the same frames, m2gpushot M2_TWIN=1). The cabinet room is dark till then;
             // the VR thread loads the backdrop once courtyard_ready is set (m2_gl.c load_backdrop).
             std::thread([images] {
-                setpriority(PRIO_PROCESS, 0, 10);   // (this thread only, on Linux: below the game's and the VR's)
+                plat_thread_background();   // (below the game's thread and the VR's)
                 const auto t0 = std::chrono::steady_clock::now();
                 try {
                     make_courtyard(images, courtyard_path);
@@ -1142,10 +1133,7 @@ extern "C" int SDL_main(int argc, char **argv) {
         next += frame_ns;
         const uint64_t t = now_ns();
         if (t > next + 4 * frame_ns) next = t;
-        else if (t < next) {
-            timespec ts{time_t(next / 1000000000ull), long(next % 1000000000ull)};
-            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr);
-        }
+        else if (t < next) plat_sleep_until_ns(next);
     }
     if (dev) SDL_CloseAudioDevice(dev);
     return 0;

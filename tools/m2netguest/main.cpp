@@ -7,7 +7,7 @@
 //
 // It prints the checksums matched against the host's (arcade_net) and saves a frame every 300 to --shots (raw
 // 0xAARRGGBB, 496 x 384). A files folder of its own (online.cfg and the like) is made in the current directory.
-#include "quest/arcade_net.h"
+#include "core/arcade_net.h"
 #include "runtime/board/game_loop.h"
 
 #include <cstdarg>

@@ -3,8 +3,8 @@
 
   python scripts/build_quest.py [--apk-only] [--no-launch]
 
-The app: src/quest (OpenXR, the guns and hands, the menus, the cabinet room, voice; the bridge to the game
-and the Model 2 shading) and src/net (online play), with the runtime and the generated code built by CMake for
+The app: src/quest (OpenXR, the guns and hands, the cabinet room, voice), src/core (the bridge to the game, the
+Model 2 shading, the menus), src/platform (the OS seam) and src/net (online play), with the runtime and the generated code built by CMake for
 arm64 Android. quest_tools.py finds the Android SDK, fetches the OpenXR loader, SDL2's headers and the voice
 libraries, compiles, packages and signs.
 
@@ -51,8 +51,8 @@ def build_core(tools, sdl_inc):
                            '-DM2_ROMSET=' + SET, '-DM2_GAME=houseofthedead', '-DM2_SPIN_SKIP=ON',
                            '-DM2_GEN_ROOT=' + gen.replace('\\', '/'),
                            '-DM2_QUEST_SDL2=' + sdl_inc.replace('\\', '/')], env=env)
-    subprocess.check_call([cmake, '--build', bdir, '--target', 'arcade_quest'], env=env)
-    libs = [os.path.join(bdir, n) for n in ('libarcade_quest.a', 'libruntime.a', 'libi960.a', 'libsoftfloat.a',
+    subprocess.check_call([cmake, '--build', bdir, '--target', 'arcade_core'], env=env)
+    libs = [os.path.join(bdir, n) for n in ('libarcade_core.a', 'libruntime.a', 'libi960.a', 'libsoftfloat.a',
                                              'libymfm.a', 'liblzma7z.a', 'libtrace.a')]
     return [l for l in libs if os.path.exists(l)]
 
@@ -78,12 +78,12 @@ def main():
             shutil.copy2(s, d)
     target = '--target=aarch64-linux-android%d' % port.QUEST_API
     base = [tools['clang'], target, '-fPIC', '-O2', '-fno-strict-aliasing', '-ffp-contract=off']
-    sflags = ['-Wall', '-Wno-unused-function', '-gline-tables-only', '-DHOTD_ARCADE', '-Isrc', '-Isrc/quest', '-Isrc/net',
+    sflags = ['-Wall', '-Wno-unused-function', '-gline-tables-only', '-DHOTD_ARCADE', '-Isrc', '-Isrc/quest', '-Isrc/core', '-Isrc/net',
               '-Ibuild_quest/glue', '-I' + sdl_inc, '-I' + xr_inc]
     quest = ['src/quest/quest_sdl.c', 'src/quest/quest_xr.c', 'src/quest/quest_gun.c', 'src/quest/quest_hand.c',
-             'src/quest/quest_menu.c', 'src/quest/quest_report.c', 'src/quest/quest_canvas.c', 'src/quest/quest_options.c',
-             'src/quest/quest_cabinet.c',
-             'build_quest/glue/android_native_app_glue.c', 'src/quest/m2_gl.c']
+             'src/quest/quest_report.c', 'src/quest/quest_cabinet.c', 'build_quest/glue/android_native_app_glue.c',
+             'src/core/quest_menu.c', 'src/core/quest_canvas.c', 'src/core/quest_options.c', 'src/core/m2_gl.c',
+             'src/platform/posix.c', 'src/platform/android/log.c']
     jobs = [(s, sflags) for s in quest] + [(s, sflags) for s in port.net_sources()]
     jobs += port.voice_jobs(sflags)
     objs = port.compile_all(jobs, os.path.join(out, 'obj'), lambda s, o, flags: base + flags + ['-c', s, '-o', o])

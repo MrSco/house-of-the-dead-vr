@@ -53,7 +53,7 @@ frame runs to the instruction cap): more to gain.
 of the Dead VR"): the Quest app (src/quest, compiled with `HOTD_ARCADE`), its
 game the recompiled arcade game.
 
-- src/quest/arcade_quest.cpp: SDL_main (the game thread, against
+- src/core/arcade.cpp: SDL_main (the game thread, against
   quest_sdl.c's SDL subset): rt::GameLoop on files/arcade/hotd.zip or
   hotd.7z (Revision A; the original revision's program ROMs differ), paced at
   57.52 Hz; each frame's polygons in the game camera's space as a VrScene
@@ -62,7 +62,7 @@ game the recompiled arcade game.
   the skip button as two coins and Start; the SCSP's sound; the EEPROM and
   backup RAM saved in files/save. The rest of what the app calls into its
   game is stubbed (online play's lockstep among it).
-- src/quest/m2_gl.c: m2.hlsl's ps_poly in GLSL ES 3.0 (texture RAM,
+- src/core/m2_gl.c: m2.hlsl's ps_poly in GLSL ES 3.0 (texture RAM,
   luma and the gamma'd colour translation as integer textures), in 3D.
 - src/quest/quest_xr.c: m2_gl_init/sync/draw, the ROM
   set as the game files (ImportActivity's arcade mode), its setup page.
@@ -113,7 +113,7 @@ the RAM checksum does too; both sides need the same setting (two headsets do).
 
 ## Online play and voice chat
 
-src/quest/arcade_net.cpp: a lockstep with the netplay.h API (the PC port's) and
+src/core/arcade_net.cpp: a lockstep with the netplay.h API (the PC port's) and
 bundle layout, so online.c (rooms on the lobby server, the built-in LAN host,
 late joining, voice) carries it unchanged. The host (player 1) makes each
 frame's cabinet input (both guns, both triggers, coins and Starts) from its

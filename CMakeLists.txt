@@ -335,14 +335,11 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     target_link_libraries(m2native PRIVATE runtime)
     # The game on its own: native board runtime, no trace.
     add_executable(m2run tools/m2run/main.cpp src/app/link_socket.cpp $<TARGET_OBJECTS:game_gen>)
-    # The Quest VR app's game (scripts/build_quest.py links it with the rest of src/quest, OpenXR and the rest):
-    # the bridge (src/quest/arcade_quest.cpp, arcade_net.cpp) and the generated code. M2_QUEST_SDL2: the SDL2
-    # headers the Quest app compiles against.
     # Diagnostics: RAM snapshots and the geometrizer's polygons by window at chosen frames.
     add_executable(m2probe tools/m2probe/main.cpp $<TARGET_OBJECTS:game_gen>)
     target_link_libraries(m2probe PRIVATE runtime)
-    # The Quest app's online play (src/quest/arcade_net.cpp) without a network: host and guest runs, checksums.
-    add_executable(m2nettest tools/m2nettest/main.cpp src/quest/arcade_net.cpp $<TARGET_OBJECTS:game_gen>)
+    # The apps' online play (src/core/arcade_net.cpp) without a network: host and guest runs, checksums.
+    add_executable(m2nettest tools/m2nettest/main.cpp src/core/arcade_net.cpp $<TARGET_OBJECTS:game_gen>)
     target_link_libraries(m2nettest PRIVATE runtime)
     # A desktop player 2 joining the Quest app's online game over the network: src/net (online.c and the NMN2
     # client / built-in host) with arcade_net, as in the app. Windows (ws2_32); the SDL2 headers build_quest.py fetches.
@@ -350,19 +347,22 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     set(M2_NET_SDL2 ${CMAKE_SOURCE_DIR}/third_party/quest/SDL2-2.32.10-headers/include)
     if(WIN32 AND EXISTS ${M2_NET_SRC}/online.c AND EXISTS ${M2_NET_SDL2}/SDL.h)
         set(M2_NET_C ${M2_NET_SRC}/online.c ${M2_NET_SRC}/net.c ${M2_NET_SRC}/net_host.c ${M2_NET_SRC}/rooms.c)
-        add_executable(m2netguest tools/m2netguest/main.cpp tools/m2netguest/sdl_mini.cpp src/quest/arcade_net.cpp
+        add_executable(m2netguest tools/m2netguest/main.cpp tools/m2netguest/sdl_mini.cpp src/core/arcade_net.cpp
                        ${M2_NET_C} $<TARGET_OBJECTS:game_gen>)
         target_link_libraries(m2netguest PRIVATE runtime ws2_32)
         target_compile_definitions(m2netguest PRIVATE HOTD_ARCADE _CRT_SECURE_NO_WARNINGS)
-        target_include_directories(m2netguest PRIVATE ${M2_NET_SRC} ${CMAKE_SOURCE_DIR}/src/quest ${M2_NET_SDL2})
+        target_include_directories(m2netguest PRIVATE ${M2_NET_SRC} ${M2_NET_SDL2})
         # (the app's C: its own warnings; GCC's format attributes, a hint MSVC hasn't)
         set_source_files_properties(${M2_NET_C} PROPERTIES
             COMPILE_OPTIONS "/W0;/FI${CMAKE_SOURCE_DIR}/tools/m2netguest/msvc_compat.h")
     endif()
+    # The game in the apps (docs/platforms.md): the bridge (src/core/arcade.cpp, the game thread), online play
+    # (arcade_net.cpp) and the generated code, linked with each app's shell (Quest: scripts/build_quest.py, with
+    # src/quest, src/core's C, src/platform and OpenXR). M2_QUEST_SDL2: the SDL2 headers the bridge compiles against.
     if(ANDROID AND M2_QUEST_SDL2)
-        add_library(arcade_quest STATIC src/quest/arcade_quest.cpp src/quest/arcade_net.cpp $<TARGET_OBJECTS:game_gen>)
-        target_link_libraries(arcade_quest PRIVATE runtime)
-        target_include_directories(arcade_quest PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src/quest ${M2_QUEST_SDL2})
+        add_library(arcade_core STATIC src/core/arcade.cpp src/core/arcade_net.cpp $<TARGET_OBJECTS:game_gen>)
+        target_link_libraries(arcade_core PRIVATE runtime)
+        target_include_directories(arcade_core PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${M2_QUEST_SDL2})
     endif()
     target_link_libraries(m2run PRIVATE runtime)
     if(WIN32)

@@ -49,7 +49,7 @@ def net_sources():
 
 def compile_all(jobs, out_dir, cc_for):
     """jobs: list of (source, flags). Rebuilds objects older than their source or any header."""
-    hdr_time = max(os.path.getmtime(os.path.join(ROOT, d, f)) for d in (os.path.join('src', 'quest'), os.path.join('src', 'net'))
+    hdr_time = max(os.path.getmtime(os.path.join(ROOT, d, f)) for d in (os.path.join('src', 'quest'), os.path.join('src', 'core'), os.path.join('src', 'platform'), os.path.join('src', 'net'))
                    if os.path.isdir(os.path.join(ROOT, d)) for f in os.listdir(os.path.join(ROOT, d)) if f.endswith('.h'))
     objs, todo = [], []
     for s, flags in jobs:
@@ -204,7 +204,7 @@ def voice_jobs(sflags):
                                            'nnet_default.c', 'parse_lpcnet_weights.c', 'rnnoise_data.c', 'rnnoise_tables.c')]
     rflags = ['-w', '-I%s/include' % rnn, '-I%s/src' % rnn, '-I%s/celt' % opus, '-I%s/include' % opus]
     vflags = sflags + ['-I%s/include' % opus, '-I%s/include' % speex, '-I%s/include' % rnn]
-    return ([(s, vflags) for s in ('src/quest/voice.c', 'src/quest/voice_dsp.c')] + [(s, oflags) for s in opus_src]
+    return ([(s, vflags) for s in ('src/quest/voice.c', 'src/core/voice_dsp.c')] + [(s, oflags) for s in opus_src]
             + [(s, sxflags) for s in speex_src] + [(s, rflags) for s in rnn_src])
 
 

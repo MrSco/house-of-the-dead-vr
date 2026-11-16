@@ -14,6 +14,6 @@ mkdir -p "$tmp/inc" "$tmp/files"
 cp "$jni" "$tmp/inc/jni.h"
 # (Linux's jni.h needs jni_md.h next to it)
 [ -f "$(dirname "$jni")/linux/jni_md.h" ] && cp "$(dirname "$jni")/linux/jni_md.h" "$tmp/inc/"
-gcc -std=gnu11 -Wall -Wextra -Wno-unused-parameter -D_GNU_SOURCE -I"$here/stub" -I"$tmp/inc" -I"$root/src/quest" \
-    "$here/main.c" "$root/src/quest/quest_report.c" "$root/src/quest/quest_options.c" -o "$tmp/t" -lpthread -Wl,--build-id=sha1
+gcc -std=gnu11 -Wall -Wextra -Wno-unused-parameter -D_GNU_SOURCE -I"$here/stub" -I"$tmp/inc" -I"$root/src/quest" -I"$root/src/core" \
+    "$here/main.c" "$root/src/quest/quest_report.c" "$root/src/core/quest_options.c" -o "$tmp/t" -lpthread -Wl,--build-id=sha1
 "$tmp/t" "$tmp/files" "$here/../fixtures/crash.txt" "$here/../fixtures/client-report.json"
