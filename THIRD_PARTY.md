@@ -69,11 +69,10 @@ is part of the game or linked into it.
 | [DirectXShaderCompiler](https://github.com/microsoft/DirectXShaderCompiler) | v1.9.2609 (`linux_dxc_2026_09_28`) | University of Illinois/NCSA | HLSL to SPIR-V and DXIL |
 | [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) | Ubuntu 24.04's package | Apache-2.0 | SPIR-V to MSL |
 
-Earlier Vita builds linked MIT libvita2d at
-`a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed` from
-https://github.com/xerpi/libvita2d, for the vita2d/GXM renderer; that renderer
-was removed on 2026-10-16 and nothing links libvita2d any more (record kept in
-[the Vita dependency record](platform/vita/THIRD_PARTY.md)).
+The PS Vita, Dreamcast and mobile frontends of the recompiler this project
+grew from are not part of it (removed 2026-11-16: the project is the Quest
+app); their dependencies (vitaGL, libvita2d and the rest) went with them. Their
+history is in [RetroValou's repository](https://github.com/RetroValou/Sega-Model2-recomp-PSVita).
 
 ## The Quest app (`src/quest`, `src/net`)
 

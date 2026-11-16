@@ -301,11 +301,6 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
     if(WIN32)
         target_link_libraries(daytona_app PUBLIC ws2_32) # link play's sockets
     endif()
-    if(IOS)
-        target_sources(daytona_app PRIVATE platform/mobile_unmaintained/ios/rom_picker.mm)
-        set_source_files_properties(platform/mobile_unmaintained/ios/rom_picker.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
-        target_include_directories(daytona_app PRIVATE platform/mobile_unmaintained/ios)
-    endif()
     if(M2_MOBILE)
         target_compile_definitions(daytona_app PRIVATE M2_MOBILE=1)
     endif()
@@ -399,18 +394,6 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
             # SDLActivity loads this as libmain.so and calls SDL_main from it.
             add_library(daytona SHARED $<TARGET_OBJECTS:daytona_app> $<TARGET_OBJECTS:game_gen>)
             set_target_properties(daytona PROPERTIES OUTPUT_NAME main)
-        elseif(IOS)
-            add_executable(daytona MACOSX_BUNDLE $<TARGET_OBJECTS:daytona_app> $<TARGET_OBJECTS:game_gen>)
-            set_target_properties(daytona PROPERTIES
-                MACOSX_BUNDLE_BUNDLE_NAME "Daytona USA"
-                MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/platform/mobile_unmaintained/ios/Info.plist.in"
-                MACOSX_BUNDLE_GUI_IDENTIFIER "com.boucydesigns.daytona"
-                MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1"
-                MACOSX_BUNDLE_BUNDLE_VERSION "1"
-                XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.boucydesigns.daytona"
-                XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
-                XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "15.0"
-                XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO")
         else()
             add_executable(daytona WIN32 $<TARGET_OBJECTS:daytona_app> $<TARGET_OBJECTS:game_gen>)
             set_target_properties(daytona PROPERTIES OUTPUT_NAME ${M2_GAME}) # build_<game>/pc/<set>/<game>
@@ -561,89 +544,6 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/include/SDL3/SDL_audio.h)
     target_include_directories(test_app_native_audio PRIVATE extern/sdl3/include)
     target_link_libraries(test_app_native_audio PRIVATE Threads::Threads)
     add_test(NAME app_native_audio COMMAND test_app_native_audio)
-endif()
-
-# PS Vita frontend tests: platform/vita code against narrow host mocks of the
-# Vita SDK. ROM-free; they check CPU data and lifetimes, not GXM rendering or
-# device frame rates. Off by default: not part of the desktop build.
-option(M2_VITA_TESTS "Build the PS Vita frontend's host tests" OFF)
-if(M2_VITA_TESTS)
-    # The menu through the vitaGL backend, render/renderer.h mocked.
-    add_executable(test_vita_imgui_gl tests/vita/test_vita_imgui_gl.cpp
-        extern/imgui/imgui.cpp extern/imgui/imgui_draw.cpp
-        extern/imgui/imgui_tables.cpp extern/imgui/imgui_widgets.cpp)
-    target_include_directories(test_vita_imgui_gl PRIVATE . tests/vita/shims/gl tests/vita/shims/gpu src platform/vita extern/imgui)
-    add_test(NAME vita_imgui_gl COMMAND test_vita_imgui_gl)
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        add_executable(test_vita_link tests/vita/test_vita_link.cpp src/app/link_socket.cpp src/runtime/io/comm_board.cpp)
-        target_include_directories(test_vita_link PRIVATE tests/vita/shims/link src)
-        add_test(NAME vita_link COMMAND test_vita_link)
-    endif()
-    add_executable(test_vita_controls tests/vita/test_vita_controls.cpp)
-    add_executable(test_vita_core_policy tests/vita/test_vita_core_policy.cpp)
-    add_test(NAME vita_core_policy COMMAND test_vita_core_policy)
-    add_test(NAME vita_controls COMMAND test_vita_controls)
-    # The tile cache's write tracking against comparing everything (video.cpp, Vita path).
-    add_executable(test_vita_tile_cache tests/vita/test_vita_tile_cache.cpp src/runtime/video/video.cpp src/runtime/video/raster.cpp)
-    target_include_directories(test_vita_tile_cache PRIVATE src)
-    target_compile_definitions(test_vita_tile_cache PRIVATE M2_VITA_RENDER_OPT=1)
-    add_test(NAME vita_tile_cache COMMAND test_vita_tile_cache)
-
-    add_executable(test_vita_polygon_order tests/vita/test_vita_polygon_order.cpp)
-    target_include_directories(test_vita_polygon_order PRIVATE platform/vita src)
-    add_test(NAME vita_polygon_order COMMAND test_vita_polygon_order)
-
-    # The multicore/vitaGL helpers: texel index, flat index, reference audio pacing.
-    add_executable(test_vita_texel_index tests/vita/test_vita_texel_index.cpp)
-    target_include_directories(test_vita_texel_index PRIVATE src)
-    add_test(NAME vita_texel_index COMMAND test_vita_texel_index)
-    add_executable(test_vita_flat_index tests/vita/test_vita_flat_index.cpp)
-    add_test(NAME vita_flat_index COMMAND test_vita_flat_index)
-    add_executable(test_vita_audio_rate tests/vita/test_vita_audio_rate.cpp)
-    add_test(NAME vita_audio_rate COMMAND test_vita_audio_rate)
-
-    add_executable(test_vita_native_audio tests/vita/test_vita_native_audio.cpp)
-    target_include_directories(test_vita_native_audio PRIVATE tests/vita/shims/audio)
-    target_link_libraries(test_vita_native_audio PRIVATE Threads::Threads)
-    add_test(NAME vita_native_audio COMMAND test_vita_native_audio)
-
-    add_executable(test_vita_sound_worker tests/vita/test_vita_sound_worker.cpp)
-    target_include_directories(test_vita_sound_worker PRIVATE tests/vita/shims/audio)
-    target_link_libraries(test_vita_sound_worker PRIVATE Threads::Threads)
-    add_test(NAME vita_sound_worker COMMAND test_vita_sound_worker)
-
-    add_executable(test_vita_audio_worker tests/vita/test_vita_audio_worker.cpp)
-    target_include_directories(test_vita_audio_worker PRIVATE tests/vita/shims/audio)
-    target_link_libraries(test_vita_audio_worker PRIVATE Threads::Threads)
-    add_test(NAME vita_audio_worker COMMAND test_vita_audio_worker)
-
-    add_executable(test_vita_async_log tests/vita/test_vita_async_log.cpp)
-    target_include_directories(test_vita_async_log PRIVATE tests/vita/shims/log)
-    target_compile_definitions(test_vita_async_log PRIVATE M2_ROMSET="${M2_ROMSET}") # the log goes to ux0:data/<set>/
-    target_link_libraries(test_vita_async_log PRIVATE Threads::Threads)
-    add_test(NAME vita_async_log COMMAND test_vita_async_log)
-    set_tests_properties(vita_async_log PROPERTIES TIMEOUT 20)
-
-    add_executable(test_vita_log tests/vita/test_vita_log.cpp)
-    target_include_directories(test_vita_log PRIVATE tests/vita/shims/log)
-    target_compile_definitions(test_vita_log PRIVATE M2_ROMSET="${M2_ROMSET}") # the log goes to ux0:data/<set>/
-    add_test(NAME vita_log COMMAND test_vita_log)
-
-    # The launcher's settings (vita.cfg) against the game records.
-    add_executable(test_vita_settings tests/vita/test_vita_settings.cpp platform/vita/frontend/settings.cpp
-        platform/vita/frontend/storage.cpp)
-    target_link_libraries(test_vita_settings PRIVATE runtime)
-    add_test(NAME vita_settings COMMAND test_vita_settings ${CMAKE_CURRENT_BINARY_DIR})
-
-    # platform/vita is the include root of its own headers ("system/core_policy.h").
-    foreach(t test_vita_settings test_vita_imgui_gl test_vita_controls test_vita_core_policy test_vita_polygon_order
-              test_vita_texel_index test_vita_flat_index test_vita_audio_rate test_vita_native_audio
-              test_vita_sound_worker test_vita_audio_worker test_vita_async_log test_vita_log)
-        target_include_directories(${t} PRIVATE platform/vita)
-    endforeach()
-    if(TARGET test_vita_link)
-        target_include_directories(test_vita_link PRIVATE platform/vita)
-    endif()
 endif()
 
 # Measurement, not a test: where MAME's double FP disagrees with the model.

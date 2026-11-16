@@ -12,8 +12,6 @@ third_party/
 # the Quest app's build (scripts/build_quest.py)
 build_quest/
 vendor/
-platform/mobile_unmaintained/android/.gradle/
-platform/mobile_unmaintained/android/app/.cxx/
 
 # ---- ROMs and anything derived from them — LEGAL, not tidiness ----
 # Players supply their own ROM set (hotd.zip). No ROM bytes, no de-interleaved
@@ -25,13 +23,6 @@ platform/mobile_unmaintained/android/app/.cxx/
 *.ic*
 roms/*
 !roms/.gitkeep
-# Vita icon/LiveArea images are local only (a game logo is Sega's): only the README
-# and one empty folder per game (platform/vita/logo_livearea/<game>/.gitkeep) are kept.
-platform/vita/logo_livearea/*
-!platform/vita/logo_livearea/README.md
-!platform/vita/logo_livearea/*/
-platform/vita/logo_livearea/*/*
-!platform/vita/logo_livearea/*/.gitkeep
 rom/
 generated/
 extracted/
