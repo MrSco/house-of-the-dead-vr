@@ -1,5 +1,7 @@
 <p align="center"><img src="docs/images/header.jpg" alt="The House of the Dead" width="100%"></p>
 
+<p align="center"><img src="docs/images/gameplay.gif" alt="Playing on a Quest 3: the cabinet, then standing in the game" width="640"></p>
+
 # The House of the Dead VR
 
 **Sega's 1996 arcade original, running natively on a standalone Meta Quest 3.** You stand inside its world in full
@@ -12,10 +14,23 @@ enemies and the rail camera are the arcade's own code, running at the arcade's e
 **This repository contains no game code or data.** You load your own MAME ROM set of the
 arcade game (`hotd`, Revision A) in the headset the first time the app starts.
 
-<p align="center">
-  <img src="docs/images/cabinet.jpg" alt="The arcade cabinet in VR" height="430">
-  <img src="docs/images/gameplay.jpg" alt="Shooting zombies in the courtyard" height="430">
-</p>
+<table>
+  <tr><th>Cabinet view</th><th>Immersive view</th></tr>
+  <tr>
+    <td><img src="docs/images/play-cabinet.jpg" alt="The cabinet in the courtyard"></td>
+    <td><img src="docs/images/play-immersive-bridge.jpg" alt="On the bridge, a zombie leaping in"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/play-cabinet-hit.jpg" alt="Shooting a zombie on the cabinet's screen"></td>
+    <td><img src="docs/images/play-immersive-hit.jpg" alt="A zombie hit on the bridge"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/play-cabinet-aim.jpg" alt="Aiming the light gun at the cabinet"></td>
+    <td><img src="docs/images/play-immersive-reload.jpg" alt="Racking the slide after a new magazine"></td>
+  </tr>
+</table>
+
+Captured on a Quest 3. Hold the gun hand's thumbstick click to switch between the cabinet and standing in the game.
 
 ## Features
 
@@ -65,27 +80,6 @@ What was found in the game to make VR work, with addresses, is in [docs/vr.md](d
 - the light-gun wiring;
 - the reload prompt;
 - the shape of the 3D output.
-
-## On the headset
-
-Captured on a Quest 3 in one session, switching back and forth: hold the gun hand's thumbstick click to go between the
-arcade cabinet and standing in the game.
-
-<table>
-  <tr><th>Cabinet view</th><th>Immersive view</th></tr>
-  <tr>
-    <td><img src="docs/images/play-cabinet.jpg" alt="The cabinet in the courtyard"></td>
-    <td><img src="docs/images/play-immersive-bridge.jpg" alt="On the bridge, a zombie leaping in"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/play-cabinet-hit.jpg" alt="Shooting a zombie on the cabinet's screen"></td>
-    <td><img src="docs/images/play-immersive-hit.jpg" alt="A zombie hit on the bridge"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/play-cabinet-aim.jpg" alt="Aiming the light gun at the cabinet"></td>
-    <td><img src="docs/images/play-immersive-reload.jpg" alt="Racking the slide after a new magazine"></td>
-  </tr>
-</table>
 
 ## Playing it
 
