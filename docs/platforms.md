@@ -7,9 +7,11 @@ headset" flat shell beside the VR one, and online play at parity across all of t
 ## Goals (user, 2026-11-16)
 
 - **Platforms:** Quest (now), Windows, Android phones and tablets, iOS / iPadOS, Steam Frame, and later Vision Pro.
-- **Mode by device:** a headset plays the VR game (cabinet and immersive, as on Quest). A screen plays **flat mode**:
-  the cabinet view's screen, which is the arcade picture full-window, as GoldenEye VR's flat builds play its virtual
-  screen. A device that can do both (a PC with a headset) picks at start.
+- **Mode by device:** a headset plays the VR game, in the **immersive view by default** (as on Quest now), with the
+  cabinet view a menu or stick-click away. A screen plays **flat mode**: the cabinet view's screen, which is the arcade
+  picture full-window, as GoldenEye VR's flat builds play its virtual screen. **Immersive is the default wherever it
+  is available:** a PC starts in VR when an OpenXR runtime reports a headset, and in flat mode otherwise (`--flat` /
+  `--vr` and a menu row override it).
 - **Parity:** the same game, settings and online play everywhere, and **every platform can play online with every
   other** (rooms, quick match, LAN where the OS allows it, voice).
 
@@ -31,9 +33,9 @@ Crossplay therefore needs the recompiled game to give bit-identical RAM on every
   alternative, hashing around those bytes, works too but hides real desyncs in that range.
 - **Guard it:** a determinism check per platform: `m2nettest` records bundles once, each platform's build replays
   them and must match all checksums (x64 MSVC, arm64 Android NDK, arm64 Apple clang). Run it before every release.
-- **Protocol:** the bundle layout stays. HELLO gets the platform and input class (VR / mouse / touch / pad) for the
-  lobby listing and a "VR players only" host option if wanted (open question 3), and a protocol version so mismatched
-  builds refuse cleanly instead of desyncing.
+- **Protocol:** the bundle layout stays. HELLO gets the platform and input class (VR / mouse / touch / pad) for a
+  platform icon in the room list, and a protocol version so mismatched builds refuse cleanly instead of desyncing.
+  **Anyone joins anyone:** no VR-only rooms.
 
 ## How the code splits
 
@@ -51,7 +53,7 @@ Proposed layout (P0 does this with the Quest build unchanged):
 | `src/core` | The game bridge (`arcade_quest.cpp` without Android), `arcade_net`, `m2_gl.c`, the menu and canvas, options, voice DSP | all |
 | `src/platform/platform.h` | The seam: files dir, log, ROM picker, HTTP POST, mic open/permission, haptics, "restart the app" | all |
 | `src/xr` | OpenXR VR shell from `quest_xr.c`, split into the shared OpenXR code and a graphics binding (GLES on Android, GL on Windows) | Quest, Steam Frame, PCVR |
-| `src/flat` | The flat shell: a window, the game-camera draw, the HUD overlay, the menu as a 2D panel, mouse / touch / pad / gyro to the gun | Windows, Android, iOS, (macOS) |
+| `src/flat` | The flat shell: a window, the game-camera draw, the HUD overlay, the menu as a 2D panel, mouse / touch / pad / gyro to the gun | Windows, Android, iOS, macOS |
 | `src/platform/{android,windows,apple}` | The bodies of `platform.h` | per OS |
 | `src/visionos` | Compositor Services + ARKit instead of OpenXR | Vision Pro |
 
@@ -64,7 +66,7 @@ replaces the shim, as m2netguest's `sdl_mini.cpp` shows for its eight.
   shader header swapped, as GoldenEye's PC build does); iOS and visionOS through ANGLE on Metal, which GoldenEye
   already proved on an iPhone and in its visionOS work (ANGLE built once in `~/angle`). ANGLE's Metal backend has no
   multiview, so visionOS draws one pass per eye.
-- **Flat picture, two choices in GRAPHICS:**
+- **Flat picture, two choices in GRAPHICS** (HD the default, decided 2026-11-16):
   - **HD** (default): `m2_gl` draws the game camera's view at the window's resolution, the 2D layers (HUD, text,
     2D screens) over it scaled up. 4:3, pillarboxed.
   - **Original:** the arcade's 496 x 384 software frame (`qframe_take`), scaled with nearest or a CRT filter.
@@ -90,12 +92,14 @@ mouse or touch; VR-only rows (hands, cabinet room, comfort, physical reload) are
 | Platform | Package | Mode | Graphics | XR | Input | ROM import | Notes |
 |---|---|---|---|---|---|---|---|
 | Quest 3 / 3S | APK (`com.mrsco.hotdvr`) | VR | GLES 3.0 + multiview | OpenXR, Meta loader | Touch controllers, hands | `ImportActivity` (SAF) | Shipping now |
-| Steam Frame | APK flavor `frame`, run in Valve's Lepton | VR | as Quest | OpenXR, **Khronos** Android loader | Frame controllers, hands if offered | as Quest | GoldenEye's `frame` flavor is the recipe; Meta's loader only finds Meta's runtime. Built, then tested when a Frame is at hand |
+| Steam Frame | APK flavor `frame`, run in Valve's Lepton | VR | as Quest | OpenXR, **Khronos** Android loader | Frame controllers, hands if offered | as Quest | GoldenEye's `frame` flavor is the recipe; Meta's loader only finds Meta's runtime. Built, then tested when a Frame is at hand. The APK only for now, no native SteamOS build |
 | Android phone / tablet | APK flavor `mobile` | Flat | GLES 3.0, no multiview | none | Touch, gyro, pads | as Quest | Landscape; 16 KB page alignment |
-| Windows | One zip: `HOTDVR.exe` | Flat, or VR with `--vr` / a launcher choice | GL 3.3 | OpenXR, any runtime (SteamVR, Link, Virtual Desktop) | Mouse, pads, light guns; VR controllers | Open dialog, or drop the zip on the window | Flat first, PCVR second |
-| iOS / iPadOS | IPA (Xcode project from xcodegen) | Flat | ANGLE on Metal | none | Touch, gyro, MFi / Xbox / PS pads, iPad mouse | Document picker; Files shows the data folder | Built on the Mac; LAN discovery needs Apple's multicast entitlement, so iOS uses rooms and direct IP |
+| Windows | One zip: `HOTDVR.exe` | VR (immersive) when a headset is found, else flat; `--flat` / `--vr` force one | GL 3.3 | OpenXR, any runtime (SteamVR, Link, Virtual Desktop) | Mouse, pads, light guns; VR controllers | Open dialog, or drop the zip on the window | Flat first, PCVR second |
+| iOS / iPadOS | IPA (Xcode project from xcodegen), installed with SideStore | Flat | ANGLE on Metal | none | Touch, gyro, MFi / Xbox / PS pads, iPad mouse | Document picker; Files shows the data folder | Built on the Mac; LAN discovery needs Apple's multicast entitlement, so iOS uses rooms and direct IP |
 | Vision Pro | visionOS app | VR | ANGLE on Metal, one pass per eye | Compositor Services + ARKit | Hand tracking (aim ray + pinch, as the Quest's hands), PSVR2 Sense controllers | Document picker | Later; reuse gevr-visionos-native's findings |
-| macOS (optional) | App | Flat | ANGLE on Metal | none | Mouse, pads | Open dialog | Nearly free after iOS; not asked for |
+| macOS | App (zip on GitHub) | Flat | ANGLE on Metal | none | Mouse, pads, light guns | Open dialog | Right after iOS, sharing its Apple layer and ANGLE |
+
+Linux is out of scope.
 
 ## What changes per OS service
 
@@ -115,7 +119,7 @@ mouse or touch; VR-only rows (hands, cabinet room, comfort, physical reload) are
 | P0 | Carve `src/core` / `src/platform` / `src/xr` / `src/flat` out of `src/quest`; the hook on in every build; the determinism replay as a test | The Quest APK plays and nets exactly as 0.3.0; a desktop target links the core |
 | P1 | **Windows flat**: window, HD and Original pictures, mouse / pad / light gun, the menu as a panel, ROM by dialog, voice, crash reports, packaging | A Windows player joins a Quest by room code and plays a stage, voice both ways |
 | P2 | **Android phone** flavor (touch, gyro) and the **Steam Frame** flavor (Khronos loader) | A phone plays online with a Quest and a PC; the Frame APK builds |
-| P3 | **iOS / iPadOS** on ANGLE | An iPhone plays online with a Quest |
+| P3 | **iOS / iPadOS** on ANGLE, installed with SideStore; then **macOS** on the same Apple layer | An iPhone and a Mac play online with a Quest |
 | P4 | **PCVR** on Windows: `src/xr` with a GL binding, SteamVR's quirks from GoldenEye (quads, dashboard button) | A Quest over Link and a SteamVR headset play the cabinet and immersive views |
 | P5 | **Vision Pro**: a spike first (Compositor Services, hands, one eye pass each), then the port | Plays online with the others |
 
@@ -125,22 +129,23 @@ Each phase ends with the crossplay check against every platform already done, an
 
 - **Desync from a compiler or library change.** Guarded by the replay test; a desync shows as a checksum mismatch
   within a second of play, already reported in the log.
-- **Mouse players outscore VR players.** It is co-op, so this matters less than in GoldenEye's deathmatch; see open
-  question 3.
-- **App stores.** The ROM is the player's own (nothing of SEGA's ships), but Play and the App Store review emulator-
-  like apps and SEGA's trademark in the name. Sideloading (APK, zip, AltStore / TestFlight-style ad hoc) is the plan;
-  stores are a separate decision.
+- **Mouse players outscore VR players.** It is co-op, so this matters less than in GoldenEye's deathmatch; rooms
+  stay open to everyone.
+- **Distribution is sideload only, as GoldenEye VR:** APKs (Quest, Frame, phone) and the Windows and macOS zips on
+  GitHub releases, iOS through **SideStore**. No Play, App Store or Steam: they review emulator-like apps and SEGA's
+  trademark is in the name. SideStore's free Apple ID signing means a 7-day refresh, and no multicast entitlement,
+  so iOS finds games by rooms and direct IP, not LAN discovery.
 - **Mobile backgrounding** drops sockets within seconds: treat it as the partner leaving (late joining exists).
 - **iOS Restart:** an iOS app cannot relaunch itself; settings that need a restart say so.
 
-## Open questions for the user
+## Decisions (user, 2026-11-16)
 
-1. **Order.** Proposed: Windows flat, Android phone + Frame, iOS, PCVR, Vision Pro. Should PCVR come earlier (it is
-   the same Windows exe)?
-2. **Flat picture default:** HD (sharp 3D at window resolution) or Original (the arcade's pixels)?
-3. **Crossplay rules:** anyone joins anyone, with a platform icon in the room list; or also a host option for VR
-   players only?
-4. **Steam Frame:** the APK in Lepton (cheap, the GoldenEye route), or a native SteamOS arm64 build later?
-5. **macOS and Linux:** in scope, or not for now?
-6. **Distribution:** sideload only (GitHub releases, as now), or plan for Steam (Windows, PCVR, Frame) and the app
-   stores?
+1. **Order:** as proposed (Windows flat, Android phone + Frame, iOS then macOS, PCVR, Vision Pro). Windows flat
+   comes first because it is the quickest second platform for crossplay testing against the Quest; PCVR reuses the
+   Quest's VR shell, so it waits until the split has settled.
+2. **Default mode:** immersive wherever VR is available (Quest, Frame, Vision Pro, a PC with a headset); flat
+   elsewhere. The flat picture defaults to **HD**, with Original in GRAPHICS.
+3. **Crossplay:** anyone joins anyone, a platform icon in the room list, no VR-only option.
+4. **Steam Frame:** the APK in Lepton for now; a native SteamOS build is not planned.
+5. **macOS:** in scope, after iOS. **Linux:** dropped.
+6. **Distribution:** sideload only, as GoldenEye VR: GitHub releases, and SideStore for iOS.
