@@ -1,12 +1,10 @@
 // Fast paths of the shared runtime: the same results, less work. Each flag is
-// one subject, so a port turns on the ones that pay on its host. The
-// Dreamcast's M2_DC_SPEED turns them all on (and keeps its own, tied to its
-// display or its -Os build, under M2_DC_SPEED itself); the Vita build defines
-// the flags it uses (platform/vita/CMakeLists.txt). Desktop builds define
+// one subject, so a port turns on the ones that pay on its host (the PS Vita
+// and Dreamcast ports this grew from did). The desktop and the Quest define
 // none: the reference.
 //
-// M2_FAST_GEN  runtime support of the i960 code rewritten by fast_gen.py
-//              (platform/dreamcast_unmaintained/scripts) and of m2recomp --fast_inaccuracy:
+// M2_FAST_GEN  runtime support of the i960 code rewritten by scripts/fast_gen.py
+//              and of m2recomp --fast_inaccuracy:
 //              Cpu::work_ram, gen::wram_*, Lockstep's pending/check/set_end/epoch.
 // M2_FAST_BUS  M2Board: the TGP's FIFO, function port, status and buffer RAM
 //              decoded before the page table; the last plain RAM/texture page
@@ -25,26 +23,6 @@
 //              the rasterizer's slots.
 #pragma once
 
-#ifdef M2_DC_SPEED
-#ifndef M2_FAST_GEN
-#define M2_FAST_GEN 1
-#endif
-#ifndef M2_FAST_BUS
-#define M2_FAST_BUS 1
-#endif
-#ifndef M2_FAST_TGP
-#define M2_FAST_TGP 1
-#endif
-#ifndef M2_FAST_SHARC
-#define M2_FAST_SHARC 1
-#endif
-#ifndef M2_FAST_CPU
-#define M2_FAST_CPU 1
-#endif
-#ifndef M2_FAST_GEO
-#define M2_FAST_GEO 1
-#endif
-#endif
 
 #if defined(M2_FAST_CPU) && !defined(M2_FAST_GEN)
 #error "M2_FAST_CPU spills register frames through Cpu::work_ram: define M2_FAST_GEN too"

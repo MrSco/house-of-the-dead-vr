@@ -11,7 +11,7 @@ yet. Line numbers drift; the files and functions named are the reference.
 | [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands were decoded wrongly (the centring spring played as a shake). Fixed, confirmed by the reporter on a Simagic Alpha Mini. Enhancements documented, not started |
 | [#16](#16-force-feedback-on-a-driving-force-under-linux-no-centring-on-bends) | Force feedback on a Driving Force under Linux: no centring on bends; a failing test | "Centring driver override" (Linux) added; the test fixed |
 | [#10](#10-sound-effects-too-loud-compared-with-the-music) | Sound effects too loud compared with the music | Music and Effects volumes added, both audio modes |
-| [#6](#6-android-version) | Android version | Android and iOS builds with touch controls merged (PR #14); tested on devices, working |
+| [#6](#6-android-version) | Android version | Closed. Android and iOS builds with touch controls were merged (PR #14) and tested on devices; removed from this project on 2026-11-16 |
 
 ## #4: Logitech Driving Force cannot be bound on Linux
 
@@ -423,9 +423,9 @@ on top of the devices already there.
 
 ## #6: Android version
 
-Done in `platform/mobile_unmaintained` (PR #14, from boucymatt): Android (arm64) and iOS
-builds of the desktop runtime and renderer, with on-screen touch controls
-(analogue steering, gas and brake, gears, views, coin and start) that work
-alongside Bluetooth or USB controllers. Tested on devices (2026-10-06):
-Android and iOS work with no issues reported (the PS Vita port too). See
-`platform/mobile_unmaintained/README.md` and its HANDOFF. The issue can be closed.
+Done in PR #14 (from boucymatt): Android (arm64) and iOS builds of the
+desktop runtime and renderer, with on-screen touch controls (analogue
+steering, gas and brake, gears, views, coin and start) that worked alongside
+Bluetooth or USB controllers. Tested on devices (2026-10-06): Android and iOS
+worked with no issues reported (the PS Vita port too). The Android and iOS
+builds were removed from this project on 2026-11-16. The issue is closed.

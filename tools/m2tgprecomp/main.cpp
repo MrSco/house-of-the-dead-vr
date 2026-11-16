@@ -35,7 +35,7 @@
 // with Tgp::hook set: m2tgpcheck's per-instruction check), takes the default
 // code, unchanged.
 //
-// --profile (scripts/recompile.py and build_vita.py --tgp-profile): counts
+// --profile (scripts/recompile.py --tgp-profile): counts
 // the executions of every basic block (one increment at its end) and of the
 // dispatch switch, and writes a table of what each block holds (FIFO words,
 // I/O and memory accesses, ALU operations by kind, branches; TgpBlockInfo in

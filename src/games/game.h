@@ -150,21 +150,6 @@ inline constexpr Model1Voices kDaytonaVoices{{0x1500, 0x1618}, 10, true};
 // command (0x50 0x7e) stops (Game::music_channels).
 inline constexpr uint16_t kDaytonaMusic = 0x83ff;
 
-// A frontend's default settings for the game (the Vita's: platform/vita
-// VitaSettings; RESET DEFAULTS goes back to them). Volumes in percent.
-struct FrontendDefaults {
-    int music_volume = 100;
-    // The effects against the music (100 by default; Daytona's cover its music
-    // on the Vita's speakers: 30 % for both its sets, src/games/daytona.cpp).
-    int effects_volume = 100;
-    // The Vita's steering curve (0 linear, 1 soft, 2 extra soft) and smoothing
-    // (milliseconds for the wheel to go from the centre to 90 % of full lock,
-    // 0 off; platform/vita/frontend/controls.h): a wheel turns rather than
-    // jumps, so 110 ms by default (the d-pad's left/right too); Manx TT's
-    // lean softer still (330 ms, what HIGH was).
-    int steer_curve = 0, steer_smoothing_ms = 110;
-};
-
 // How the cabinet's controls reach a Model 2A-CRX board's 315-5649 I/O chip
 // (MAME's INPUT_PORTS for the game). port: 1 = port B (IN0, outside the
 // EEPROM mode), 2 = C (IN1), 3 = D (IN2); channel: the analog mux, 0-7.
@@ -177,9 +162,6 @@ struct Game {
     const char *set;   // MAME set name (M2_ROMSET, seeds/<set>.txt, scripts/games.py)
     const char *title; // for window titles and messages
     const char *label; // this set among its game's sets, e.g. "Revision A, 1994"
-    // The other set of the same game a Vita package can switch to (Daytona's
-    // two sets share one app), or nullptr.
-    const char *companion;
     BoardType board;
 
     std::span<const RomLoad> roms;
@@ -213,8 +195,6 @@ struct Game {
     // levels against Daytona's (the cabinet's amplifier makes up the rest).
     // m2run's WAV and every parity check stay at the board's output.
     float output_gain = 1.0f;
-    // The frontends' default settings for it.
-    FrontendDefaults defaults{};
     // Its cabinet's controls (runtime/board/cabinet_controls.h), as the frontends list and
     // bind them; each game's own (Daytona's four view buttons, Sega Rally's one and
     // its hand brake, Virtua Fighter 2's joystick and three buttons).
@@ -262,31 +242,6 @@ struct Game {
     // The music and effects volumes split the voices by it (both sound boards
     // and the native engine; music_channel below). 0: no split.
     uint16_t music_channels = 0;
-    // Vita renderer, hybrid depth test (upgrade_z_depth, render/shaders.cpp): the
-    // local slope's share of the depth range, update_z_depth_LOCAL_WEIGHT (0: the Model 2 order
-    // alone; up to 0.9999: closer to a true z-buffer). Each game's own.
-    float update_z_depth_local_weight = 0.9f;
-    // The same test: the distance scale, update_z_depth_SCALE, the natural log of
-    // the farthest vertex distance w the game draws (its 99.9th percentile:
-    // nearness 1 at w 1, 0 there and beyond). Each game's own, measured on the PC.
-    float update_z_depth_scale = 12.5f;
-    // The same test: how much nearer the polygons laid over another one are
-    // drawn, as a log of their distance w (0.05: about 5 % nearer; 0: none), so
-    // they stay over a surface very close to them. Cut-outs (transparent
-    // texture), checker transparency, and very dark flat polygons (shadows: no
-    // colour channel above update_z_depth_dark_level, 0-1). Each game's own.
-    float update_z_depth_cutout_boost = 0.05f;
-    float update_z_depth_checker_boost = 0.05f;
-    float update_z_depth_dark_boost = 0.03f;
-    float update_z_depth_dark_level = 0.15f;
-    // The same test: Model 2 windows that share one depth band (each range,
-    // first to last, inclusive), so the hybrid depth mixes them as one scene;
-    // every other window keeps its own band, in front of the windows before
-    // it. Found by drawing each window alone on the PC. Unused entries: {0, 0}.
-    struct WindowRange {
-        uint8_t first = 0, last = 0;
-    };
-    WindowRange update_z_depth_window_groups[4]{};
     // A protection chip on the ROM board (Dead or Alive's 317-0229), or None.
     Protection protection = Protection::None;
     // MAME's parent set when this set is a clone (Dead or Alive's doa, Manx TT's

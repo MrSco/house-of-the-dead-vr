@@ -1,7 +1,6 @@
 // Sound board profiling: where the SCSP sound board's time goes (the 68000,
 // the SCSP's rendering, its DSP), as tgp_profile.h does for the TGP. Built
-// only with M2_SOUND_PROFILE, which the Vita defines in diagnostics builds
-// (build_vita.py --diagnostics; written to perf.log). Without it the runtime
+// only with M2_SOUND_PROFILE (a host's diagnostics builds). Without it the runtime
 // and the generated code are unchanged.
 //
 // What it measures, per sound board frame (ScspBoard::advance):

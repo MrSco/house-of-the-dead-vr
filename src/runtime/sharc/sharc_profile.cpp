@@ -144,7 +144,7 @@ size_t SharcProfileReport::format(char *out, size_t size, uint64_t frames, uint6
             if (!half && share >= total * 0.5) half = i + 1;
             if (!most && share >= total * 0.9) most = i + 1;
         }
-        o.add("  hot set: 50%% of the instructions in %u addresses, 90%% in %u; the hottest:\n", unsigned(half), unsigned(most)); // no %zu on the Vita
+        o.add("  hot set: 50%% of the instructions in %u addresses, 90%% in %u; the hottest:\n", unsigned(half), unsigned(most)); // (no %zu on some C libraries)
         static const char kKind[3] = {'p', 'b', 'F'};
         for (size_t i = 0; i < hot.size() && i < 16; ++i) {
             const uint32_t k = hot[i].second;

@@ -99,9 +99,6 @@ private:
     void ee_clock();
 };
 
-#if defined(M2_INLINE_BUS) && defined(M2_DC_MEMORY)
-#error "M2_INLINE_BUS needs the ROM in memory: not with M2_DC_MEMORY"
-#endif
 
 #ifdef M2_INLINE_BUS
 class M2Board final : public Bus { // final: the inlined bus (gen::BoardMem) calls it directly
@@ -115,15 +112,6 @@ public:
         std::vector<uint8_t> samples;                   // SCSP sound board: the sample ROMs, as the 68000 sees them from 0x800000
         std::vector<uint8_t> eeprom;                    // the settings EEPROM's default contents (128 bytes), or empty: blank
         const Game *game = &rt::game();                   // the game these images are for (and its board)
-#ifdef M2_DC_MEMORY
-        // The Dreamcast: program, main_data, polygons, textures and copro_data
-        // are read through rom (those images stay empty); texture RAM (tex0
-        // then tex1, 2 MB each; the game's writes only reach the first 1 MB
-        // of each) and frame buffer RAM (A then B, 512 KB each; optional, the
-        // game does not write it) are the frontend's, in video RAM.
-        RomSource *rom = nullptr;
-        uint8_t *texture_ram = nullptr, *frame_buffer_ram = nullptr;
-#endif
     };
     explicit M2Board(Images images);
 
@@ -212,12 +200,7 @@ public:
     // frames between keep the last picture. 0 = every frame, as the game does
     // (double buffered, a new 3D picture each frame); 1 = every 2nd; 2 = every
     // 3rd. The game logic and the geometrizer still run every frame.
-#ifdef M2_DC_SPEED
-    // The Dreamcast draws every 4th frame: 3 is allowed too.
-    void set_frame_skip(int skip) { frame_skip_ = skip < 0 ? 0 : skip > 3 ? 3 : skip; }
-#else
     void set_frame_skip(int skip) { frame_skip_ = skip < 0 ? 0 : skip > 2 ? 2 : skip; }
-#endif
     IoBoard &io() { return io_; }
     TgpBoard &tgp() { return tgp_; }
     // Bytes sent to the sound board since the last take.
@@ -259,25 +242,9 @@ private:
         Kind kind = Unmapped;
         bool burst = false;
         uint8_t *base = nullptr;
-#ifdef M2_DC_MEMORY
-        RomRegion region = RomRegion::Program; // Rom pages: read through img_.rom, base is null
-        uint32_t rom_offset = 0;
-#endif
     };
     static constexpr unsigned kPageBits = 12;
-#ifdef M2_DC_MEMORY
-    // Two levels: 1 MB chunks of 256 pages, allocated when mapped (one table
-    // entry per 4 KB of the 4 GB space is 12 MB here).
-    Page &page(uint32_t addr) {
-        auto &chunk = chunks_[addr >> 20];
-        return chunk ? chunk[(addr >> kPageBits) & 255] : unmapped_;
-    }
-    Page &map_page(uint32_t addr);
-    void map_rom(uint32_t start, uint32_t end, RomRegion region, uint32_t offset);
-    const uint8_t *rom_page(const Page &p) { return img_.rom->page_fast(p.region, p.rom_offset >> kPageBits); }
-#else
     Page &page(uint32_t addr) { return pages_[addr >> kPageBits]; }
-#endif
     void map(uint32_t start, uint32_t end, Kind k, uint8_t *base, uint32_t mirror = 0, bool burst = true);
 #ifdef M2_I960_PROFILE
     void prof_bus(uint32_t addr, bool write); // i960 profiling: the call's region (i960_profile.h)
@@ -335,12 +302,7 @@ private:
     Images img_;
     std::vector<uint8_t> ram_, work_, cpuctl_, backup_, tile_, chr_, palette_, xlat_, tex0_, tex1_, luma_, fb_a_, fb_b_,
         comm_;
-#ifdef M2_DC_MEMORY
-    std::vector<std::unique_ptr<Page[]>> chunks_;
-    static Page unmapped_; // what page() gives outside the map; never written
-#else
     std::vector<Page> pages_;
-#endif
 
     TgpBoard tgp_;
     std::unique_ptr<Geo> geo_;

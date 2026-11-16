@@ -14,8 +14,7 @@ wait-for-vblank loop from `recompile.py --i960-profile`'s hottest block, then
 
 Below, `<set>` is the game's MAME set name, such as `srallyc`, and `<game>`
 the game's short name in the scripts, such as `segarally`: everything the
-game builds goes in its folder, `build_<game>/`, and its Vita package is
-`<game>.vpk`.
+game builds goes in its folder, `build_<game>/`.
 
 ## 1. The game's record: `src/games/<game>.cpp`
 
@@ -48,8 +47,7 @@ Define one `extern const rt::Game <set>_game = {...};` per set
 - `io` (2A-CRX): which of the cabinet's controls (`rt::Inputs`) each
   315-5649 port and analog channel carries, from MAME's
   `INPUT_PORTS(<set>)`.
-- `link`: whether it has the communication board. `companion`: the game's
-  other set that one Vita package can switch to, or nullptr.
+- `link`: whether it has the communication board.
 - `gun` (a light gun game): player 1's gun range, MAME's `PORT_MINMAX` of
   its P1_X/P1_Y ports, then player 2's fixed aim (MAME's P2_X/P2_Y defaults).
   The frontends aim it with a pointer; the board reports it: the light gun
@@ -61,14 +59,13 @@ Define one `extern const rt::Game <set>_game = {...};` per set
   Alive) or a device register whose passes are counted in a register
   (`WordBitsCount`, Virtua Cop). Check one with m2run's dumps against the
   same run without it. Every work RAM address in `spin` must also be in
-  the set's `wram_bus` (scripts/games.py; a test checks it), or the Vita's
-  fast code reads it directly and the board never sees the loop.
+  the set's `wram_bus` (scripts/games.py), or `scripts/fast_gen.py`'s fast
+  code reads it directly and the board never sees the loop.
 - `protection` (optional): a protection chip on the ROM board (Dead or
   Alive's 317-0229).
 
 Then add the record to `kGames` in `src/games/games.cpp`, and add the file to
-the runtime's sources in `CMakeLists.txt`, `platform/vita/CMakeLists.txt` (the
-`foreach` over `src/games`), and the Dreamcast build files if you use them.
+the runtime's sources in `CMakeLists.txt`.
 
 Hooks into the game's code (enhancements that need its RAM addresses) are
 declared in `src/games/hooks.h` and defined in the game's file. Each one must
@@ -77,18 +74,12 @@ do nothing while its option is off.
 ## 2. The scripts' entry: `scripts/games.py`
 
 Add the game to `GAMES` under its `<game>` name (lower case: it names the
-`build_<game>/` folder and the `<game>.vpk` package): its title, its sets (the
-main one first), the Vita title ID (4 capital letters and 5 digits, one per
-game) and package name. Then add each `<set>` to `SETS`: its game, its label,
-the archive names to look for under `roms/`, the board, the extra `m2recomp`
-options (`--no-mirror`, and an `--alias` for code the boot copies to RAM),
-`vita_fast` (the `--fast-*` Vita modes checked on it: empty until then), the
-companion set, and the input ports where they differ from the common layout.
-`recompile.py`, `setup.py`, `seed_scan.py`, `make_input.py`, `m2_check.sh` and
-`build_vita.py` all read it.
-
-Create the game's image folder for the Vita, `platform/vita/logo_livearea/<game>/`,
-with an empty `.gitkeep` in it (the images themselves are never committed).
+`build_<game>/` folder): its title and its sets (the main one first). Then
+add each `<set>` to `SETS`: its game, its label, the archive names to look
+for under `roms/`, the board, the extra `m2recomp` options (`--no-mirror`,
+and an `--alias` for code the boot copies to RAM), and the input ports where
+they differ from the common layout. `recompile.py`, `setup.py`,
+`seed_scan.py`, `make_input.py` and `m2_check.sh` all read it.
 
 ## 3. Seeds: `seeds/<set>.txt`
 
@@ -119,6 +110,3 @@ second lists every address the 68000 executed. Check the result with
 - Lockstep against MAME: record a stream header once, then
   `SET=<set> scripts/m2_check.sh <scenario>` with an input
   script from `scripts/inputs/`.
-- Vita: `python3 scripts/build_vita.py --game <game>` gives
-  `build_<game>/vita/<game>.vpk`. For testing on the console, never pass
-  `--release` (LTO is much slower to build).

@@ -1,8 +1,7 @@
 // SHARC profiling (Model 2B's copro): where the recompiled SHARC program's
 // time goes. Built only with M2_SHARC_PROFILE (scripts/recompile.py
-// --sharc-profile, CMake -DM2_SHARC_PROFILE=ON; scripts/build_vita.py
-// --sharc-profile, written to perf.log; m2sharcprof for the per-address
-// counts alone). Without it the runtime and the generated code are unchanged.
+// --sharc-profile, CMake -DM2_SHARC_PROFILE=ON; m2sharcprof for the
+// per-address counts alone). Without it the runtime and the generated code are unchanged.
 //
 // What it measures:
 //   - by caller (TgpBoard): run to the wait (vblank, the TGP's sync), need

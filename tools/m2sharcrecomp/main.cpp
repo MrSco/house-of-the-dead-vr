@@ -147,7 +147,7 @@ std::string templated_handlers(const std::string &path, size_t &count) {
             body = templated_compute_calls(replace_word(body, "m_core->opcode", "OPCODE", true));
             for (const char *f : {"GET_UREG", "SET_UREG", "SHIFT_OPERATION_IMM", "dm_read32", "dm_write32", "pm_read32", "pm_write32"})
                 body = replace_word(body, f, std::string(f) + "_i", false);
-            // Forced inline (SHARC_INLINE): the Vita's GCC otherwise calls most of
+            // Forced inline (SHARC_INLINE): GCC (the PS Vita port's) otherwise calls most of
             // them (a call an instruction, the registers saved and m_core reloaded).
             o << "template <uint64_t OPCODE>\n" << ((*i)[1].matched ? (*i)[1].str() : std::string("SHARC_INLINE ")) << "void adsp21062_device::"
               << name << "_t()\n" << body << "\n\n";
@@ -282,7 +282,7 @@ int main(int argc, char **argv) {
     // calls a frame / dispatches per 1000 instructions: 256 4,116 / 109, 512 4,035 /
     // 107, 1024 2,300 / 76, 2048 1,279 / 58 (its hot code calls far away); yet the
     // fight check on the PC 314-318 M instructions/s with 256, 272-277 with 1024,
-    // 269-273 with 2048 (bigger functions, worse code), and the Vita's compiler
+    // 269-273 with 2048 (bigger functions, worse code), and the PS Vita port's compiler
     // (handlers forced inline) takes 133 s for a 1024 chunk, 183 s and 800 MB for 2048.
     uint32_t chunk = 256;
     if (argc < 3) {
@@ -300,7 +300,7 @@ int main(int argc, char **argv) {
             return 2;
         }
     }
-    if (!chunk || (chunk & (chunk - 1))) { // the dispatch divides by it: a shift (no divider on the Vita)
+    if (!chunk || (chunk & (chunk - 1))) { // the dispatch divides by it: a shift (some ARM CPUs have no divider)
         std::fprintf(stderr, "m2sharcrecomp: --chunk must be a power of two\n");
         return 2;
     }
@@ -335,7 +335,7 @@ int main(int argc, char **argv) {
         // The program in chunks (--chunk, 256 instructions), one function each
         // and one file each, compiled in parallel (the whole program in one
         // function, before the forced inlining: 9 min to optimise on the PC; in
-        // one file: over 20 min with the Vita's compiler). Control falls through within a chunk and goes back
+        // one file: over 20 min with the PS Vita port's compiler). Control falls through within a chunk and goes back
         // to run_generated's dispatch between chunks. OUT.cpp holds the core
         // (sharc.cpp, compiled once) and the dispatch; sharc_handlers.h, next
         // to it, what every chunk needs inline: sharcops.hxx's macros and inline
@@ -492,7 +492,7 @@ int main(int argc, char **argv) {
                    "\n// sharcops.hxx's handlers, templates on the opcode\n" + templates);
         // The chunks: MAME's handlers as templates on each opcode, the step
         // pieces inline (a shared-handler version, a few bytes an instruction,
-        // ran 26 % slower on the Vita: its code cache was not the limit).
+        // ran 26 % slower on the PS Vita port: its code cache was not the limit).
         for (uint32_t c = 0; c < chunks; ++c) {
             const uint32_t first = c * chunk, last = std::min(n, first + chunk);
             std::ostringstream o;

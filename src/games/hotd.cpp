@@ -95,7 +95,7 @@ constexpr ControlDef kControls[] = {
 } // namespace
 
 extern const Game hotd_game = {
-    .set = "hotd", .title = "The House of the Dead", .label = "Revision A", .companion = nullptr,
+    .set = "hotd", .title = "The House of the Dead", .label = "Revision A",
     .board = BoardType::Model2c,
     .roms = kHotdRoms, .mirror_from = 0, .tgp = {false, 0, 0, 0},
     .mirrors = {{0x1800000, 0x1f00000}, {0, 0}},

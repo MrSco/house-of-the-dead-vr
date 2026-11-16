@@ -10,7 +10,6 @@
 // tgp_board.cpp and THIRD_PARTY.md).
 #pragma once
 
-#include "runtime/romset/rom_source.h"
 #include "runtime/tgp/tgp.h"
 #include "runtime/tgp/tgp_profile.h"
 
@@ -31,10 +30,6 @@ public:
     // tables: copro_tgp_tables (0x40000 bytes); copro_data: 0x800000 bytes.
     TgpBoard(const std::vector<uint8_t> &tables, const std::vector<uint8_t> &copro_data);
     ~TgpBoard();
-#ifdef M2_DC_MEMORY
-    // copro_data read through pages (RomRegion::CoproData), not copied.
-    TgpBoard(const std::vector<uint8_t> &tables, RomSource &rom);
-#endif
 #ifdef M2_FAST_TGP
     // The TGP holds pointers to in_ and out_: a copy would read the original's.
     TgpBoard(const TgpBoard &) = delete;
@@ -83,7 +78,7 @@ public:
     uint32_t copro_status_r() const { return upload_count_ == 0 ? 0xffffffffu : 0; }
     uint64_t sharc_instructions() const;
     bool has_sharc() const { return sharc_ != nullptr; }
-    // Profiling (the Vita's diagnostics builds): with a clock, the time the
+    // Profiling (diagnostics builds): with a clock, the time the
     // SHARC runs is summed in sharc_ticks (the clock's units).
     void set_profile_clock(uint64_t (*clock)()) { clock_ = clock; }
     uint64_t sharc_ticks() const { return sharc_ticks_; }
@@ -112,9 +107,6 @@ private:
 
     Tgp tgp_;
     std::vector<uint32_t> tables_, copro_data_;
-#ifdef M2_DC_MEMORY
-    RomSource *rom_ = nullptr;
-#endif
 #ifdef M2_FAST_TGP
     WordFifo in_, out_;
 #else

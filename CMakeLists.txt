@@ -1,15 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(daytona_recomp LANGUAGES C CXX)
-if(IOS)
-    enable_language(OBJCXX)
-endif()
 
-# Mobile frontends use the same runtime/app code as desktop. Android needs
-# SDL's shared JNI library; iOS uses the static library in an app bundle.
-set(M2_MOBILE OFF)
-if(ANDROID OR IOS)
-    set(M2_MOBILE ON)
-endif()
 set(M2_GEN_ROOT "${CMAKE_BINARY_DIR}/gen" CACHE PATH
     "Directory containing recompiled daytona93/daytona93_tgp/daytona93_snd sources")
 
@@ -177,7 +168,7 @@ if(M2_I960_PROFILE)
 endif()
 # The bus inlined in the i960 code (src/runtime/cpu/i960_gen_support.h gen::BoardMem; recompile.py
 # --inline-bus): needs code generated with m2recomp --board. Off everywhere by default:
-# no measurable gain on the Vita (15 Oct 2026).
+# no measurable gain on the PS Vita port this grew from (15 Oct 2026).
 option(M2_INLINE_BUS "i960 code with the board's bus inlined (m2recomp --board code)" OFF)
 if(M2_INLINE_BUS)
     target_compile_definitions(runtime PUBLIC M2_INLINE_BUS=1)
@@ -255,16 +246,9 @@ target_link_libraries(m2sndrecomp PRIVATE m68k)
 # compiles all of it; the daytona executable itself also needs the generated
 # game code (below).
 if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
-    if(ANDROID)
-        # SDLActivity loads libSDL3.so before the game's libmain.so.
-        set(M2_SDL_TARGET SDL3::SDL3-shared)
-        set(SDL_SHARED ON CACHE BOOL "" FORCE)
-        set(SDL_STATIC OFF CACHE BOOL "" FORCE)
-    else()
-        set(M2_SDL_TARGET SDL3::SDL3-static)
-        set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-        set(SDL_STATIC ON CACHE BOOL "" FORCE)
-    endif()
+    set(M2_SDL_TARGET SDL3::SDL3-static)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
     if(NOT TARGET ${M2_SDL_TARGET})
         set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
         set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -277,7 +261,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
     endif()
 
     # Dear ImGui (launcher UI), with its SDL3 and SDL_GPU backends
-    if(NOT ANDROID AND NOT IOS)
+    if(NOT ANDROID)
         add_executable(test_gpu_startup tests/app/test_gpu_startup.cpp)
         target_include_directories(test_gpu_startup PRIVATE src ${CMAKE_SOURCE_DIR}/extern/sdl3/include)
         add_test(NAME gpu_startup COMMAND test_gpu_startup)
@@ -300,9 +284,6 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
     target_link_libraries(daytona_app PRIVATE runtime imgui gpurender ${M2_SDL_TARGET})
     if(WIN32)
         target_link_libraries(daytona_app PUBLIC ws2_32) # link play's sockets
-    endif()
-    if(M2_MOBILE)
-        target_compile_definitions(daytona_app PRIVATE M2_MOBILE=1)
     endif()
 endif()
 
@@ -390,14 +371,8 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
 
     # The game in a window (needs the app objects below).
     if(TARGET daytona_app)
-        if(ANDROID)
-            # SDLActivity loads this as libmain.so and calls SDL_main from it.
-            add_library(daytona SHARED $<TARGET_OBJECTS:daytona_app> $<TARGET_OBJECTS:game_gen>)
-            set_target_properties(daytona PROPERTIES OUTPUT_NAME main)
-        else()
-            add_executable(daytona WIN32 $<TARGET_OBJECTS:daytona_app> $<TARGET_OBJECTS:game_gen>)
-            set_target_properties(daytona PROPERTIES OUTPUT_NAME ${M2_GAME}) # build_<game>/pc/<set>/<game>
-        endif()
+        add_executable(daytona WIN32 $<TARGET_OBJECTS:daytona_app> $<TARGET_OBJECTS:game_gen>)
+        set_target_properties(daytona PROPERTIES OUTPUT_NAME ${M2_GAME}) # build_<game>/pc/<set>/<game>
         target_link_libraries(daytona PRIVATE runtime imgui gpurender ${M2_SDL_TARGET})
         if(WIN32)
             target_link_libraries(daytona PRIVATE ws2_32) # link play's sockets

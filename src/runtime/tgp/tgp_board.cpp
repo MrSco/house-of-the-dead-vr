@@ -52,7 +52,7 @@ class SharcCopro : public sharc::Bus {
 public:
     explicit SharcCopro(TgpBoard &b) : b_(b), sharc_(*this) {
         sharc_.set_flag_input(1, 0);
-#if defined(M2_FAST_SHARC) && !defined(M2_DC_MEMORY)
+#if defined(M2_FAST_SHARC)
         sharc_.set_direct_board({&b_.in_, &b_.out_, b_.buffer_, b_.copro_data_.data(), uint32_t(b_.copro_data_.size() - 1),
                                  &b_.stop_on_output_});
 #endif
@@ -213,19 +213,6 @@ TgpBoard::TgpBoard(const std::vector<uint8_t> &tables, const std::vector<uint8_t
     for (auto &w : buffer_) w = 0x07800f0f;
 }
 
-#ifdef M2_DC_MEMORY
-TgpBoard::TgpBoard(const std::vector<uint8_t> &tables, RomSource &rom) : tables_(words(tables)), rom_(&rom) {
-    if (tables_.size() != 0x10000 || rom.size(RomRegion::CoproData) != 0x800000)
-        throw TgpFatal("bad TGP table or copro data image");
-    tgp_.bus = this;
-#ifdef M2_FAST_TGP
-    tgp_.in_fifo = &in_;
-    tgp_.out_fifo = &out_;
-#endif
-    tgp_.tables = tables_.data();
-    for (auto &w : buffer_) w = 0x07800f0f;
-}
-#endif
 
 void TgpBoard::coproctl_w(uint32_t data, uint32_t mask) {
     if (tgpx4_ && (data ^ coproctl_) == 0x80000000) {
@@ -292,7 +279,7 @@ void TgpBoard::run_tgp() {
 // i960, in slices, and the i960 stalled on the empty FIFO goes on once that
 // word arrives. One run_generated call, ended by the output FIFO's write
 // (end_run: at the recompiled code's next check, a plain run's end or a branch
-// taken; 16-instruction calls before, ~1 us each on the Vita, 5,700 a frame). Run to the end instead, it processed commands the i960 had
+// taken; 16-instruction calls before, ~1 us each on the PS Vita port, 5,700 a frame). Run to the end instead, it processed commands the i960 had
 // pushed before clearing the SHARC's work area in buffer RAM (Fighting
 // Vipers' fight, 19 Oct 2026: word 0x7c5f, written by the SHARC, cleared by
 // the i960 right after, read back by the SHARC 3,000 input words later; in
@@ -321,7 +308,7 @@ void TgpBoard::need_output() {
 
 void TgpBoard::run_sharc_slice(uint64_t instructions) {
     // Polling an empty input FIFO, it can only poll again: nothing to run (the
-    // polls are not counted; ~1 us a call on the Vita, 380 a frame).
+    // polls are not counted; ~1 us a call on the PS Vita port, 380 a frame).
     if (!sharc_ || !booted_ || (sharc_starved_ && in_.empty())) return;
     sharc::adsp21062_device &s = sharc_->core();
     const uint64_t t0 = clock_ ? clock_() : 0;
@@ -353,11 +340,7 @@ uint32_t TgpBoard::mem_r(uint32_t adr) {
 #ifdef M2_TGP_PROFILE
     ++(adr & 0x800000 ? tgp_profile.bank_r_rom : adr & 0x400000 ? tgp_profile.bank_r_buffer : tgp_profile.bank_r_none);
 #endif
-#ifdef M2_DC_MEMORY
-    if (adr & 0x800000) return rom_->dword(RomRegion::CoproData, (adr & 0x1fffff) * 4);
-#else
     if (adr & 0x800000) return copro_data_[adr & (copro_data_.size() - 1)];
-#endif
     if (adr & 0x400000) return buffer_[adr & 0x7fff];
     return 0;
 }

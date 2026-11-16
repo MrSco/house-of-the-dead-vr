@@ -1,5 +1,5 @@
 // The cabinet's Test button held for the player, for frontends without one
-// (mobile, consoles): the launcher's "Hold Test button" opens the game's test
+// (a pad): the launcher's "Hold Test button" opens the game's test
 // menu (coin settings, game type, cabinet). Any button bound to Test still
 // works as well.
 //

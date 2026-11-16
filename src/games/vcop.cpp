@@ -64,7 +64,7 @@ constexpr Model1Voices kVoices{{0x1500, 0x1650}, 12, false};
 } // namespace
 
 extern const Game vcop_game = {
-    .set = "vcop", .title = "Virtua Cop", .label = "Revision B", .companion = nullptr,
+    .set = "vcop", .title = "Virtua Cop", .label = "Revision B",
     .board = BoardType::Model2o,
     .roms = kVcopRoms, .mirror_from = 0, .tgp = {true, 0x70c0, 2024, 0x77D05CE6u},
     .idle = {{0x9124, 0x9137}, {0, 0}},
@@ -80,7 +80,6 @@ extern const Game vcop_game = {
     // Daytona's driver's channels: the music on 0-8 and 15 (9 unused), the
     // shots and reloads on 11 (commands ae 20 01, ae 20 07).
     .music_channels = kDaytonaMusic, // 0-9 and 15
-    .update_z_depth_scale = 7.2f, // ln of w: game 99.9th percentile 1,230 (max 1,320)
 };
 
 } // namespace rt

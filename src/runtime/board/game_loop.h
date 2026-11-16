@@ -30,8 +30,8 @@ class GameLoop {
 public:
     // Bytes the sound board sent back to the i960's UART (the SCSP's MIDI
     // output), handed from whichever thread ran the sound frame to the next
-    // board frame. Locked: on the Vita a sound frame runs while the next
-    // board frame does.
+    // board frame. Locked: a sound frame may run while the next board frame
+    // does (the Quest app's sound thread).
     class SoundReplies {
     public:
         void put(std::vector<uint8_t> &&bytes) {
@@ -94,7 +94,7 @@ public:
     // Run until the next screen is composed. `inputs` are latched by the I/O
     // board at the start of this frame's vblank.
     void run_frame(const Inputs &inputs);
-    // Vita may overlap the independent sound board with GPU submission.
+    // A host may overlap the independent sound board with its drawing (the Quest app does).
     // Finish/complete sound before another frame, reading sound/profiling,
     // or destroying this GameLoop. Only execute runs on the worker.
     void run_frame_deferred_sound(const Inputs &inputs);

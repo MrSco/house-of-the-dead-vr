@@ -99,39 +99,32 @@ constexpr ControlDef kControls[] = {
 };
 
 extern const Game daytona93_game = {
-    .set = "daytona93", .title = "Daytona USA", .label = "Deluxe '93", .companion = "daytona",
+    .set = "daytona93", .title = "Daytona USA", .label = "Deluxe '93",
     .board = BoardType::Model2o,
     .roms = kDaytona93Roms, .mirror_from = 0x900000, .tgp = {false, 0x860020, 2024, 0xD6D611DDu},
     .idle = {{0x12b0, 0x12bb}, {0x12f0, 0x12ff}},
     .sound = SoundBoardType::Model1, .native_sound = &kDaytona93Sound,
     .io = {}, .link = false, .draw_distance = true, // hook_draw_list
-    .defaults = {.music_volume = 100, .effects_volume = 30},
     .control_list = kControls,
     .model1_voices = &kDaytonaVoices,
     .music_channels = kDaytonaMusic, // 0-9 and 15
-    .update_z_depth_scale = 6.0f, // ln of w: race 99.9th percentile 348 (max 379)
 };
 extern const Game daytona_game = {
-    .set = "daytona", .title = "Daytona USA", .label = "Revision A, 1994", .companion = "daytona93",
+    .set = "daytona", .title = "Daytona USA", .label = "Revision A, 1994",
     .board = BoardType::Model2o,
     .roms = kDaytonaRoms, .mirror_from = 0x800000, .tgp = {false, 0x800020, 2024, 0xD6D611DDu},
     .idle = {{0x12b0, 0x12bb}, {0x12f0, 0x12ff}},
     .sound = SoundBoardType::Model1, .native_sound = &kDaytonaSound,
     .io = {}, .link = true, // the communication board (837-10537)
     .draw_distance = true,  // hook_draw_list
-    .defaults = {.music_volume = 100, .effects_volume = 30},
     .control_list = kControls,
     // The wait for the next frame, 2 instructions a pass: 0x1394 ldob 0x500000,r3;
-    // 0x139c cmpibe r3,g0,0x1394. 76 % of the i960's instructions in a race on
-    // the Dreamcast (platform/dreamcast_unmaintained/HANDOFF.md; dcmemcheck matched the
-    // desktop at its 100 checkpoints with the skip). daytona93 has no such loop.
+    // 0x139c cmpibe r3,g0,0x1394. 76 % of the i960's instructions in a race (on
+    // the Dreamcast port this grew from; the desktop matched it at its 100
+    // checkpoints with the skip). daytona93 has no such loop.
     .spin = {{Game::SpinWait::ByteIsReg, 0x1394, 0x00500000, 2, 16}},
     .model1_voices = &kDaytonaVoices,
     .music_channels = kDaytonaMusic, // 0-9 and 15
-    .update_z_depth_local_weight = 0.95,//0.91,
-    .update_z_depth_scale = 6.0f, // as daytona93 (the same tracks)
-    .update_z_depth_cutout_boost = 0.07f,
-    .update_z_depth_dark_boost = 0.11f,
 };
 
 

@@ -18,11 +18,11 @@ build_<game>/ (git-ignored: never commit it):
   build_<game>/pc/<set>/                the desktop build: the tools that
                                         recompile, m2run and the game
 
---recomp-only stops after the recompilation (the Vita build needs only that
+--recomp-only stops after the recompilation (the Quest build needs only that
 and the tools).
 
 --fast_inaccuracy turns on every recompiler speed option
-for slow targets, above all the PS Vita:
+for slow targets (the PS Vita port this grew from):
   i960 (tools/m2recomp/main.cpp)
   1. the lockstep bookkeeping (interrupt and event checks, instruction count)
      once per basic block instead of before every instruction: no longer
@@ -41,8 +41,8 @@ CMake M2_I960_PROFILE, src/runtime/cpu/i960_profile.h). --sharc-profile: the
 SHARC's (Model 2B; CMake M2_SHARC_PROFILE, src/runtime/sharc/sharc_profile.h;
 the generated code is the same).
 --inline-bus: the i960 code with the set's board bus inlined (m2recomp
---board, CMake M2_INLINE_BUS; build_vita.py --inline-bus on the Vita, off by
-default there too: no measurable gain): the same results, for checking it
+--board, CMake M2_INLINE_BUS; no measurable gain on the PS Vita port): the
+same results, for checking it
 on the PC. m2native refuses that code.
 The lockstep and trace comparisons need the default output. Off by default;
 run again without it to go back.
@@ -91,7 +91,7 @@ def main():
     ap.add_argument("--set", choices=sorted(SETS), help="another set of the game (default: its main set)")
     ap.add_argument("--config", default="Release")
     ap.add_argument("--fast_inaccuracy", action="store_true",
-                    help="recompiler speed options (i960 block bookkeeping and direct chunk chaining, TGP block counting): faster (PS Vita), "
+                    help="recompiler speed options (i960 block bookkeeping and direct chunk chaining, TGP block counting): faster on slow targets, "
                          "not interrupt-exact against MAME")
     ap.add_argument("--tgp-profile", action="store_true",
                     help="TGP profiling: block counters in the TGP code, time and work report in m2run")

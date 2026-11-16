@@ -55,22 +55,6 @@ Geo::Geo(std::vector<uint8_t> polygons, std::vector<uint8_t> textures, uint32_t 
     geo_.polygon_rom_mask = uint32_t(words - 1);
 }
 
-#ifdef M2_DC_MEMORY
-Geo::Geo(RomSource &rom, uint32_t *buffer) : buffer_(buffer) {
-    const uint32_t polygon_words = rom.size(RomRegion::Polygons) / 4, texels = rom.size(RomRegion::Textures) / 2;
-    if (!polygon_words || (polygon_words & (polygon_words - 1)) || !texels || (texels & (texels - 1)))
-        throw GeoFatal("bad polygon or texture ROM size");
-    raster_.rom = &rom;
-    raster_.texture_rom_mask = texels - 1;
-    geo_.raster = &raster_;
-    geo_.rom = &rom;
-    geo_.polygon_rom_mask = polygon_words - 1;
-    // Room for the busiest frame up front (attract and race: 2,182 kept
-    // polygons, ~200 bytes each): growing past 2,048 doubles the vector to
-    // 800 KB while the old 400 KB still exists, more than 16 MB has spare.
-    polys.reserve(2400);
-}
-#endif
 
 static inline void transform_point(GeoVertex *point, float *matrix)
 {
@@ -94,51 +78,9 @@ static inline void transform_vector(GeoVertex *vector, float *matrix)
 	vector->pz = tz;
 }
 
-#if defined(M2_DC_NATIVE_GEO) && defined(__sh__)
-// The Dreamcast (picture only: nothing the geometrizer computes goes back
-// into the game): the SH-4 transforms a vector by its 4x4 matrix registers
-// (XMTRX) in one ftrv. The 3x4 matrix is loaded once per object as
-// columns (m0 m1 m2 0) (m3 m4 m5 0) (m6 m7 m8 0) (m9 m10 m11 1); a point
-// has w 1, a vector w 0 (no translation), as transform_point/_vector.
-// ftrv's rounding is not the separate multiplies' and adds': the polygons
-// differ from the desktop's in their last bits.
-static inline void xmtrx_load(const float *matrix)
-{
-	alignas(8) float m[16] = {matrix[0], matrix[1], matrix[2], 0.0f, matrix[3], matrix[4], matrix[5], 0.0f,
-	                          matrix[6], matrix[7], matrix[8], 0.0f, matrix[9], matrix[10], matrix[11], 1.0f};
-	const float *p = m;
-	__asm__ __volatile__(
-		"fschg\n\t"
-		"fmov.d @%0+, xd0\n\t"
-		"fmov.d @%0+, xd2\n\t"
-		"fmov.d @%0+, xd4\n\t"
-		"fmov.d @%0+, xd6\n\t"
-		"fmov.d @%0+, xd8\n\t"
-		"fmov.d @%0+, xd10\n\t"
-		"fmov.d @%0+, xd12\n\t"
-		"fmov.d @%0+, xd14\n\t"
-		"fschg\n"
-		: "+r"(p) : : "memory");
-}
-static inline void xmtrx_apply(GeoVertex *v, float w)
-{
-	register float x __asm__("fr0") = v->x;
-	register float y __asm__("fr1") = v->y;
-	register float z __asm__("fr2") = v->pz;
-	register float ww __asm__("fr3") = w;
-	__asm__ __volatile__("ftrv xmtrx, fv0\n" : "+f"(x), "+f"(y), "+f"(z), "+f"(ww));
-	v->x = x;
-	v->y = y;
-	v->pz = z;
-}
-#define M2_GEO_LOAD_MATRIX(geo) xmtrx_load((geo)->matrix)
-#define M2_GEO_POINT(p, geo) xmtrx_apply((p), 1.0f)
-#define M2_GEO_VECTOR(v, geo) xmtrx_apply((v), 0.0f)
-#else
 #define M2_GEO_LOAD_MATRIX(geo) ((void)0)
 #define M2_GEO_POINT(p, geo) transform_point((p), (geo)->matrix)
 #define M2_GEO_VECTOR(v, geo) transform_vector((v), (geo)->matrix)
-#endif
 
 // Three words (a point or a normal) from the input: one block read with
 // M2_FAST_GEO (GeoPtr::read: the same words), otherwise word by word.
@@ -377,11 +319,7 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 	if (raster->command_buffer[0] & 0x800000)
 		tp = GeoPtr16{raster->texture_ram, 0x10000, raster->command_buffer[0] & 0xffff};
 	else
-#ifdef M2_DC_MEMORY
-		tp = GeoPtr16{raster->texture_rom, raster->texture_rom_mask + 1, raster->command_buffer[0] & raster->texture_rom_mask, raster->rom};
-#else
 		tp = GeoPtr16{raster->texture_rom, raster->texture_rom_mask + 1, raster->command_buffer[0] & raster->texture_rom_mask};
-#endif
 
 #ifdef M2_FAST_GEO
 	// (Read below, for a polygon not culled: tp keeps this address.)
@@ -406,11 +344,7 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 	if (raster->command_buffer[1] & 0x800000)
 		th = GeoPtr16{raster->texture_ram, 0x10000, raster->command_buffer[1] & 0xffff};
 	else
-#ifdef M2_DC_MEMORY
-		th = GeoPtr16{raster->texture_rom, raster->texture_rom_mask + 1, raster->command_buffer[1] & raster->texture_rom_mask, raster->rom};
-#else
 		th = GeoPtr16{raster->texture_rom, raster->texture_rom_mask + 1, raster->command_buffer[1] & raster->texture_rom_mask};
-#endif
 
 #ifdef M2_FAST_GEO
 	// (Read below, for a polygon not culled: th keeps this address.)
@@ -1609,18 +1543,6 @@ GeoPtr Geo::geo_object_data(geo_state *geo, uint32_t opcode, GeoPtr input)
 	model2_3d_push(raster, tpa);
 	model2_3d_push(raster, tha);
 
-#ifdef M2_DC_SPEED
-	// Not shown: no polygons. The parsers change no state of their own; the
-	// rasterizer ends the command as after a parse (the two initial points,
-	// then attribute 0). What it leaves in its command buffer is written
-	// again before it is next read.
-	if (skip_objects)
-	{
-		for (int i = 0; i < 7; i++)
-			model2_3d_push(raster, 0);
-		return input;
-	}
-#endif
 
 	/* select where we're reading polygon information from */
 	if (oba & 0x01000000)
@@ -1631,11 +1553,7 @@ GeoPtr Geo::geo_object_data(geo_state *geo, uint32_t opcode, GeoPtr input)
 	else if (oba & 0x00800000)
 	{
 		/* Polygon ROM */
-#ifdef M2_DC_MEMORY
-		obp = GeoPtr{geo->polygon_rom, geo->polygon_rom_mask + 1, oba & geo->polygon_rom_mask, geo->rom};
-#else
 		obp = GeoPtr{geo->polygon_rom, geo->polygon_rom_mask + 1, oba & geo->polygon_rom_mask};
-#endif
 	}
 	else
 	{
@@ -1989,19 +1907,6 @@ GeoPtr Geo::geo_test(geo_state *geo, uint32_t opcode, GeoPtr input)
 	/* get the number of checksums we have to run */
 	blocks = *input++;
 
-#ifdef M2_DC_MEMORY
-	// Each block is three words (address, count, checksum) and its sums have
-	// no effect (the LEDs are not emulated). The desktop's compiler reduces
-	// this whole loop to the cursor moving on 3 * blocks words; here every
-	// read goes through the RomSource check and cannot be dropped, and blocks
-	// can be huge (frame 189 of the attract mode: an endless-looking loop on
-	// the SH-4). The same result, without the loop.
-	(void)address;
-	(void)count;
-	(void)checksum;
-	input += 3 * blocks;
-	return input;
-#endif
 
 	for (i = 0; i < blocks; i++)
 	{
@@ -2022,11 +1927,7 @@ GeoPtr Geo::geo_test(geo_state *geo, uint32_t opcode, GeoPtr input)
 
 		for (j = 0; j < count; j++)
 		{
-#ifdef M2_DC_MEMORY
-			data = geo->rom->dword(RomRegion::Polygons, address++ * 4);
-#else
 			data = geo->polygon_rom[address++];
-#endif
 
 			address &= geo->polygon_rom_mask;
 

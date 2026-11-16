@@ -91,7 +91,7 @@ constexpr ControlDef kControls[] = {
 } // namespace
 
 extern const Game srallyc_game = {
-    .set = "srallyc", .title = "Sega Rally Championship", .label = "Revision C", .companion = nullptr,
+    .set = "srallyc", .title = "Sega Rally Championship", .label = "Revision C",
     .board = BoardType::Model2a,
     .roms = kSrallycRoms, .mirror_from = 0, .tgp = {true, 0x5ae94, 1665, 0x072484B1u},
     .idle = {{0x5a379c, 0x5a37b3}, {0, 0}},
@@ -102,23 +102,10 @@ extern const Game srallyc_game = {
     // frames: RMS -38.5/-47.3 dBFS in race/attract against -14.4/-21.8; peak
     // -20.9 against -0.9): x10 (+20 dB) brings its race peaks to Daytona's.
     .output_gain = 10.0f,
-    // Its effects (engine, gravel, co-driver) need more than Daytona's 20 %.
-    .defaults = {.effects_volume = 85},
     .control_list = kControls,
     // The music on channels 0-7 and 15 (scsp_voices: 2 of ~3,700 key-ons in a
     // race elsewhere); 8 counted with it, as VF2's.
     .music_channels = 0x81ff, // 0-8 and 15
-    .update_z_depth_local_weight = 0.95,//0.91,
-    .update_z_depth_scale = 12.5f, // ln of w: race 99.9th percentile 1.9e5 (the sky)
-    .update_z_depth_cutout_boost = 0.06f,
-    .update_z_depth_dark_boost = 0.04f,
-    // A race's windows (the Mountain in practice, each drawn alone): 1 the
-    // world; 2 the rev counter's needle in the cockpit view (one polygon, w
-    // 128), the player's car in the third-person view (~300 polygons; the
-    // needle is then 3), the cars on the starting grid; 3-4 the mirror's frame
-    // and view. 1 and 2 grouped (the user's choice, to check on the console:
-    // the needle may go behind near polygons in the cockpit view).
-    .update_z_depth_window_groups = {{1, 2}},
 };
 
 

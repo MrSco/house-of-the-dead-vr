@@ -14,15 +14,11 @@
 
 #include "runtime/board/fast_paths.h"
 
-// M2_AL(p, n): p, known n-aligned. With M2_DC_SPEED on GCC (the Dreamcast)
-// it tells the compiler, so a std::memcpy of n bytes through it is one load
+// M2_AL(p, n): p, known n-aligned. On the Dreamcast port this grew from it
+// told the compiler, so a std::memcpy of n bytes through it is one load
 // or store: the SH-4 traps on unaligned access, and without it GCC calls
 // memcpy for every word. Elsewhere it is p itself.
-#if defined(M2_DC_SPEED) && defined(__GNUC__)
-#define M2_AL(p, n) static_cast<decltype(p)>(__builtin_assume_aligned((p), (n)))
-#else
 #define M2_AL(p, n) (p)
-#endif
 
 namespace rt {
 

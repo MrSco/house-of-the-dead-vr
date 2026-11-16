@@ -1,5 +1,6 @@
-"""The Dreamcast's pass over the desktop's generated i960 code (as the Vita
-makes its own): the same instructions, fewer lockstep checks.
+"""A speed pass over the desktop's generated i960 code (written for the Dreamcast
+port this grew from; the runtime's M2_FAST_GEN supports it): the same
+instructions, fewer lockstep checks.
 
 The desktop's code calls Lockstep::boundary() before every instruction (and
 stores the IP for it). Here each chunk counts down `left`, the instructions

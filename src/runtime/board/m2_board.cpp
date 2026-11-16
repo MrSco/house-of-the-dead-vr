@@ -246,19 +246,6 @@ void IoBoard::ee_clock() { // CLK rising edge
 // ---------------------------------------------------------------------------
 // Board
 
-#ifdef M2_DC_MEMORY
-// The Dreamcast: no texture RAM vectors (the frontend's, in video RAM), a
-// two-level page table, ROM through img_.rom.
-M2Board::M2Board(Images images)
-    : img_(std::move(images)), ram_(0x20000), work_(0x100000), cpuctl_(0x1000), backup_(0x4000, 0xff), tile_(0x10000),
-      chr_(0x80000), palette_(0x4000), xlat_(0xc000), luma_(0x20000), comm_(0x4000),
-      chunks_(size_t(1) << 12), tgp_(img_.copro_tables, *img_.rom) {
-    if (!img_.rom || !img_.texture_ram) throw Fatal("M2_DC_MEMORY: no ROM source or texture RAM");
-    img_.copro_tables = {}; // the TGP board keeps its own copy (as words)
-    map_rom(0x00000000, 0x001fffff, RomRegion::Program, 0);
-    map(0x00200000, 0x0021ffff, Ram, ram_.data());
-    map_rom(0x00220000, 0x0023ffff, RomRegion::Program, 0x20000);
-#else
 M2Board::M2Board(Images images)
     : img_(std::move(images)), ram_(0x20000), work_(0x100000), cpuctl_(0x1000), backup_(0x4000, 0xff), tile_(0x10000),
       chr_(0x80000), palette_(0x4000), xlat_(0xc000), tex0_(0x200000), tex1_(0x200000), luma_(0x20000), fb_a_(0x80000),
@@ -272,7 +259,6 @@ M2Board::M2Board(Images images)
         map(0x00200000, 0x0021ffff, Ram, ram_.data());
         map(0x00220000, 0x0023ffff, Rom, img_.program.data() + 0x20000);
     }
-#endif
     io_.wiring = img_.game->io;
     io_.gun = img_.game->gun;
     // The set's default settings (MAME loads its "eeprom" region the same way);
@@ -307,30 +293,11 @@ M2Board::M2Board(Images images)
         prot_ram_.assign(0x8000, 0);
         map(0x01d80000, 0x01d87fff, Dev, nullptr, 0, false);
     }
-#ifdef M2_DC_MEMORY
-    map_rom(0x02000000, 0x03ffffff, RomRegion::MainData, 0);
-    map_rom(0x06000000, 0x06ffffff, RomRegion::MainData, 0x1000000);
-#else
     map(0x02000000, 0x03ffffff, Rom, img_.main_data.data());
     map(0x06000000, 0x06ffffff, Rom, img_.main_data.data() + 0x1000000);
-#endif
     map(0x10000000, 0x105fffff, Dev, nullptr, 0, false);
-#ifdef M2_DC_MEMORY
-    // Frame buffer RAM is optional: Daytona never writes it (0 of 256 pages
-    // in 9,000 attract frames and a whole race); without it the range is
-    // unmapped, reading 0 as the zeroed RAM would.
-    if (img_.frame_buffer_ram) {
-        map(0x11600000, 0x1167ffff, Ram, img_.frame_buffer_ram);
-        map(0x11680000, 0x116fffff, Ram, img_.frame_buffer_ram + 0x80000);
-    }
-#else
     map(0x11600000, 0x1167ffff, Ram, fb_a_.data());
     map(0x11680000, 0x116fffff, Ram, fb_b_.data());
-#endif
-#ifdef M2_DC_MEMORY
-    map(0x12000000, 0x121fffff, Tex, img_.texture_ram, 0x200000);
-    map(0x12400000, 0x125fffff, Tex, img_.texture_ram + 0x200000, 0x200000);
-#else
     if (model2b()) {
         // MAME model2b_crx_mem: texture RAM as plain RAM, 1 MB a sheet mirrored
         // once, stored as 2A's tex0_w/tex1_w store it (ram_written tracks its
@@ -351,48 +318,19 @@ M2Board::M2Board(Images images)
         map(0x12000000, 0x121fffff, Tex, tex0_.data(), 0x200000);
         map(0x12400000, 0x125fffff, Tex, tex1_.data(), 0x200000);
     }
-#endif
     if (!model2bc()) map(0x12800000, 0x1281ffff, Ram, luma_.data());
 
-#ifdef M2_DC_MEMORY
-    geo_ = std::make_unique<Geo>(*img_.rom, tgp_.buffer_data());
-#else
     geo_ = std::make_unique<Geo>(std::move(img_.polygons), std::move(img_.textures), tgp_.buffer_data());
-#endif
     set_vr(geo_->vr()); // M2_VR=1
     video_ = std::make_unique<Video>(tile_.data(), chr_.data());
     video_->enable_write_tracking();
 }
 
-#ifdef M2_DC_MEMORY
-M2Board::Page M2Board::unmapped_;
-
-M2Board::Page &M2Board::map_page(uint32_t addr) {
-    auto &chunk = chunks_[addr >> 20];
-    if (!chunk) chunk = std::make_unique<Page[]>(256);
-    return chunk[(addr >> kPageBits) & 255];
-}
-
-void M2Board::map_rom(uint32_t start, uint32_t end, RomRegion region, uint32_t offset) {
-    for (uint64_t a = start; a <= end; a += (1u << kPageBits)) {
-        Page &p = map_page(uint32_t(a));
-        p.kind = Rom;
-        p.burst = true;
-        p.base = nullptr;
-        p.region = region;
-        p.rom_offset = offset + uint32_t(a - start);
-    }
-}
-#endif
 
 void M2Board::map(uint32_t start, uint32_t end, Kind k, uint8_t *base, uint32_t mirror, bool burst) {
     for (uint32_t m = 0;; m = (m - mirror) & mirror) {
         for (uint64_t a = start; a <= end; a += (1u << kPageBits)) {
-#ifdef M2_DC_MEMORY
-            Page &p = map_page(uint32_t(a | m));
-#else
             Page &p = pages_[uint32_t(a | m) >> kPageBits];
-#endif
             p.kind = k;
             p.burst = burst;
             p.base = base ? base + (a - start) : nullptr;
@@ -426,14 +364,6 @@ void M2Board::vblank_start() {
     vblank_tick_ = ticks();
     // 60 Hz mode or an even frame: the geometrizer starts a new frame
     if ((videocontrol_ & 1) == 0 || (frame_ & 1) == 0) {
-#ifdef M2_DC_SPEED
-        // Draw mode: this frame's polygons are shown if it is drawn, or, in
-        // 30 Hz mode (no parse next frame), if the next one is.
-        if (frame_skip_) {
-            const uint64_t n = uint64_t(frame_skip_ + 1);
-            geo_->skip_objects = frame_ % n != 0 && ((videocontrol_ & 1) == 0 || (frame_ + 1) % n != 0);
-        }
-#endif
         geo_->zclip_w(zclip_);
         // The TGP runs alongside the i960 in MAME: by vblank it has written
         // to buffer RAM whatever its input asked for. Ours runs on demand, so
@@ -481,13 +411,8 @@ void M2Board::vblank_end() {
     m.palram = palette_.data();
     m.colorxlat = xlat_.data();
     m.lumaram = luma_.data();
-#ifdef M2_DC_MEMORY
-    m.tex0 = reinterpret_cast<const uint32_t *>(img_.texture_ram);
-    m.tex1 = reinterpret_cast<const uint32_t *>(img_.texture_ram + 0x200000);
-#else
     m.tex0 = reinterpret_cast<const uint32_t *>(tex0_.data());
     m.tex1 = reinterpret_cast<const uint32_t *>(tex1_.data());
-#endif
     m.tex_generation = tex_generation_;
     m.tex_page_generation = tex_page_generation_;
     video_->screen_update(geo_->polys, geo_->windows(), m);
@@ -520,7 +445,7 @@ void M2Board::timer_write(unsigned n, uint32_t data, uint32_t mask) {
 // a long reload): stale ones piled up in the Lockstep log (30 k by frame
 // 3,500 of srallyc, every insert shifting them). So the one scheduled is
 // always current; [this, n] also fits std::function's inline storage (no
-// allocation per reschedule on the Vita's 32-bit ARM).
+// allocation per reschedule).
 void M2Board::timer_schedule(unsigned n) {
     Timer &t = timers_[n];
     if (t.expiry != kNoExpiry) ls_->cancel_callback(std::exchange(t.expiry, kNoExpiry));
@@ -858,11 +783,7 @@ void M2Board::tex_write(const Page &p, uint32_t addr, uint32_t lane_data) {
     w[0] = uint8_t(lane_data);
     w[1] = uint8_t(lane_data >> 8);
     ++tex_generation_; // the hardware renderer re-uploads texture RAM when this moves
-#ifdef M2_DC_MEMORY
-    const uint8_t *const sheet0 = img_.texture_ram;
-#else
     const uint8_t *const sheet0 = tex0_.data();
-#endif
     const uint32_t sheet = base == sheet0 ? 0 : 1, stored = (o >> 1) * 4 + (o & 1) * 2;
     tex_page_generation_[sheet * VideoMem::kTexPages + (stored >> 12)] = tex_generation_;
 }
@@ -873,12 +794,6 @@ uint32_t M2Board::fetch(uint32_t addr) {
     const Page &p = page(addr);
     if (p.kind != Rom && p.kind != Ram) throw Fatal("instruction fetch from a device");
     uint32_t v;
-#ifdef M2_DC_MEMORY
-    if (p.kind == Rom) {
-        std::memcpy(&v, M2_AL(rom_page(p) + (addr & 0xffc), 4), 4);
-        return v;
-    }
-#endif
     std::memcpy(&v, M2_AL(p.base + (addr & 0xffc), 4), 4);
     return v;
 }
@@ -982,9 +897,6 @@ uint8_t M2Board::read_byte(uint32_t addr) {
                 return v;
             }
 #endif
-#ifdef M2_DC_MEMORY
-    if (p.kind == Rom) return rom_page(p)[addr & 0xfff];
-#endif
     switch (p.kind) {
 #ifdef M2_FAST_BUS
     case Ram: case Tex: fast_read(addr, p); return p.base[addr & 0xfff];
@@ -1011,13 +923,6 @@ uint16_t M2Board::read_word(uint32_t addr) {
 #endif
     const Page &p = page(addr);
     const unsigned sh = (addr & 2) * 8;
-#ifdef M2_DC_MEMORY
-    if (p.kind == Rom) {
-        uint16_t v;
-        std::memcpy(&v, M2_AL(rom_page(p) + (addr & 0xfff), 2), 2);
-        return v;
-    }
-#endif
     switch (p.kind) {
 #ifdef M2_FAST_BUS
     case Ram: case Tex: fast_read(addr, p); [[fallthrough]];
@@ -1061,13 +966,6 @@ uint32_t M2Board::read_dword(uint32_t addr) {
     }
 #endif
     const Page &p = page(addr);
-#ifdef M2_DC_MEMORY
-    if (p.kind == Rom) {
-        uint32_t v;
-        std::memcpy(&v, M2_AL(rom_page(p) + (addr & 0xfff), 4), 4);
-        return v;
-    }
-#endif
 #ifdef M2_SPIN_SKIP
     if (spin_addr(addr) && p.kind == Ram) // a work RAM word's wait loop (WordZeroCount)
         for (const Game::SpinWait &w : spin_)

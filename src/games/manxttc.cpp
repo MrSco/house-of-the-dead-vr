@@ -101,7 +101,7 @@ constexpr ScspVoices kVoices = {0x2800, 0x10, 4};
 } // namespace
 
 extern const Game manxttc_game = {
-    .set = "manxttc", .title = "Manx TT Superbike", .label = "Twin, Revision C", .companion = nullptr,
+    .set = "manxttc", .title = "Manx TT Superbike", .label = "Twin, Revision C",
     .board = BoardType::Model2a,
     .roms = kManxttcRoms, .mirror_from = 0xc00000, .tgp = {true, 0x787e8, 1782, 0xBB000CC3u},
     .idle = {{0x3f1c, 0x3f33}, {0, 0}},
@@ -113,14 +113,9 @@ extern const Game manxttc_game = {
     // daytona93 race_basic -16.4, peak -1.0; attract -22.0, -6.0): x3.4 (+10.6
     // dB) brings its race peaks to Daytona's.
     .output_gain = 3.4f,
-    // The engine is an effect, mixed by the game with the music (the Twin's
-    // SCSP driver): effects at 100 %, not Daytona's 20 %. The lean softer than a
-    // car's wheel on the Vita's stick: the soft curve and high smoothing.
-    .defaults = {.effects_volume = 100, .steer_curve = 1, .steer_smoothing_ms = 330},
     .control_list = kControls,
     .dsp = {0x8f14, 74, 0xAE4FDF9Cu},
     .music_channels = 0x03ff, // 0-9
-    .update_z_depth_scale = 10.0f, // ln of w: race 99.9th percentile 20,900 (max 23,100)
     .parent = "manxtt", // MAME's merged manxtt.zip
 };
 

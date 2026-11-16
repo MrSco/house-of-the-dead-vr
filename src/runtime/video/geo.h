@@ -13,7 +13,6 @@
 #pragma once
 
 #include "runtime/board/fast_paths.h"
-#include "runtime/romset/rom_source.h"
 
 #include <cstdint>
 #include <stdexcept>
@@ -63,15 +62,8 @@ struct GeoPoly {
 struct GeoPtr {
     uint32_t *base = nullptr;
     uint32_t size = 0, i = 0;
-#ifdef M2_DC_MEMORY
-    RomSource *rom = nullptr; // the polygon ROM, read through pages (base is null)
-    mutable uint32_t rom_word = 0;
-#endif
     bool null() const { return base == nullptr; }
     uint32_t &at() const {
-#ifdef M2_DC_MEMORY
-        if (rom) return rom_word = rom->dword(RomRegion::Polygons, (i & (size - 1)) * 4);
-#endif
         if (!base) throw GeoFatal("geometrizer read from missing memory");
         return base[i & (size - 1)];
     }
@@ -81,21 +73,12 @@ struct GeoPtr {
 #ifdef M2_FAST_GEO
     // n words from here into out, moving past them: the values n times
     // *(*this)++ gives, a page (or up to the wrap) at a time instead of a
-    // page lookup each. (The ROM's pages are little-endian words, as the
-    // Dreamcast's M2_DC_MEMORY supplies.)
+    // page lookup each.
     void read(uint32_t *out, uint32_t n) {
         while (n) {
             const uint32_t w = i & (size - 1);
             uint32_t run = n < size - w ? n : size - w;
             const uint32_t *src;
-#ifdef M2_DC_MEMORY
-            if (rom) {
-                constexpr uint32_t kWords = RomSource::kPageSize / 4;
-                if (run > kWords - (w & (kWords - 1))) run = kWords - (w & (kWords - 1));
-                src = reinterpret_cast<const uint32_t *>(rom->page_fast(RomRegion::Polygons, w / kWords)) +
-                      (w & (kWords - 1));
-            } else
-#endif
             {
                 if (!base) throw GeoFatal("geometrizer read from missing memory");
                 src = base + w;
@@ -111,13 +94,7 @@ struct GeoPtr {
 struct GeoPtr16 {
     const uint16_t *base = nullptr;
     uint32_t size = 0, i = 0;
-#ifdef M2_DC_MEMORY
-    RomSource *rom = nullptr; // the texture ROM, read through pages (base is null)
-#endif
     uint16_t operator*() const {
-#ifdef M2_DC_MEMORY
-        if (rom) return rom->word(RomRegion::Textures, (i & (size - 1)) * 2);
-#endif
         if (!base) throw GeoFatal("rasterizer read from missing texture memory");
         return base[i & (size - 1)];
     }
@@ -129,14 +106,6 @@ struct GeoPtr16 {
             const uint32_t w = i & (size - 1);
             uint32_t run = n < size - w ? n : size - w;
             const uint16_t *src;
-#ifdef M2_DC_MEMORY
-            if (rom) {
-                constexpr uint32_t kWords = RomSource::kPageSize / 2;
-                if (run > kWords - (w & (kWords - 1))) run = kWords - (w & (kWords - 1));
-                src = reinterpret_cast<const uint16_t *>(rom->page_fast(RomRegion::Textures, w / kWords)) +
-                      (w & (kWords - 1));
-            } else
-#endif
             {
                 if (!base) throw GeoFatal("rasterizer read from missing texture memory");
                 src = base + w;
@@ -155,12 +124,8 @@ public:
     // polygons: the model ROM (16 or 32 MB); textures: the texture ROM
     // (0x1000000 bytes); buffer: buffer RAM (0x8000 dwords), which the
     // display list is read from. Both ROMs are kept, not copied (pass them
-    // moved: Dead or Alive's are 48 MB of the Vita's heap).
+    // moved: Dead or Alive's are 48 MB).
     Geo(std::vector<uint8_t> polygons, std::vector<uint8_t> textures, uint32_t *buffer);
-#ifdef M2_DC_MEMORY
-    // Both ROMs read through pages, not copied.
-    Geo(RomSource &rom, uint32_t *buffer);
-#endif
 
     // MAME screen_vblank -> geo_parse: walk this frame's display list from
     // read_start (the geometrizer's read-start register).
@@ -170,12 +135,6 @@ public:
     std::vector<GeoPoly> polys;       // kept polygons, in the order added
     std::vector<uint32_t> pushed;     // every word handed to the rasterizer
     bool record_pushes = false;
-#ifdef M2_DC_SPEED
-    // Draw mode, a frame whose polygons will not be shown: object data is
-    // not parsed (the rasterizer gets its opening and closing words only).
-    // Every other command still runs, so the geometrizer's state is the same.
-    bool skip_objects = false;
-#endif
 
     struct plane {
         GeoVertex normal;
@@ -189,9 +148,6 @@ public:
     struct raster_state {
         const uint16_t *texture_rom = nullptr;
         uint32_t texture_rom_mask = 0;
-#ifdef M2_DC_MEMORY
-        RomSource *rom = nullptr;
-#endif
         int16_t viewport[4] = {0, 0, 0, 0};
         int16_t center[4][2] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
         uint16_t center_sel = 0;
@@ -214,9 +170,6 @@ public:
         uint32_t mode = 0;
         uint32_t *polygon_rom = nullptr;
         uint32_t polygon_rom_mask = 0;
-#ifdef M2_DC_MEMORY
-        RomSource *rom = nullptr;
-#endif
         float matrix[12] = {};
         GeoVertex focus, light;
         float lod = 0;

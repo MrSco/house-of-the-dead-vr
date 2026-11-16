@@ -102,7 +102,7 @@ constexpr ScspVoices kVoices = {0x2800, 0x10, 4};
 } // namespace
 
 extern const Game doaa_game = {
-    .set = "doaa", .title = "Dead or Alive", .label = "Revision A", .companion = nullptr,
+    .set = "doaa", .title = "Dead or Alive", .label = "Revision A",
     .board = BoardType::Model2a,
     .roms = kDoaaRoms, .mirror_from = 0, .tgp = {true, 0x9664, 2859, 0xFB1BDB4Eu},
     .idle = {{0x2800, 0x2813}, {0, 0}},
@@ -125,8 +125,6 @@ extern const Game doaa_game = {
     .spin = {{Game::SpinWait::WordZeroCount, 0x2800, 0x0054b150, 4, 0, 0, 0, 0, 16}},
     .music_channels = 0x0fff, // 0-11
 
-    .update_z_depth_local_weight = 0.98,
-    .update_z_depth_dark_boost = 0.05f,
 
     .protection = Protection::Comp0229Doa,
     .parent = "doa", // MAME's merged doa.zip

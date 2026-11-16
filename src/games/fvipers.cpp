@@ -97,7 +97,7 @@ constexpr ControlDef kControls[] = {
 } // namespace
 
 extern const Game fvipers_game = {
-    .set = "fvipers", .title = "Fighting Vipers", .label = "Revision D", .companion = nullptr,
+    .set = "fvipers", .title = "Fighting Vipers", .label = "Revision D",
     .board = BoardType::Model2b,
     .roms = kFvipersRoms, .mirror_from = 0, .tgp = {false, 0, 0, 0},
     .mirrors = {{0x1000000, 0x1700000}, {0x1800000, 0x1f00000}},

@@ -77,7 +77,7 @@ constexpr ScspVoices kVoices = {0x2800, 0x10, 4};
 } // namespace
 
 extern const Game vcop2_game = {
-    .set = "vcop2", .title = "Virtua Cop 2", .label = "Virtua Cop 2", .companion = nullptr,
+    .set = "vcop2", .title = "Virtua Cop 2", .label = "Virtua Cop 2",
     .board = BoardType::Model2a,
     .roms = kVcop2Roms, .mirror_from = 0xc00000, .tgp = {true, 0x5d480, 1778, 0x6B49E475u},
     .idle = {{0x36fc, 0x3707}, {0, 0}},
@@ -102,7 +102,6 @@ extern const Game vcop2_game = {
     // MAME vcop2 P1_X/P1_Y PORT_MINMAX: the screen's edges in the gun's units.
     .gun = {137, 630, 36, 425, 0x17c, 0x0e6}, // player 2: MAME's P2_X/P2_Y defaults
     .music_channels = 0x03ff, // 0-9
-    .update_z_depth_scale = 7.3f, // ln of w: game 99.9th percentile 1,230 (max 1,420)
 };
 
 } // namespace rt

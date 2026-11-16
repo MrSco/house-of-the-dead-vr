@@ -1,5 +1,5 @@
 // floor(count * N0 / D0) for counts that mostly grow, without the 64-bit
-// division (a library call on the Vita's Cortex-A9, ~150-250 cycles) in the
+// division (a library call on ARM CPUs without a divider, as the PS Vita's Cortex-A9, ~150-250 cycles) in the
 // common case. The fraction is reduced at compile time (the same floor); the
 // last count, quotient and remainder are kept (count * N == q * D + r,
 // 0 <= r < D), so a step d forward costs a multiply and a 32-bit division by

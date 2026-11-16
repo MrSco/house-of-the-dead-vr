@@ -43,7 +43,7 @@ inline GunAim aim_gun(float x, float y, uint16_t x_min, uint16_t x_max, uint16_t
     return {uint16_t(x_min + x * float(x_max - x_min) / kW + 0.5f), uint16_t(y_min + y * float(y_max - y_min) / kH + 0.5f), true};
 }
 
-// A default button, on a generic pad (PlayStation layout: the Vita's buttons).
+// A default button, on a generic pad (PlayStation layout).
 enum class PadButton : uint8_t { Cross, Circle, Square, Triangle, Up, Down, Left, Right, L, R, Start, Select };
 
 // One of a game's controls: which, its name on the Controls page, its default button.

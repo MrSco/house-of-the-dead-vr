@@ -10,21 +10,10 @@ Everything a game builds goes under one folder, build_<game>/ (git-ignored):
   build_<game>/recomp/<set>/gen/        the recompiled code (<set>/, <set>_tgp/,
                                         <set>_snd/: CMake's M2_GEN_ROOT)
   build_<game>/pc/<set>/                the desktop build (the tools, m2run, the game)
-  build_<game>/vita/, vita_diag/        the Vita builds: <game>.vpk, <game>_diag.vpk
 
 Per game (GAMES):
   title         the game's name
   sets          its MAME sets, the main one (what --game alone builds) first
-  vita_title_id the Vita package's title ID (4 capital letters, 5 digits);
-                one per game, so the games install side by side
-  vita_name     the Vita package's name
-  vita_link     link play compiled into the Vita package (build_vita.py
-                --link/--no-link override it): only where it was tested on
-                Vitas, Daytona. The menu also needs a set with the
-                communication board (Game::link)
-  vita          the Vita package works (build_vita.py --game all builds only
-                these; default True): Fighting Vipers waits for its SHARC
-  The Vita's LiveArea images: platform/vita/logo_livearea/<game>/.
 
 Per set (SETS):
   game          the game it belongs to
@@ -34,20 +23,12 @@ Per set (SETS):
                 after a clone is fine
   board         the i960 board: "model2o" (Model 2), "model2a" (2A-CRX) or
                 "model2b" (2B-CRX), as rt::BoardType (src/games/game.h);
-                m2recomp --board inlines its bus (recompile.py --inline-bus,
-                build_vita.py --inline-bus; not for model2b)
+                m2recomp --board inlines its bus (recompile.py --inline-bus;
+                not for model2b)
   recomp        extra m2recomp options: the i960 memory map
                 (tools/m2recomp/main.cpp)
   sndrecomp     extra m2sndrecomp options: the sound board's 68000 map
                 (--scsp for the SCSP board; tools/m2sndrecomp/main.cpp)
-  companion     the game's other set a Vita package can bundle and switch
-                to (build_vita.py --revision-a-self; the launcher runs
-                app0:/<companion>.self), or None. As Game::companion
-                (src/games/).
-  vita_fast     the build_vita.py game code modes checked on this set:
-                "fast_inaccuracy" (--fast-inaccuracy), "fast_gen" (--fast-gen).
-                Both turn fixed accesses to work RAM (0x00500000-0x005fffff,
-                every Model 2 board) into direct ones
   inputs        make_input.py's script names -> (MAME port, mask) where the
                 game's differ from the common driving-cabinet layout
                 (CONTROLS), and "full_range": its analog inputs are 0x00-0xff
@@ -69,41 +50,30 @@ CONTROLS = {
 GAMES = {
     "daytona": {
         "title": "Daytona USA", "sets": ("daytona93", "daytona"),
-        "vita_title_id": "DAYT00093", "vita_name": "Daytona USA", "vita_link": True,
     },
     "segarally": {
         "title": "Sega Rally Championship", "sets": ("srallyc",),
-        "vita_title_id": "SRAL00094", "vita_name": "Sega Rally Championship", "vita_link": False,
     },
     "virtuafighter2": {
         "title": "Virtua Fighter 2", "sets": ("vf2",),
-        "vita_title_id": "VFTR00095", "vita_name": "Virtua Fighter 2", "vita_link": False,
     },
     "virtuacop": {
         "title": "Virtua Cop", "sets": ("vcop",),
-        "vita_title_id": "VCOP00096", "vita_name": "Virtua Cop", "vita_link": False,
     },
     "virtuacop2": {
         "title": "Virtua Cop 2", "sets": ("vcop2",),
-        "vita_title_id": "VCOP00097", "vita_name": "Virtua Cop 2", "vita_link": False,
     },
     "manxtt": {
         "title": "Manx TT Superbike", "sets": ("manxttc",),
-        "vita_title_id": "MANX00098", "vita_name": "Manx TT Superbike", "vita_link": False,
     },
     "fightingvipers": {
         "title": "Fighting Vipers", "sets": ("fvipers",),
-        "vita_title_id": "FVIP00099", "vita_name": "Fighting Vipers", "vita_link": False,
-        "vita": False,  # the board does not run its SHARC yet
     },
     "houseofthedead": {
         "title": "The House of the Dead", "sets": ("hotd",),
-        "vita_title_id": "HOTD00101", "vita_name": "The House of the Dead", "vita_link": False,
-        "vita": False,  # Model 2C: the TGPx4 runs on an interpreter (desktop bring-up)
     },
     "deadoralive": {
         "title": "Dead or Alive", "sets": ("doaa",),
-        "vita_title_id": "DOAL00100", "vita_name": "Dead or Alive", "vita_link": False,
     },
 }
 
@@ -114,14 +84,12 @@ SETS = {
     "daytona93": {
         "game": "daytona", "label": "Deluxe '93",
         "roms": ["daytona93"], "board": "model2o", "recomp": [], "sndrecomp": [],
-        "vita_fast": ("fast_inaccuracy", "fast_gen"),
-        "companion": "daytona", "wram_bus": (), "inputs": {}, "full_range": False,
+        "wram_bus": (), "inputs": {}, "full_range": False,
     },
     "daytona": {
         "game": "daytona", "label": "Revision A, 1994",
         "roms": ["daytona"], "board": "model2o", "recomp": [], "sndrecomp": [],
-        "vita_fast": ("fast_inaccuracy", "fast_gen"),
-        "companion": "daytona93", "wram_bus": (0x00500000,), "inputs": {}, "full_range": False,
+        "wram_bus": (0x00500000,), "inputs": {}, "full_range": False,
     },
     # Model 2A-CRX: RAM at 0x200000 (no ROM mirror); the boot copies ROM
     # 0x1000-0x60fff to work RAM 0x5a0000 and runs from there. Inputs: MAME's
@@ -129,7 +97,7 @@ SETS = {
     "srallyc": {
         "game": "segarally", "label": "Revision C",
         "roms": ["srallyc", "srallycb"], "board": "model2a", "recomp": ["--no-mirror", "--alias", "5a0000:1000:60000"], "sndrecomp": ["--scsp"],
-        "vita_fast": ("fast_inaccuracy",), "companion": None, "wram_bus": (),
+        "wram_bus": (),
         "inputs": {"start": (":IN0", 0x40), "vr1": (":IN0", 0x20), "vr2": (":IN0", 0x20),
                    "vr3": (":IN0", 0x20), "vr4": (":IN0", 0x20), "handbrake": (":IN2", 0xFF)},
         "full_range": True,
@@ -142,7 +110,7 @@ SETS = {
     "vf2": {
         "game": "virtuafighter2", "label": "Version 2.1",
         "roms": ["vf2"], "board": "model2a", "recomp": ["--no-mirror"], "sndrecomp": ["--scsp"],
-        "vita_fast": ("fast_inaccuracy",), "companion": None, "wram_bus": (0x00500000,),
+        "wram_bus": (0x00500000,),
         "inputs": {"vr1": (":IN1", 0x01), "vr2": (":IN1", 0x02), "vr3": (":IN1", 0x04)},
         "full_range": False,
     },
@@ -155,7 +123,7 @@ SETS = {
     "vcop": {
         "game": "virtuacop", "label": "Revision B",
         "roms": ["vcop"], "board": "model2o", "recomp": [], "sndrecomp": [],
-        "vita_fast": ("fast_inaccuracy",), "companion": None, "wram_bus": (),
+        "wram_bus": (),
         "inputs": {"trigger": (":IN1", 0x01), "gunx": (":P1_X", 0x3FF), "guny": (":P1_Y", 0x3FF)},
         "full_range": False,
     },
@@ -168,7 +136,7 @@ SETS = {
     "vcop2": {
         "game": "virtuacop2", "label": "Virtua Cop 2",
         "roms": ["vcop2"], "board": "model2a", "recomp": ["--no-mirror"], "sndrecomp": ["--scsp"],
-        "vita_fast": ("fast_inaccuracy",), "companion": None, "wram_bus": (0x00500000,),
+        "wram_bus": (0x00500000,),
         "inputs": {"trigger": (":IN1", 0x01), "gunx": (":P1_X", 0x3FF), "guny": (":P1_Y", 0x3FF)},
         "full_range": False,
     },
@@ -184,7 +152,7 @@ SETS = {
     "manxttc": {
         "game": "manxtt", "label": "Twin, Revision C",
         "roms": ["manxttc", "manxtt"], "board": "model2a", "recomp": ["--no-mirror"], "sndrecomp": ["--scsp"],
-        "vita_fast": ("fast_inaccuracy",), "companion": None, "wram_bus": (),
+        "wram_bus": (),
         "inputs": {"start": (":IN0", 0x40), "vr1": (":IN1", 0x10), "vr2": (":IN1", 0x20),
                    "steer": (":BANK", 0xFF), "accel": (":THROTTLE", 0xFF), "brake": (":BRAKE", 0xFF)},
         "full_range": True,
@@ -196,7 +164,7 @@ SETS = {
     "fvipers": {
         "game": "fightingvipers", "label": "Revision D",
         "roms": ["fvipers"], "board": "model2b", "recomp": ["--no-mirror"], "sndrecomp": ["--scsp"],
-        "vita_fast": ("fast_inaccuracy",), "companion": None, "wram_bus": (0x00500000,),
+        "wram_bus": (0x00500000,),
         "inputs": {"vr1": (":IN1", 0x01), "vr2": (":IN1", 0x02), "vr3": (":IN1", 0x04),
                    "down": (":IN1", 0x10), "up": (":IN1", 0x20), "right": (":IN1", 0x40), "left": (":IN1", 0x80)},
         "full_range": False,
@@ -209,7 +177,7 @@ SETS = {
     "hotd": {
         "game": "houseofthedead", "label": "Revision A",
         "roms": ["hotd"], "board": "model2c", "recomp": ["--no-mirror"], "sndrecomp": ["--scsp"],
-        "vita_fast": (), "companion": None, "wram_bus": (),
+        "wram_bus": (),
         "inputs": {"trigger": (":IN1", 0x01), "gunx": (":P1_X", 0x3FF), "guny": (":P1_Y", 0x3FF)},
         "full_range": False,
     },
@@ -224,7 +192,7 @@ SETS = {
     "doaa": {
         "game": "deadoralive", "label": "Revision A",
         "roms": ["doaa", "doa"], "board": "model2a", "recomp": ["--no-mirror"], "sndrecomp": ["--scsp"],
-        "vita_fast": ("fast_inaccuracy",), "companion": None, "wram_bus": (0x0054b150,),
+        "wram_bus": (0x0054b150,),
         "inputs": {"vr1": (":IN1", 0x02), "vr2": (":IN1", 0x04), "vr3": (":IN1", 0x01),
                    "down": (":IN1", 0x10), "up": (":IN1", 0x20), "right": (":IN1", 0x40), "left": (":IN1", 0x80)},
         "full_range": False,
@@ -287,12 +255,6 @@ def pc_dir(romset):
     return f"{game_dir(game_of(romset))}/pc/{romset}"
 
 
-def vita_dir(game, diagnostics=False):
-    return f"{game_dir(game)}/vita" + ("_diag" if diagnostics else "")
-
-
-def vpk_name(game, diagnostics=False):
-    return f"{game}_diag.vpk" if diagnostics else f"{game}.vpk"
 
 
 def controls(romset):

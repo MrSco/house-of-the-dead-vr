@@ -103,7 +103,7 @@ constexpr ControlDef kControls[] = {
 } // namespace
 
 extern const Game vf2_game = {
-    .set = "vf2", .title = "Virtua Fighter 2", .label = "Version 2.1", .companion = nullptr,
+    .set = "vf2", .title = "Virtua Fighter 2", .label = "Version 2.1",
     .board = BoardType::Model2a,
     .roms = kVf2Roms, .mirror_from = 0, .tgp = {true, 0x3e90, 3802, 0xFD8D0383u},
     .idle = {{0x10f98, 0x10fa3}, {0, 0}},
@@ -118,10 +118,6 @@ extern const Game vf2_game = {
     // the mix fell 2.4 dB (vf2_fight 4,000 frames, RMS and loud windows); now
     // fight peak -8.2 dBFS, attract -7.4 (6,000 and 8,000 frames).
     .output_gain = 2.0f,
-    // Its hits are already 13 dB below its music (a fight, m2run --volumes),
-    // unlike Daytona's engine: effects at 100 %; the music at 70 % (the
-    // owner's choice, 18 Oct 2026).
-    .defaults = {.music_volume = 70, .effects_volume = 100},
     .control_list = kControls, // one player: the joystick and Punch/Kick/Guard
     // Its SCSP DSP program (the reverb): in the sound program ROM at 0x4a48,
     // 82 steps; the driver copies it into MPRO at boot (the same words, logged
@@ -132,20 +128,11 @@ extern const Game vf2_game = {
     // 0,r14 (out); 0x4cb88 ldl 0xf00008,r14 (the timers are not a burst region:
     // r15 reads 0xf00008 too, timer 2); lda 0xfffff,r14; and r15,r14,r15; cmpobe
     // r15,r14 (out: expired); 0x4cba0 cmpobg r15,r13,0x4cb7c.
-    // 0 passes a frame in a steady fight, 400-1,900 in the Vita's slow windows
+    // 0 passes a frame in a steady fight, 400-1,900 in slow windows on the PS Vita port
     // at ~1.9 us each (perf_supra_probe.log, --i960-profile).
     .spin = {{Game::SpinWait::ByteZeroTimer, 0x4cb7c, 0x00500000, 7, 13, 2, 2}},
     // The music on channels 0-8 and 15; 9-14 and 0xff hits, voices, effects.
     .music_channels = 0x81ff, // 0-8 and 15
-    .update_z_depth_local_weight = 0.98,
-    .update_z_depth_scale = 4.5f, // ln of w: fight 99.9th percentile 71 (max 143)
-    .update_z_depth_dark_boost = 0.05f,
-
-    // A fight's windows (every frame of vf2_fight, 9,000 frames, each drawn
-    // alone): 1 the stage's scenery, 5 the ring's floor, 6 the shadows, 7 the
-    // fighters (2: 32 polygons in a few frames); the HUD is 2D. One scene: the
-    // hybrid depth mixes them, the scenery with the fighters (the user's choice).
-    .update_z_depth_window_groups = {{1, 7}},
 };
 
 } // namespace rt

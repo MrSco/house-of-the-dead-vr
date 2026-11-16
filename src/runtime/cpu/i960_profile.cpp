@@ -98,7 +98,7 @@ size_t I960ProfileReport::format(char *out, size_t size, uint64_t frames, uint64
     for (int k = 0; k < kBusRegions; k++) w.add("%s%s %.0f", k ? ", " : "", kRegionName[k], cf(now.bus_w[k], at_.bus_w[k]));
     w.add(")\n");
     // A byte or word access unaligned for its size is several bus calls; a
-    // direct work-RAM access (the Vita's --fast-inaccuracy pass) is none.
+    // direct work-RAM access (m2recomp --fast_inaccuracy) is none.
     w.add("i960 loads+stores %.0f words/frame, bus calls %.0f: %.0f made direct (or %.0f extra calls from unaligned accesses)\n",
           pf(op[I960OpLoad] + op[I960OpStore]), double(bus_r + bus_w) / f,
           std::max(0.0, pf(op[I960OpLoad] + op[I960OpStore]) - double(bus_r + bus_w) / f),

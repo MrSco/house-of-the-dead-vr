@@ -27,7 +27,7 @@
 // for expression, so the lockstep harness can hold the output to MAME.
 //
 // --fast_inaccuracy (off by default) groups the speed options for slow targets
-// (PS Vita). Without it the output is the exact one the lockstep and trace
+// (the PS Vita port this grew from). Without it the output is the exact one the lockstep and trace
 // comparisons against MAME need. With it:
 //
 // 1. Block bookkeeping: the lockstep bookkeeping (IP store, interrupt and
@@ -36,7 +36,7 @@
 // count are unchanged, but an interrupt or a scheduled event is taken at the
 // next block start, a few instructions later than MAME takes it, so the output
 // no longer matches MAME's interrupt log: the lockstep and trace comparisons
-// need the default (exact) output. Faster, for slow targets (PS Vita).
+// need the default (exact) output. Faster, for slow targets.
 // A block starts at every direct branch target, after every transfer of
 // control, at every seed (boot entries, interrupt handlers, harvested indirect
 // targets) and at every hook address. An indirect jump into the middle of a
@@ -49,13 +49,13 @@
 // 2. Direct chaining: gen::run moves from chunk to chunk itself (binary search
 // on the chunk ranges) instead of returning to GameLoop, which re-checked
 // has_code and re-scanned every chunk on each transfer between chunks (~1,360
-// per frame in a race, 0.68 us each on the Vita: platform/vita perf.log, CPU-2).
+// per frame in a race, 0.68 us each on the PS Vita port).
 // It returns as before when the frame ends (the lockstep is finished) or when
 // control reaches an address no chunk has code for, so GameLoop still reports
 // that address. Same instructions in the same order: this part alone keeps
 // the output exact.
 //
-// --profile (scripts/recompile.py and build_vita.py --i960-profile): counts
+// --profile (scripts/recompile.py --i960-profile): counts
 // the executions of every basic block (one increment at its end; the blocks
 // --fast_inaccuracy would make, also without it, for the counters only), the
 // dispatches, the chunk entries and the lockstep slow paths, and writes a
@@ -64,8 +64,8 @@
 // The code must be built with M2_I960_PROFILE, whose runtime reports them.
 // Results and counts are unchanged.
 //
-// --board model2o|model2a (scripts/games.py "board"; recompile.py --inline-bus,
-// build_vita.py --inline-bus; off by default, no measurable gain on the Vita): loads and stores go through
+// --board model2o|model2a (scripts/games.py "board"; recompile.py --inline-bus; off by
+// default, no measurable gain on the PS Vita port): loads and stores go through
 // gen::BoardMem<board> (src/runtime/cpu/i960_gen_support.h), the board's bus inlined: work
 // RAM, program ROM and main RAM read and written in place, the rest through
 // direct (not virtual) calls to rt::M2Board. Same results as the bus; the

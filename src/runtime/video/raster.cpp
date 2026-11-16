@@ -9,9 +9,6 @@
 // MAME's reference build gives, so every host agrees.
 
 #include "runtime/video/raster.h"
-#ifdef M2_VITA_RENDER_OPT
-#include "runtime/video/raster_texel.h"
-#endif
 
 #include <algorithm>
 #include <array>
@@ -65,7 +62,6 @@ inline s32 fast_log2(float value) {
     return (exp << 8) | s_log2_table[ival & 127];
 }
 
-#ifndef M2_VITA_RENDER_OPT
 inline u16 get_texel(u32 base_x, u32 base_y, int x, int y, const u32 *sheet) {
     int x2 = int(base_x) + x;
     int y2 = int(base_y) + y;
@@ -82,7 +78,6 @@ inline u16 get_texel(u32 base_x, u32 base_y, int x, int y, const u32 *sheet) {
     return texel & 0x0f;
 }
 
-#endif
 
 inline u16 le16(const uint8_t *base, u32 index) { return u16(base[index * 2] | base[index * 2 + 1] << 8); }
 
@@ -97,24 +92,9 @@ struct Raster::Extra {
     u32 utexx = 0, utexy = 0;
     s32 texlod = 0;
     u8 luma = 0;
-#ifdef M2_VITA_RENDER_OPT
-    struct Level {
-        u32 width = 0, height = 0, x = 0, y = 0;
-        const u32 *sheet = nullptr;
-    };
-    Level levels[13]; // 0 = microtexture, 1..12 = mip levels 0..11
-    s32 max_level = 0;
-    mutable const u32 *shades = nullptr;
-#endif
 };
 
-#ifdef M2_DC_MEMORY
-// The Dreamcast: the CPU rasterizer's buffers (1.25 MB) only once it renders
-// (the PVR draws the 3D there).
-Raster::Raster() {
-#else
 Raster::Raster() : dest_(512 * 512), fill_(512 * 512) {
-#endif
     // MAME video_start
     for (int i = 0; i < 256; i++) {
         double raw_value = std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0);
@@ -148,25 +128,11 @@ uint64_t Raster::hash(int minx, int maxx, int miny, int maxy) const {
 void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y,
                     int render_x, int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy) {
     mem_ = &mem;
-#ifdef M2_DC_MEMORY
-    if (dest_.empty()) {
-        dest_.assign(size_t(stride_) * 512, 0u);
-        fill_.assign(size_t(stride_) * 512, u8(0));
-    }
-#endif
-#ifdef M2_VITA_RENDER_OPT
-    for (auto &entry : shades_) entry.key = 0xffffffffu;
-#endif
     std::fill(dest_.begin(), dest_.end(), 0u);
     std::fill(fill_.begin(), fill_.end(), u8(0));
     // MAME: for window = cur_window..0, for z = min_z..max_z, each bucket
     // newest first.
-#ifdef M2_VITA_RENDER_OPT
-    order_.resize(polys.size());
-    auto &order = order_;
-#else
     std::vector<size_t> order(polys.size());
-#endif
     std::iota(order.begin(), order.end(), size_t(0));
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
         if (polys[a].window != polys[b].window) return polys[a].window > polys[b].window;
@@ -290,14 +256,6 @@ void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int 
         extra.utexminlod = (poly.texheader[0] >> 10) & 3;
         extra.utexx = ((poly.texheader[2] >> 13) & 1) * 128;
         extra.utexy = ((poly.texheader[2] >> 14) & 3) * 128;
-#ifdef M2_VITA_RENDER_OPT
-        extra.max_level = 30 - std::countl_zero(std::min(extra.texwidth, extra.texheight));
-        extra.levels[0] = {128, 128, extra.utexx, extra.utexy, extra.texsheet[1]};
-        for (int level = 0; level <= extra.max_level; ++level)
-            extra.levels[level + 1] = {extra.texwidth >> level, extra.texheight >> level,
-                ((extra.texx - 2048) >> level) & 2047, ((extra.texy - 1024) >> level) & 1023,
-                extra.texsheet[level & 1]};
-#endif
         for (int i = 0; i < poly.num_vertices; i++) {
             GeoVertex &v = poly.v[i];
             v.p[0] = 1.0f / (v.p[0] + std::numeric_limits<float>::min());
@@ -317,47 +275,8 @@ void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int 
     }
 }
 
-#ifdef M2_VITA_RENDER_OPT
-const uint32_t *Raster::shade_table(const Extra &o) {
-    const u32 color = le16(mem_->palram, o.colorbase + 0x1000) & 0x7fff;
-    const u32 key = color | (u32(o.luma) << 15) | ((o.lumabase >> 7) << 23);
-    auto &entry = shades_[(key * 2654435761u) >> 26];
-    if (entry.key != key) {
-        const u32 cr = ((color >> 0) & 0x1f) << 8;
-        const u32 cg = 0x4000 / 2 + (((color >> 5) & 0x1f) << 8);
-        const u32 cb = 0x8000 / 2 + (((color >> 10) & 0x1f) << 8);
-        for (u32 t = 0; t < 128; ++t) {
-            u8 luma = u8(u32(mem_->lumaram[(o.lumabase + t) * 4]) * o.luma / 256);
-            luma = std::min(luma, u8(0x3f));
-            entry.colors[t] = rgb(gamma_[le16(mem_->colorxlat, cr + luma) & 0xff],
-                gamma_[le16(mem_->colorxlat, cg + luma) & 0xff],
-                gamma_[le16(mem_->colorxlat, cb + luma) & 0xff]);
-        }
-        entry.key = key;
-    }
-    return entry.colors.data();
-}
-#endif
 
 void Raster::scanline(int renderer, int32_t y, int32_t x0, int32_t x1, const float *start, const float *dpdx, const Extra &o) {
-#ifdef M2_VITA_RENDER_OPT
-    if (x0 >= x1) return;
-    // A completely filled span cannot contribute any pixel. Test four bytes
-    // at a time with memcpy (valid for unaligned pointers); partial spans keep
-    // the original per-pixel FP additions, including additions over occlusion.
-    const u8 *filled = fill_.data() + size_t(y) * size_t(stride_) + size_t(x0);
-    int remaining = x1 - x0;
-    bool covered = true;
-    while (remaining >= 4) {
-        u32 word; std::memcpy(&word, filled, sizeof word);
-        if (word != 0xffffffffu) { covered = false; break; }
-        filled += 4; remaining -= 4;
-    }
-    if (covered) {
-        while (remaining-- > 0) if (*filled++ != 0xff) { covered = false; break; }
-        if (covered) return;
-    }
-#endif
     switch (renderer) {
     case 0: draw_scanline_solid<false>(y, x0, x1, start, dpdx, o); break;
     case 1: draw_scanline_solid<true>(y, x0, x1, start, dpdx, o); break;
@@ -517,18 +436,6 @@ void Raster::draw_scanline_solid(int32_t y, int32_t x0, int32_t x1, const float 
 
 template <bool Translucent>
 uint32_t Raster::fetch_bilinear_texel(const Extra &o, int32_t miplevel, int32_t u, int32_t v) const {
-#ifdef M2_VITA_RENDER_OPT
-    const auto &level = o.levels[miplevel + 1];
-    const u32 tex_width = level.width, tex_height = level.height, tex_x = level.x, tex_y = level.y;
-    const u32 *sheet = level.sheet;
-    if (miplevel == -1) {
-        u <<= 1 << o.utexminlod;
-        v <<= 1 << o.utexminlod;
-    } else {
-        u >>= miplevel;
-        v >>= miplevel;
-    }
-#else
     u32 tex_width, tex_height, tex_x, tex_y;
     const u32 *sheet;
     if (miplevel == -1) { // microtexture
@@ -548,7 +455,6 @@ uint32_t Raster::fetch_bilinear_texel(const Extra &o, int32_t miplevel, int32_t 
         u >>= miplevel;
         v >>= miplevel;
     }
-#endif
     if (o.texmirrorx && (u & s32(tex_width << 8))) u = ~u;
     if (o.texmirrory && (v & s32(tex_height << 8))) v = ~v;
     u -= 0x80;
@@ -567,15 +473,10 @@ uint32_t Raster::fetch_bilinear_texel(const Extra &o, int32_t miplevel, int32_t 
         if (vfrac >= 0x80) v0 = 0, v1++, vfrac = 0;
         else v1 = v0, v0--, vfrac = 0x100;
     }
-#ifdef M2_VITA_RENDER_OPT
-    const auto quad = read_texel_quad(tex_x, tex_y, u0, u1, v0, v1, sheet);
-    u32 tex00 = quad.t00, tex01 = quad.t01, tex10 = quad.t10, tex11 = quad.t11;
-#else
     u32 tex00 = u32(get_texel(tex_x, tex_y, int(u0), int(v0), sheet)) << 4;
     u32 tex01 = u32(get_texel(tex_x, tex_y, int(u1), int(v0), sheet)) << 4;
     u32 tex10 = u32(get_texel(tex_x, tex_y, int(u0), int(v1), sheet)) << 4;
     u32 tex11 = u32(get_texel(tex_x, tex_y, int(u1), int(v1), sheet)) << 4;
-#endif
     if (Translucent) {
         if (tex00 != 0xf0) tex00 |= 0x00800000;
         if (tex01 != 0xf0) tex01 |= 0x00800000;
@@ -597,13 +498,6 @@ uint32_t Raster::fetch_bilinear_texel(const Extra &o, int32_t miplevel, int32_t 
 
 template <bool Translucent>
 void Raster::draw_scanline_tex(int32_t y, int32_t x0, int32_t x1, const float *start, const float *dpdx, const Extra &o) {
-#ifdef M2_VITA_RENDER_OPT
-    // Building 128 shades for a four-pixel polygon is a regression. Short
-    // spans retain the original lighting equations; wider spans amortize a
-    // table and subsequent rows reuse it. This chooses work, not image quality.
-    if (!o.shades && x1 - x0 >= 32) o.shades = shade_table(o);
-    if (o.shades) { draw_tex_span<Translucent, true>(y, x0, x1, start, dpdx, o); return; }
-#endif
     draw_tex_span<Translucent, false>(y, x0, x1, start, dpdx, o);
 }
 
@@ -613,11 +507,7 @@ void Raster::draw_tex_span(int32_t y, int32_t x0, int32_t x1, const float *start
     u8 *const fill = &fill_[size_t(y) * size_t(stride_)];
     float ooz = start[0], uoz = start[1], voz = start[2];
     float dooz = dpdx[0], duoz = dpdx[1], dvoz = dpdx[2];
-#ifdef M2_VITA_RENDER_OPT
-    const s32 max_level = o.max_level;
-#else
     const s32 max_level = 30 - std::countl_zero(std::min(o.texwidth, o.texheight));
-#endif
     u32 cr = 0, cg = 0, cb = 0;
     if constexpr (!Cached) {
         const u32 colorbase = le16(mem_->palram, o.colorbase + 0x1000) & 0x7fff;
@@ -661,10 +551,6 @@ void Raster::draw_tex_span(int32_t y, int32_t x0, int32_t x1, const float *start
             if (t < 0x00400000) continue;
             t &= 0xff;
         }
-#ifdef M2_VITA_RENDER_OPT
-        if constexpr (Cached) p[x] = o.shades[t >> 1];
-        else
-#endif
         {
             u8 luma = u8(u32(mem_->lumaram[(o.lumabase + (t >> 1)) * 4]) * o.luma / 256);
             luma = std::min(luma, u8(0x3f));

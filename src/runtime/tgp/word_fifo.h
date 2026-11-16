@@ -8,7 +8,7 @@
 namespace rt {
 
 // The TGP's FIFOs as a growing ring (std::deque's block bookkeeping costs
-// on every word: the SH-4 first, the Vita too). The same order and contents.
+// on every word on the slower ports this grew from). The same order and contents.
 class WordFifo {
 public:
     bool empty() const { return head_ == tail_; }

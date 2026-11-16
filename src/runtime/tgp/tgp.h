@@ -24,13 +24,9 @@
 #include "runtime/board/fast_paths.h"
 #include "runtime/tgp/word_fifo.h"
 
-// M2_DC_SPEED (Dreamcast): the one-line status helpers inline even at -Os,
-// where the generated code otherwise calls them (a call is as big as they are).
-#if defined(M2_DC_SPEED) && defined(__GNUC__)
-#define M2_TGP_INLINE __attribute__((always_inline))
-#else
+// The one-line status helpers' inlining (a port building at -Os forced it: the
+// generated code otherwise calls them, a call as big as they are).
 #define M2_TGP_INLINE
-#endif
 
 namespace rt {
 
