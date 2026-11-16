@@ -8,7 +8,7 @@
   "made_by": "tools/cabinet/export.py (Blender 5.2) from the Sketchfab glTF download",
   "format": "TCCAB001",
   "changes": "the zombie bursting from the screen and its rig removed, the guns taken out, scaled to 2.09 m, textures 1024 px (base colour and emissive), the game screen fitted to the opening; the guns' coiled cords left out (the app draws them, from the same ports); sharper marquee, control panel and side art (the side art scaled evenly onto the side panels, placed by their outlines' corners; the control panel's picture unrolled over its slope, card and speakers) in a 2048 texture (tools/cabinet/art_atlas.py)",
-  "asset_sha256": "1a27df45d768487e16825cb57c4c278334dfff7d7ca61d939501bb2fd74b1842",
+  "asset_sha256": "f62320f215fcc77f1fc64b0febb93c67eea91997c3b0246050cd74194b62e8d8",
   "art": {
     "note": "The cabinet artwork is SEGA's (The House of the Dead, 1996). Sources of the sharper pieces:",
     "marquee": "the project's cleaned, upscaled marquee (docs/cabinet art), drawn across the whole marquee panel",

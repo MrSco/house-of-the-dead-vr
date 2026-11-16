@@ -241,9 +241,11 @@ def fill_piece(p, f, atlas, atlas_e):
     return out
 
 
-def outline_fill(p, full, rw, rh, s):
-    """the region's pixels from the art, scaled (the same in both directions: nothing skewed) and placed so its
-    outline's corners land as near the model's as they can (least squares); what overhangs the panel is cropped"""
+def outline_fill(p, full, alpha, rw, rh, s):
+    """the region's pixels from the art, scaled (the same in both directions: nothing skewed) and placed where its
+    outline's corners land nearest the model's (least squares): what overhangs the panel is cropped, and where the
+    panel reaches past the art it gets the art's own edge carried on (side_piece fills it from inside the art's
+    border line). 'cover': True scales it up instead until it covers the whole panel (that crops more: the logo)."""
     yf, yb, zt = PANEL['y_front'], PANEL['y_back'], PANEL['z_top']
     sx = -1.0 if p['side'] < 0 else 1.0                  # art x -> Blender y: the left side's front is on its right
     skip = set(p.get('fit_skip', ()))
@@ -253,6 +255,43 @@ def outline_fill(p, full, rw, rh, s):
         rows.append((sx * ax, 1, 0)); rhs.append(my)       # y = ty + sx * k * ax
         rows.append((-ay, 0, 1)); rhs.append(mz)           # z = tz - k * ay
     (k, ty, tz), *_ = np.linalg.lstsq(np.array(rows, float), np.array(rhs, float), rcond=None)
+    # the art's own area, inside its outline's edge line (a thin border on the art: kept off the panel)
+    inside = cv2.erode((alpha > 0.5).astype(np.uint8), np.ones((15, 15), np.uint8)) > 0
+    ah, aw = inside.shape
+    # the panel: points over the model's outline (and inside it), the cut's black part left out
+    poly = np.array([m for _, m in p['outline']], np.float32)
+    lo, hi = poly.min(0), poly.max(0)
+    gy, gz = np.meshgrid(np.linspace(lo[0], hi[0], 90), np.linspace(lo[1], hi[1], 180))
+    pts = np.stack([gy.ravel(), gz.ravel()], 1)
+    keep = np.array([cv2.pointPolygonTest(poly.reshape(-1, 1, 2), (float(a), float(b)), False) >= 0 for a, b in pts])
+    pts = pts[keep]
+    edge = []
+    for a, b in zip(poly, np.roll(poly, -1, 0)):
+        for t in np.linspace(0, 1, 40, endpoint=False): edge.append(a + (b - a) * t)
+    pts = np.vstack([pts, np.array(edge)])
+    if 'cut' in p: pts = pts[pts[:, 1] >= p['cut']]
+
+    def misses(k_, ty_, tz_):
+        ax = ((pts[:, 0] - ty_) / (sx * k_)).round().astype(int)
+        ay = ((tz_ - pts[:, 1]) / k_).round().astype(int)
+        ok = (ax >= 0) & (ax < aw) & (ay >= 0) & (ay < ah)
+        ok[ok] = inside[ay[ok], ax[ok]]
+        return int((~ok).sum())
+    k_fit = k
+    best = (k, ty, tz)
+    for grow in (np.arange(1.0, 1.40, 0.004) if p.get('cover') else ()):   # the smallest scale that covers it
+        kk = k * grow
+        for step, span in ((0.02, 0.24), (0.005, 0.03)):
+            c0 = (ty, tz) if step == 0.02 else best[1:]
+            cand = [(misses(kk, c0[0] + dy, c0[1] + dz), c0[0] + dy, c0[1] + dz)
+                    for dy in np.arange(-span, span + 1e-9, step) for dz in np.arange(-span, span + 1e-9, step)]
+            m, y_, z_ = min(cand)
+            best = (kk, y_, z_) if step == 0.02 else (kk, y_, z_)
+            if step == 0.02 and m > len(pts) * 0.02: break
+        if misses(*best) == 0: break
+    k, ty, tz = best
+    print('  %s: %.1f%% of the corner fit\'s scale; %d of %d panel points past the art (its edge carried on)'
+          % (p['name'], 100 * k / k_fit, misses(k, ty, tz), len(pts)))
     xs, ys = np.meshgrid(np.arange(rw) + 0.5, np.arange(rh) + 0.5)
     y = yb - xs / s if p['side'] < 0 else yf + xs / s                   # (side_piece's to_reg, inverted)
     z = zt - ys / s
@@ -283,7 +322,11 @@ def side_piece(p, f, atlas):
     x_lo, x_hi = min(ax0, ax1), max(ax0, ax1)
     sc = (x_hi - x_lo) / aw
     A = np.array([[sc, 0, x_lo], [0, sc, ay0], [0, 0, 1]])        # art pixels -> region pixels
-    # the art's clear parts filled from its edges (inpainted small, then scaled back)
+    # the art's clear parts filled from its edges (inpainted small, then scaled back); an outlined art's thin border
+    # line left out, so the fill carries on the art from inside it
+    if 'outline' in p:
+        art = art.copy()
+        art[:, :, 3] = cv2.erode((art[:, :, 3] > 0.5).astype(np.uint8), np.ones((15, 15), np.uint8)).astype(np.float32)
     small = cv2.resize(art, (aw // 4, ah // 4), interpolation=cv2.INTER_AREA)
     hole = (small[:, :, 3] < 0.5).astype(np.uint8)
     rgb8 = (np.clip(small[:, :, :3], 0, 1) * 255).astype(np.uint8)
@@ -293,7 +336,7 @@ def side_piece(p, f, atlas):
     full = art[:, :, :3] * a + filled * (1 - a)
     reg = np.zeros((rh, rw, 4), np.float32); reg[:, :, :3] = SIDE_BLACK; reg[:, :, 3] = 1
     if 'outline' in p:
-        reg[:, :, :3] = outline_fill(p, full, rw, rh, s)
+        reg[:, :, :3] = outline_fill(p, full, art[:, :, 3], rw, rh, s)
         atlas[ry0:ry1, rx0:rx1] = reg
         sx = -s if p['side'] < 0 else s
         ox = rx0 + (yb * s if p['side'] < 0 else -yf * s)
