@@ -7,7 +7,7 @@
 //  - immersive (the default): you stand where the game's camera is, the scene around you in stereo at its real
 //    size (QUEST_SCALE metres per game unit, 0.11 by default) with your head tracked on top of the game's camera
 //    moves; the HUD floats where the game's screen would be;
-//  - cabinet (thumbstick click switches): a small arcade room with the game on a cabinet's screen, drawn by the GPU
+//  - cabinet (the gun hand's thumbstick click held switches): a small arcade room with the game on a cabinet's screen, drawn by the GPU
 //    at twice the game's resolution.
 // Moving your head never touches the game, so it stays smooth even when a game frame is late.
 //
@@ -121,6 +121,7 @@ static struct {
     int cab_dirty, frame_new;
     // input
     int active, fire[2], fire_btn[2], skip, menu, mode_btn;
+    XrTime mode_t;                       // the right stick's click went down then (the view switch: VIEW_HOLD_NS)
     volatile int restart_requested;     // online.c: the app opens again (into or out of an online game)
     int need_files, need_fire, import_started;           // no ROM set: the setup page, not the game
     int cab_model;                                       // the cabinet model is loaded (quest_cabinet.c)
@@ -2491,13 +2492,23 @@ static void update_input(XrTime t) {
         }
     }
     if (mag_reload()) magazine_and_slide(free_hand());
-    int mode = get_bool(S.a_mode, XR_NULL_PATH);
-    if (online_push_to_talk()) online_talk_key(mode && !S.menu_open);     // online, push to talk: the thumbstick click talks
-    else if (mode && !S.mode_btn) {
-        opt_set(QOPT_VIEW, S.cabinet ? QVIEW_IMMERSIVE : QVIEW_CABINET);
-        LOGI("view: %s", S.cabinet ? "cabinet" : "immersive");
+    // the view: the gun hand's thumbstick click held VIEW_HOLD_NS switches it (a stray click mid-fight doesn't), once a
+    // hold; online, push to talk is the other hand's click (a gun in each hand: the right switches, the left talks)
+    #define VIEW_HOLD_NS 500000000LL
+    const int view_hand = S.opt[QOPT_HAND] == QHAND_LEFT ? 0 : 1;
+    if (online_push_to_talk()) online_talk_key(get_bool(S.a_mode, S.hand[1 - view_hand]) && !S.menu_open);
+    {
+        const int mode = get_bool(S.a_mode, S.hand[view_hand]) && !S.menu_open;
+        if (mode && !S.mode_btn) S.mode_t = t;
+        if (mode && S.mode_t && t - S.mode_t >= VIEW_HOLD_NS) {
+            S.mode_t = 0;                            // (held on: no second switch until let go)
+            opt_set(QOPT_VIEW, S.cabinet ? QVIEW_IMMERSIVE : QVIEW_CABINET);
+            haptic(view_hand, 0.4f, 25);
+            LOGI("view: %s", S.cabinet ? "cabinet" : "immersive");
+        }
+        if (!mode) S.mode_t = 0;
+        S.mode_btn = mode;
     }
-    S.mode_btn = mode;
     int skip = get_bool(S.a_skip, XR_NULL_PATH) || HT.skip;
     if (skip != S.skip) quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, skip);
     S.skip = skip;

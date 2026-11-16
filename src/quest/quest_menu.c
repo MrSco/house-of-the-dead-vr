@@ -30,9 +30,9 @@ enum { K_TAB = 1, K_FOOT, K_ROW, K_SEG, K_STEP, K_TRACK, K_RESET, K_TABS, K_MBTN
 #define ID(k, a) ((k) << 8 | (a))
 #define KIND(id) ((id) >> 8)
 #define ARG(id) ((id) & 255)
-enum { M_NONE, M_QUIT, M_HOST, M_HOSTLAN, M_QUICK, M_LEAVE, M_CODE, M_NAME, M_IP };
+enum { M_NONE, M_QUIT, M_HOST, M_HOSTLAN, M_QUICK, M_LEAVE, M_CODE, M_NAME, M_IP, M_SERVER, M_CONTROLS };
 enum { S_MAIN, S_BROWSE, S_LAN };
-enum { ON_HOST, ON_CODE, ON_BROWSE, ON_QUICK, ON_LAN, ON_NAME, ON_MUTE, ON_LEAVE, ON_BACK, ON_REFRESH, ON_HOSTLAN, ON_IPEDIT, ON_JOINIP, ON_PREV, ON_NEXT };
+enum { ON_HOST, ON_CODE, ON_BROWSE, ON_QUICK, ON_LAN, ON_NAME, ON_MUTE, ON_LEAVE, ON_BACK, ON_REFRESH, ON_HOSTLAN, ON_IPEDIT, ON_JOINIP, ON_PREV, ON_NEXT, ON_SERVER };
 enum { F_BUTTON, F_SEG, F_SLIDER, F_TABS };   // what left / right does on a focused row
 enum { PASS_ACT, PASS_LAYOUT, PASS_DRAW };
 
@@ -75,7 +75,7 @@ static const RowDef HANDS_ROWS[] = {
       T_SEG, { "DARK", "PASSTHROUGH", "COURTYARD" }, 3, 1, "", false },
 
 static const RowDef VIEW_ROWS[] = {
-    { QOPT_VIEW, "View", "Stand in the game, or play its cabinet", "IMMERSIVE: you stand in the game's world. CABINET: the game on an arcade screen. A stick click switches too.",
+    { QOPT_VIEW, "View", "Stand in the game, or play its cabinet", "IMMERSIVE: you stand in the game's world. CABINET: the game on an arcade screen. Holding your gun hand's stick click switches too.",
       T_SEG, { "IMMERSIVE", "CABINET" }, 2, 1, "", false },
     { QOPT_WORLD, "World size", "100% is life size", "How big the game's world feels around you.", T_SLIDER, { 0 }, 0, 5, "%", false },
     { QOPT_HUD, "HUD distance", "Score, lives and the game's menus", "How far ahead the game's 2D layer floats: its score, lives, text and menus.",
@@ -84,7 +84,7 @@ static const RowDef VIEW_ROWS[] = {
 };
 // In the cabinet view the VIEW tab places the cabinet (World size and HUD distance are the immersive view's)
 static const RowDef VIEW_CAB_ROWS[] = {
-    { QOPT_VIEW, "View", "Stand in the game, or play its cabinet", "IMMERSIVE: you stand in the game's world. CABINET: the game on an arcade screen. A stick click switches too.",
+    { QOPT_VIEW, "View", "Stand in the game, or play its cabinet", "IMMERSIVE: you stand in the game's world. CABINET: the game on an arcade screen. Holding your gun hand's stick click switches too.",
       T_SEG, { "IMMERSIVE", "CABINET" }, 2, 1, "", false },
     { QOPT_CAB_SIZE, "Cabinet size", "Bigger cabinet, bigger screen", "How big the cabinet is. Or hold both grips: spread or bring your hands together to size it, move them to carry it, twist to turn it.",
       T_SLIDER, { 0 }, 0, 5, "%", false },
@@ -127,7 +127,9 @@ static int tab, modal;
 static online_view V;                                    // the ONLINE tab: what online.c says, and the browser's list
 static online_game games[40]; static int game_count;
 static int screen, page;
-static char kbuf[24];
+static char kbuf[64];
+static const char *kerror;   // the lobby server editor: why SAVE was refused (online_set_server), or NULL
+static bool klower = true;   // the lobby server editor's letters: lowercase (ABC switches)
 static int hover, pressed, focus;
 static bool stick_mode;
 static bool have_pointer; static float ptr_x, ptr_y;   // the laser on the panel, smoothed
@@ -314,18 +316,19 @@ static void tabs(void) {
 static void footer(void) {
     rrect(3, FOOT_Y, QMENU_W - 6, 2, 0, LINE);
     if (drawing()) qc_text_fit(&cv, UI_M17, 27, FOOT_Y + 30, CW, help, MUTED, 0);
-    const char *labels[4] = { "RESUME", "RECENTER", "GAME MENU", "QUIT" };
-    const char *tips[4] = { "Back to the game. The menu button does the same.",
+    const char *labels[5] = { "RESUME", "RECENTER", "CONTROLS", "GAME MENU", "QUIT" };
+    const char *tips[5] = { "Back to the game. The menu button does the same.",
                             "Puts the game where you are now, facing the way you look.",
+                            "Every button and gesture: the controllers, your hands and this menu.",
                             "The game's own pause screen (Esc): Continue, or Exit to its title screen.",
                             "Closes the app. Your settings and the game's saves are kept." };
-    const int icons[4] = { I_PLAY, I_RECENTER, I_LIST, I_CROSS };
-    const float y = FOOT_Y + 46, h = QMENU_H - 3 - 16 - y, unit = (CW + 4 - 36) / 4.1f;
+    const int icons[5] = { I_PLAY, I_RECENTER, I_KEYS, I_LIST, I_CROSS };
+    const float y = FOOT_Y + 46, h = QMENU_H - 3 - 16 - y, unit = (CW + 4 - 48) / 5.1f;
     float x = 27;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
         const int id = ID(K_FOOT, i); const float w = i == 0 ? unit * 1.1f : unit;
         hit(id, (int)x, (int)y, (int)w, (int)h); focusable(id, F_BUTTON, (int)(x + w / 2)); say_help(id, tips[i]);
-        const bool hot = is_hover(id) || is_focus(id), gold = i == 0, danger = i == 3;
+        const bool hot = is_hover(id) || is_focus(id), gold = i == 0, danger = i == 4;
         rrect(x, y, w, h, 14, hot ? HOVER : gold ? GOLD : ITEM); rline(x, y, w, h, 14, 2, hot ? ACCENT : gold ? GOLDLINE : danger ? DANGER : LINE);
         if (is_focus(id)) rline(x - 1, y - 1, w + 2, h + 2, 15, 3, ACCENT);
         const int tw = width(UI_B22, labels[i]); const float tx = x + (w - tw - 36) / 2;
@@ -334,7 +337,8 @@ static void footer(void) {
         if (clicked(id)) {
             if (i == 0) H->action(QACT_RESUME);
             else if (i == 1) H->action(QACT_RECENTER);
-            else if (i == 2) H->action(QACT_GAME_MENU);
+            else if (i == 2) { modal = M_CONTROLS; focus = ID(K_MBTN, 1); }
+            else if (i == 3) H->action(QACT_GAME_MENU);
             else { modal = M_QUIT; focus = ID(K_MBTN, 1); }
         }
         x += w + 12;
@@ -490,7 +494,7 @@ static float voice_box(float x, float y, const char *title) {
         static const char *const modes[] = { "OPEN MIC", "PUSH TO TALK", "OFF" };
         const int mode = V.voice_mode == 0 ? 2 : V.voice_mode == 2 ? 1 : 0;
         const int m = box_choice(K_VOICE, x, cy, "Voice chat", modes, 3, mode,
-            "OPEN MIC sends when you speak. PUSH TO TALK sends while you hold a thumbstick click (which then no longer switches the view). Echo and noise are filtered out.");
+            "OPEN MIC sends when you speak. PUSH TO TALK sends while you hold the stick click of the hand without the gun (a gun in each: the left). Echo and noise are filtered out.");
         if (m >= 0 && m != mode) online_set_voice_mode(m == 2 ? 0 : m == 1 ? 2 : 1);
     }
     cy += 38;
@@ -499,7 +503,7 @@ static float voice_box(float x, float y, const char *title) {
         const float r = x + COLW - 20;
         if (V.mic_denied) text_fit(UI_B20, r - 200, mid(UI_B20, cy, 38), 200, "NO MIC", WARN, 2);
         else if (V.voice_mode == 2) {
-            const char *hold = V.talking ? "TALKING" : "hold STICK CLICK";
+            const char *hold = V.talking ? "TALKING" : H->get(QOPT_HAND) == QHAND_LEFT ? "hold RIGHT STICK" : "hold LEFT STICK";
             text_fit(V.talking ? UI_B20 : UI_M17, r - 108 - 230, mid(V.talking ? UI_B20 : UI_M17, cy, 38), 220, hold, V.talking ? GOOD : MUTED, 2);
             meter(r, cy, V.talking ? V.level : 0, GOOD);
         } else {
@@ -552,7 +556,15 @@ static void online_offline(void) {
         if (button(id, bx, cy + 4, 96, 30, "CHANGE", UI_B16, 2, "Your name in the lobby and on your partner's menu.")) { modal = M_NAME; snprintf(kbuf, sizeof kbuf, "%s", V.name); focus = ID(K_KEY, 0); }
         focusable(id, F_BUTTON, (int)bx + 48); next_row();
     }
-    kv(COL2 + 20, cy + 38, COLW - 40, "Lobby server", V.server, TEXT);
+    text(UI_M20, COL2 + 20, mid(UI_M20, cy + 38, 38), "Server", MUTED);
+    {
+        const int id = ID(K_ON, ON_SERVER); const float bx = COL2 + COLW - 20 - 96;
+        if (drawing()) qc_text_fit(&cv, UI_M17, COL2 + 100, mid(UI_M17, cy + 38, 38), COLW - 226, V.server, TEXT, 2);
+        if (button(id, bx, cy + 42, 96, 30, "CHANGE", UI_B16, 2, "The lobby server. Both players must use the same one.")) {
+            modal = M_SERVER; snprintf(kbuf, sizeof kbuf, "%s", V.server); kerror = NULL; klower = true; focus = ID(K_KEY, 0);
+        }
+        focusable(id, F_BUTTON, (int)bx + 48); next_row();
+    }
     if (V.state == OV_FINDING) kv(COL2 + 20, cy + 76, COLW - 40, "Joining", "looking for the room\xE2\x80\xA6", ACCENT);
     else if (msg) kv(COL2 + 20, cy + 76, COLW - 40, "Last try", V.message, WARN);
     ry += h + 8;
@@ -721,6 +733,7 @@ static void modal_buttons(float x, float y, float w, const char *ok) {
         else if (m == M_CODE) { if (strlen(kbuf) == 4) online_join_code(kbuf); }
         else if (m == M_NAME) online_set_name(kbuf);
         else if (m == M_IP) online_set_join_ip(kbuf);
+        else if (m == M_SERVER) { kerror = online_set_server(kbuf); if (kerror) modal = M_SERVER; }
     }
     focusable(ID(K_MBTN, 1), F_BUTTON, (int)(x + w - 32 - bw / 2));
     next_row();
@@ -752,18 +765,71 @@ static void confirm(void) {
     para(UI_M17, x + 32, ty + 8, w - 64, 24, note, MUTED, 2);
     modal_buttons(x, y + h - 26 - 52, w, ok);
 }
+// The controls, as they are now: the gun hand, the reload gesture and the views' reloading set what each one does.
+static void controls_row(float x, float *y, float w, const char *what, const char *does) {
+    text(UI_B20, x, *y + 20, what, TEXT);
+    para(UI_M17, x, *y + 42, w, 21, does, MUTED, 1);
+    *y += 50;
+}
+static void controls_page(void) {
+    const float w = 1060, h = 690; float x, y; modal_frame(w, h, &x, &y);
+    text(UI_B32, x + 32, y + 26 + 30, "CONTROLS", ACCENT);
+    const int gun = H->get(QOPT_HAND), gest = H->get(QOPT_GESTURE);
+    const char *gh = gun == QHAND_LEFT ? "Left" : "Right", *oh = gun == QHAND_LEFT ? "right" : "left";
+    char b[3][96];
+    const float lx = x + 32, rx = x + 600, lw = 530, rw = w - 600 - 32;
+    float ly = y + 96, ry = y + 96;
+    text(UI_B20, lx, ly, "CONTROLLERS", ACCENT); ly += 12;
+    controls_row(lx, &ly, lw, "Trigger", "Shoot. Off the screen: reload (the cabinet view, or Reload gesture OFF)");
+    if (gest == QGESTURE_MAGAZINE && gun != QHAND_BOTH)
+        controls_row(lx, &ly, lw, "Reload: the magazine", "Other hand's grip: a magazine. Into the gun's grip, then pull the slide");
+    else if (gest == QGESTURE_DOWN) controls_row(lx, &ly, lw, "Reload: point down", "Aim the gun at the floor");
+    else if (gest == QGESTURE_MAGAZINE) controls_row(lx, &ly, lw, "Reload: two guns", "Knock the grips together");
+    else controls_row(lx, &ly, lw, "Reload", "Shoot off the screen, B / Y, or a firm grip squeeze (Grip reloads ON)");
+    controls_row(lx, &ly, lw, "B / Y", gest == QGESTURE_MAGAZINE ? "Drop the magazine (then a new one in, and the slide)" : "Reload (Reload gesture OFF)");
+    controls_row(lx, &ly, lw, "A / X", "Coins and Start; skip a scene");
+    controls_row(lx, &ly, lw, "Menu button (left)", "This menu (the game pauses, not online)");
+    snprintf(b[0], sizeof b[0], "%s stick click, held", gun == QHAND_BOTH ? "Right" : gh);
+    controls_row(lx, &ly, lw, b[0], "Switch: in the game / the cabinet");
+    snprintf(b[1], sizeof b[1], "%s stick click", gun == QHAND_BOTH ? "Left" : oh[0] == 'l' ? "Left" : "Right");
+    controls_row(lx, &ly, lw, b[1], "Online, PUSH TO TALK: talk while held");
+    if (gun != QHAND_BOTH) controls_row(lx, &ly, lw, "Other hand's grip, at the gun", "Hold the gun in both hands");
+    controls_row(lx, &ly, lw, "Both grips, hands apart", "The cabinet view: move, turn and size the cabinet");
+    text(UI_B20, rx, ry, "YOUR HANDS (no controllers)", ACCENT); ry += 12;
+    controls_row(rx, &ry, rw, "Point", "Aim");
+    controls_row(rx, &ry, rw, "Index finger pinch", "Shoot. Off the screen: reload");
+    snprintf(b[2], sizeof b[2], "%s hand's middle finger pinch", gun == QHAND_BOTH ? "Left" : oh[0] == 'l' ? "Left" : "Right");
+    controls_row(rx, &ry, rw, b[2], "Coins and Start; skip a scene");
+    controls_row(rx, &ry, rw, "Left palm to you, pinch", "This menu");
+    ry += 12;
+    text(UI_B20, rx, ry, "IN THIS MENU", ACCENT); ry += 12;
+    controls_row(rx, &ry, rw, "Trigger / pinch", "Choose what the laser points at");
+    controls_row(rx, &ry, rw, "Sticks, A / X, B / Y", "Move, choose, back");
+    controls_row(rx, &ry, rw, "Grips", "The tab before / after");
+    const float bw = 180;
+    if (button(ID(K_MBTN, 1), x + w - 32 - bw, y + h - 26 - 52, bw, 52, "CLOSE", UI_B22, 1, NULL)) modal = M_NONE;
+    focusable(ID(K_MBTN, 1), F_BUTTON, (int)(x + w - 32 - bw / 2));
+    next_row();
+}
 static void keyboard(void) {
-    static const char code_keys[] = "ACDEFGHJKLMNPQRTUVWXY34679", name_keys[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_", ip_keys[] = "123456789.0";
-    const char *keys = modal == M_CODE ? code_keys : modal == M_NAME ? name_keys : ip_keys;
-    const int nkeys = (int)strlen(keys), cols = modal == M_IP ? 3 : 9, len = modal == M_CODE ? 4 : modal == M_NAME ? 12 : 15;
+    static const char code_keys[] = "ACDEFGHJKLMNPQRTUVWXY34679", name_keys[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_", ip_keys[] = "123456789.0",
+        server_keys[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.:", server_lower_keys[] = "abcdefghijklmnopqrstuvwxyz0123456789-.:";
+    const bool server_edit = modal == M_SERVER;
+    const char *keys = modal == M_CODE ? code_keys : modal == M_NAME ? name_keys : server_edit ? (klower ? server_lower_keys : server_keys) : ip_keys;
+    const int nkeys = (int)strlen(keys), cols = modal == M_IP ? 3 : 9, len = modal == M_CODE ? 4 : modal == M_NAME ? 12 : server_edit ? 63 : 15;
     const int cells = nkeys + (modal == M_IP ? 1 : 2), rows = (cells + cols - 1) / cols;
-    const float w = modal == M_CODE ? 720 : modal == M_NAME ? 860 : 560, keyw = modal == M_IP ? 132 : (w - 64 - (cols - 1) * 8) / cols;
+    const float w = modal == M_CODE ? 720 : modal == M_NAME || server_edit ? 860 : 560, keyw = modal == M_IP ? 132 : (w - 64 - (cols - 1) * 8) / cols;
     const float slot_h = modal == M_CODE ? 86 : modal == M_NAME ? 62 : 72;
-    const float h = 26 + 40 + 10 + slot_h + 16 + rows * 62 + 18 + 52 + 26;
+    const float h = 26 + 40 + 10 + slot_h + 16 + rows * 62 + 18 + 52 + 26 + (server_edit ? 24 : 0);
     float x, y; modal_frame(w, h, &x, &y);
-    text(UI_B32, x + 32, y + 26 + 30, modal == M_CODE ? "JOIN WITH CODE" : modal == M_NAME ? "YOUR NAME" : "JOIN BY IP", ACCENT);
+    text(UI_B32, x + 32, y + 26 + 30, modal == M_CODE ? "JOIN WITH CODE" : modal == M_NAME ? "YOUR NAME" : server_edit ? "LOBBY SERVER" : "JOIN BY IP", ACCENT);
     const float sy = y + 26 + 40 + 10; const int n = (int)strlen(kbuf);
-    if (modal == M_IP) {
+    if (server_edit) {   // (two lines of 32)
+        rrect(x + 32, sy, w - 64, slot_h, 14, WELL); rline(x + 32, sy, w - 64, slot_h, 14, 3, ACCENT);
+        char first[33]; snprintf(first, sizeof first, "%.32s", kbuf);
+        text(UI_B24, x + 48, sy + 29, first, TEXT);
+        text(UI_B24, x + 48, sy + 59, n > 32 ? kbuf + 32 : "", TEXT);
+    } else if (modal == M_IP) {
         rrect(x + 32, sy, w - 64, slot_h, 14, WELL); rline(x + 32, sy, w - 64, slot_h, 14, 3, ACCENT);
         const int aw = width(UI_B44, kbuf), pw = width(UI_M20, ":27750");
         text(UI_B44, x + (w - aw - pw - 8) / 2, sy + 52, kbuf, TEXT); text(UI_M20, x + (w - aw - pw - 8) / 2 + aw + 8, sy + 52, ":27750", MUTED);
@@ -789,11 +855,27 @@ static void keyboard(void) {
         if (del) snprintf(label, sizeof label, "DEL"); else { label[0] = keys[i]; label[1] = 0; }
         text_fit(del ? UI_B20 : UI_B24, bx, mid(del ? UI_B20 : UI_B24, by, 54), bw, label, hot ? ACCENT : TEXT, 1);
         if (clicked(id)) {
+            kerror = NULL;
             if (del) { if (n > 0) kbuf[n - 1] = 0; }
             else if (n < len) { kbuf[n] = keys[i]; kbuf[n + 1] = 0; }
         }
     }
+    if (server_edit) {   // beside DEL: the letters' case
+        const float bx = kx + 5 * (keyw + 8), by = ky + (rows - 1) * 62, bw = keyw * 2 + 8;
+        if (button(ID(K_MBTN, 4), bx, by, bw, 54, klower ? "ABC" : "abc", UI_B24, 0, "Switch between lowercase and uppercase letters.")) klower = !klower;
+        focusable(ID(K_MBTN, 4), F_BUTTON, (int)(bx + bw / 2));
+    }
     next_row();
+    if (server_edit) {
+        text_fit(UI_M17, x + 32, y + h - 26 - 52 - 10, w - 64, kerror ? kerror : "Hostname or IPv4, optional :port. Both players use the same server.",
+                 kerror ? WARN : MUTED, 0);
+        if (button(ID(K_MBTN, 2), x + 32, y + h - 26 - 52, 180, 52, "DEFAULT", UI_B22, 0, "The community server's address; SAVE applies it.")) {
+            snprintf(kbuf, sizeof kbuf, "%s", online_default_server()); kerror = NULL;
+        }
+        focusable(ID(K_MBTN, 2), F_BUTTON, (int)x + 122);
+        if (button(ID(K_MBTN, 3), x + 32 + 194, y + h - 26 - 52, 160, 52, "CLEAR", UI_B22, 0, "Clears the address, to enter a new one.")) { kbuf[0] = 0; kerror = NULL; }
+        focusable(ID(K_MBTN, 3), F_BUTTON, (int)x + 306);
+    }
     modal_buttons(x, y + h - 26 - 52, w, modal == M_CODE ? "JOIN" : "SAVE");
 }
 
@@ -844,7 +926,8 @@ static void layout(int which) {
     if (m) {
         ev_click = saved_click; ev_adjust = saved_adjust; ev_drag = saved_drag;
         nhits = 0; nfoci = 0; frow = 0;   // only the dialog takes input
-        if (modal == M_CODE || modal == M_NAME || modal == M_IP) keyboard(); else confirm();
+        if (modal == M_CONTROLS) controls_page();
+        else if (modal == M_CODE || modal == M_NAME || modal == M_IP || modal == M_SERVER) keyboard(); else confirm();
     }
 }
 
@@ -985,13 +1068,14 @@ bool qmenu_render(const QMenuHost *host, uint8_t *pixels, double now, int dirty[
     (void)now;
     H = host;
     // what is shown, minus the pointer / highlight
-    struct { int tab, modal, stick, opt[QOPT_COUNT], boot_r, hz; unsigned aw, ah; bool saved; int screen, page, ngames; char kbuf[24]; } s;
+    struct { int tab, modal, stick, opt[QOPT_COUNT], boot_r, hz; unsigned aw, ah; bool saved, lower; int screen, page, ngames; char kbuf[64]; } s;
     memset(&s, 0, sizeof s);
     s.tab = tab; s.modal = modal; s.stick = stick_mode;
-    s.screen = screen; s.page = page; s.ngames = game_count; snprintf(s.kbuf, sizeof s.kbuf, "%s", kbuf);
+    s.screen = screen; s.page = page; s.ngames = game_count; snprintf(s.kbuf, sizeof s.kbuf, "%s", kbuf); s.lower = modal == M_SERVER && klower;
     for (int i = 0; i < QOPT_COUNT; i++) s.opt[i] = H->get(i);
     s.boot_r = H->boot_resolution; s.hz = H->hz_now; s.aw = H->active_w; s.ah = H->active_h; s.saved = H->saved;
     uint32_t h = mix(2166136261u, &s, sizeof s);
+    if (modal == M_SERVER && kerror) h = mix(h, kerror, strlen(kerror));
     if (tab == QMENU_TAB_ONLINE || online_now()) { h = mix(h, &V, sizeof V); h = mix(h, games, (size_t)game_count * sizeof *games); }
     const int point[3] = { stick_mode ? 0 : hover, pressed, stick_mode ? focus : 0 };
     uint32_t p = mix(2166136261u, point, sizeof point); p = mix(p, help, strlen(help));

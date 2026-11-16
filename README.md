@@ -76,8 +76,34 @@ You need a **Meta Quest 3**. The Quest 3S has the same processor and should work
 3. Start **House of the Dead VR** from Unknown Sources. Pull the trigger and choose the ROM set. The app checks it, keeps its
    own copy and offers to delete the one you copied.
 
-The left menu button opens the VR menu, and a thumbstick click switches between standing in the game and the cabinet.
-Online play is on the menu's ONLINE tab.
+Online play is on the menu's ONLINE tab. The menu's CONTROLS button lists every control, as your settings make them.
+
+### Controls
+
+The gun is in your right hand unless the HANDS tab says otherwise; "other hand" is the one without it.
+
+| Controllers | |
+|---|---|
+| Trigger | Shoot. Off the screen: reload (the cabinet view, or Reload gesture OFF) |
+| Reload (Reload gesture MAGAZINE, the default) | Other hand's grip takes a magazine: push it into the gun's grip, then pull the slide |
+| Reload (POINT DOWN / OFF) | Aim at the floor / shoot off the screen, B or Y, or a firm grip squeeze |
+| B / Y | Drop the magazine (MAGAZINE); reload (Reload gesture OFF) |
+| A / X | Coins and Start; skip a scene |
+| Left menu button | The VR menu (the game pauses, except online) |
+| Gun hand's thumbstick click, held | Switch between standing in the game and the cabinet |
+| Other hand's thumbstick click | Online, PUSH TO TALK: talk while held |
+| Other hand's grip, at the gun | Hold the gun in both hands |
+| Both grips, hands apart | The cabinet view: move, turn and size the cabinet |
+
+| Your hands (no controllers) | |
+|---|---|
+| Point | Aim |
+| Index finger pinch | Shoot. Off the screen: reload |
+| Other hand's middle finger pinch | Coins and Start; skip a scene |
+| Left palm toward you, pinch | The VR menu |
+
+In the menu: the trigger (or a pinch) chooses what the laser points at, the sticks move, A / X choose, B / Y go back and
+the grips switch tabs.
 
 ## Building from source
 

@@ -100,6 +100,7 @@ enum { RQ_NONE, RQ_JOIN_CODE, RQ_QUICK, RQ_JOIN_GAME, RQ_REFRESH };
 static int rq; static char rq_code[8]; static int rq_index;
 static int browsing; static uint32_t browse_t;
 static int renamed;                     // the name changed: the network thread tells the server
+static int server_changed;              // the lobby server changed: the network thread drops the old one's room list
 
 static uint32_t now_ms(void) { return SDL_GetTicks(); }
 static void lock(void) { SDL_LockMutex(mu); }
@@ -136,13 +137,14 @@ static uint32_t run_id(void) {
 
 // ---------------------------------------------------------------- files
 static void path_of(char *out, size_t n, const char *leaf) { snprintf(out, n, "%s%s%s", files, files[0] ? "/" : "", leaf); }
-static void save_cfg(void) {
+static int save_cfg(void) {
     char p[600];
     path_of(p, sizeof p, "online.cfg");
     FILE *f = fopen(p, "w");
-    if (!f) return;
+    if (!f) return 0;
     fprintf(f, "name=%s\nserver=%s\njoin=%s\nvoice=%d\nmic_muted=%d\nvoice_volume=%d\n", name, server, join_ip, voice_mode, muted, volume);
-    fclose(f);
+    const int ok = !ferror(f);
+    return fclose(f) == 0 && ok;
 }
 static void load_cfg(void) {
     char p[600], line[256];
@@ -566,10 +568,17 @@ static int thread_main(void *arg) {
             unlock();
             if (ok) { write_session(2, l, l ? a : server, room, cd); restart(); }
         }
+        if (server_changed) {                          // (online_set_server) the old server's socket and rooms go
+            lock(); server_changed = 0; ngames = 0; unlock();
+            net_rooms_close();
+            browse_t = 0;
+        }
         if (browsing) {
             if (r == RQ_REFRESH || !browse_t || now - browse_t > 4000) {
                 browse_t = now;
-                net_rooms_query(server, ONLINE_VER);
+                char srv[sizeof server];
+                lock(); snprintf(srv, sizeof srv, "%s", server); unlock();
+                net_rooms_query(srv, ONLINE_VER);
                 if (!eng_net_discovering()) eng_net_discover();
             }
             net_rooms_poll();
@@ -788,6 +797,75 @@ void online_leave(void) {
     remove(p);
     online_quit();                                     // the partner hears us go (LEAVE)
     restart();
+}
+const char *online_default_server(void) { return DEFAULT_SERVER; }
+// host[:port]: a hostname (letters, digits, hyphens, dots; lowercased) or an IPv4 address (normalised), no scheme or path
+const char *online_set_server(const char *address) {
+    if (role) return "Leave the online game first.";
+    if (!address || !address[0]) return "Enter a hostname or IPv4 address.";
+    if (strlen(address) >= sizeof server) return "The server address must be at most 63 characters.";
+    char next[sizeof server];
+    snprintf(next, sizeof next, "%s", address);
+    char *colon = strchr(next, ':');
+    unsigned port = 0;
+    if (colon) {
+        const char *p = colon + 1;
+        if (!*p) return "Enter a port from 1 to 65535 after the colon.";
+        for (; *p; p++) {
+            if (*p < '0' || *p > '9') return "Use host:port, without https:// or a path.";
+            port = port * 10 + (unsigned)(*p - '0');
+            if (port > 65535) return "The port must be from 1 to 65535.";
+        }
+        if (!port) return "The port must be from 1 to 65535.";
+        *colon = 0;
+    }
+    const size_t hostlen = strlen(next);
+    if (!hostlen) return "Enter a hostname or IPv4 address.";
+    int numeric = 1, label = 0;
+    for (size_t i = 0; i < hostlen; i++) {
+        char c = next[i];
+        if (c >= 'A' && c <= 'Z') c = next[i] = (char)(c - 'A' + 'a');
+        if (c == '.') {
+            if (!label || next[i - 1] == '-') return "Use a valid hostname or IPv4 address.";
+            label = 0;
+            continue;
+        }
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') || (!label && c == '-'))
+            return "Use letters, digits, dots and hyphens for the host.";
+        if (c < '0' || c > '9') numeric = 0;
+        label++;
+    }
+    if (next[hostlen - 1] == '-') return "A hostname cannot end with a hyphen.";
+    if (numeric) {
+        unsigned o[4]; int parts = 0; const char *p = next;
+        while (*p) {
+            unsigned value = 0; int digits = 0;
+            while (*p >= '0' && *p <= '9') {
+                value = value * 10 + (unsigned)(*p++ - '0'); digits++;
+                if (value > 255 || digits > 3) return "IPv4 addresses need four numbers from 0 to 255.";
+            }
+            if (!digits || parts >= 4 || (*p && (*p != '.' || !p[1]))) return "Enter a complete IPv4 address, such as 192.168.1.20.";
+            o[parts++] = value;
+            if (*p) p++;
+        }
+        if (parts != 4) return "Enter a complete IPv4 address, such as 192.168.1.20.";
+        snprintf(next, sizeof next, "%u.%u.%u.%u", o[0], o[1], o[2], o[3]);
+    }
+    if (colon) { const size_t n = strlen(next); snprintf(next + n, sizeof next - n, ":%u", port); }
+    lock();
+    if (st_finding) { unlock(); return "Wait until joining finishes."; }
+    if (!strcmp(next, server)) { unlock(); return NULL; }
+    char previous[sizeof server];
+    memcpy(previous, server, sizeof server);
+    snprintf(server, sizeof server, "%s", next);
+    unlock();
+    if (!save_cfg()) {
+        lock(); memcpy(server, previous, sizeof server); unlock();
+        return "Could not save online.cfg.";
+    }
+    lock(); server_changed = 1; message[0] = 0; st_failed = 0; unlock();
+    toast("LOBBY SERVER: %s", next);
+    return NULL;
 }
 void online_set_name(const char *n) {
     char b[NAME_LEN + 1]; int k = 0;

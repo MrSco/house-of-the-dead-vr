@@ -56,6 +56,10 @@ void online_set_join_ip(const char *address);
 void online_join_ip(void);
 void online_leave(void);                 // back to playing alone (the app restarts)
 void online_set_name(const char *name);
+// The lobby server (host or host:port), changed from the menu while not in an online game. NULL when saved (online.cfg;
+// the browser and the next join use it at once), else a message for the player. (As Time Crisis 2 VR's editor.)
+const char *online_set_server(const char *address);
+const char *online_default_server(void);
 void online_set_voice_mode(int mode);
 void online_set_volume(int percent);
 void online_toggle_mute(void);
