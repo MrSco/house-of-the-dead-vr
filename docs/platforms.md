@@ -203,22 +203,39 @@ generated code and the fetched libraries over ssh; `python3 scripts/build_apple.
 - Apple clang computes the same game: `m2nettest` built on the Mac replayed the PC's and the Quest's runs (30 of 30
   each), and the PC the Mac's (30 of 30).
 
+**Since (2026-11-16):**
+- **The 3D was too dark everywhere**: the shared renderer decoded the arcade's colours with a 2.2 power and the sRGB
+  framebuffer encoded them with the sRGB curve, which crushed the shadows (5% showed under 2%). It uses the exact
+  sRGB curve now (the Quest too). A **Brightness** setting (GRAPHICS in VR, GAME in the flat apps, 30% by default)
+  lifts the shadows further; 0% is as the arcade drew it.
+- **Pads**: Windows loads SDL3.dll (built from `extern/sdl3`, shipped beside HOTDVR.exe) for Xbox, PlayStation,
+  Switch and other pads, XInput without it; pads with a gyroscope can aim with it (GAME: Pad gyro aim). Checked with
+  a virtual SDL pad (`FLAT_TEST_PAD=1`: the stick moves the sight, A starts a game) and the Android emulator's
+  gamepad keys (A starts a game, Select opens the menu).
+- **Gyro aim on phones and tablets** (GAME: Gyro aim, Gyro speed): turning the device moves the sight, a tap
+  shoots at it. Android (the gyroscope, by the display's rotation) checked in the emulator; iOS (CoreMotion) builds.
+- **Crash reports on Windows** (`crash_win.c`): the Quest's JSON to the same relay, the PDB kept by build id in
+  `build_windows/symbols/`; checked end to end against a stand-in relay, frames symbolized. The relay itself is
+  still to be deployed (`REPORT_URL` is empty for the Quest too).
+- **The Mac's microphone** (AVAudioEngine, AVCaptureDevice permission); this Mac mini has no microphone, so only its
+  receiving is checked. **Android phones** take Wi-Fi's multicast lock in an online run, as the Quest does.
+
 **Left for a player (the end check):** on the headset, a stage and an online game with this build; on Windows, the
 mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM dialog, and voice with real speech;
 a real phone (touch, a pad, the ROM picker, voice); a Steam Frame; an iPhone or iPad (a signed build, touch, voice);
 the Mac app by hand.
 
 **Left, later:**
-- Crash reports on Windows (WinHTTP; the SYSTEM tab hides the row on flat builds until then).
+- Deploy the crash relay and set `REPORT_URL` (Quest and Windows); upload the Windows PDBs beside the Quest's
+  symbols.
 - `src/xr`: the OpenXR shell (`quest_xr.c`, guns, hands, cabinet room) leaves `src/quest` when PCVR (P4) needs it.
 - The crossplay check with clang-cl too (CI's compiler; not installed on the dev PC).
 - The Quest's `QUEST_TEST_ONLINE` deletes all of env.txt before its restart, so other switches don't survive it;
   the flat hook drops only its own line.
-- Phones: gyro aim; the navigation bar (the theme hides the status bar; immersive mode needs the UI thread); a
-  32-bit (armeabi-v7a) build for phones without a 64-bit userspace, if wanted; LAN discovery (the Quest takes a
-  Wi-Fi multicast lock through JNI; the phone does not yet: joining by IP and by room code work).
-- Apple: the Mac's microphone (AVAudioEngine's input or the HAL unit); an app icon for both; CI for the IPA (as
-  GoldenEye VR's plan: a macOS runner with ANGLE's xcframeworks from a release asset); gyro aim on iOS.
+- Phones: the navigation bar (the theme hides the status bar; immersive mode needs the UI thread); a 32-bit
+  (armeabi-v7a) build for phones without a 64-bit userspace, if wanted.
+- Apple: an app icon for both; CI for the IPA (as GoldenEye VR's plan: a macOS runner with ANGLE's xcframeworks
+  from a release asset); a pad's gyro on Apple and Android (GCController.motion, the pad's sensor).
 
 ## Risks
 
