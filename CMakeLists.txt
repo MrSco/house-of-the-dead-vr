@@ -345,8 +345,8 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     # client / built-in host) with arcade_net, as in the app. Windows (ws2_32); the SDL2 headers build_quest.py fetches.
     set(M2_NET_SRC ${CMAKE_SOURCE_DIR}/src/net)
     set(M2_NET_SDL2 ${CMAKE_SOURCE_DIR}/third_party/quest/SDL2-2.32.10-headers/include)
+    set(M2_NET_C ${M2_NET_SRC}/online.c ${M2_NET_SRC}/net.c ${M2_NET_SRC}/net_host.c ${M2_NET_SRC}/rooms.c)
     if(WIN32 AND EXISTS ${M2_NET_SRC}/online.c AND EXISTS ${M2_NET_SDL2}/SDL.h)
-        set(M2_NET_C ${M2_NET_SRC}/online.c ${M2_NET_SRC}/net.c ${M2_NET_SRC}/net_host.c ${M2_NET_SRC}/rooms.c)
         add_executable(m2netguest tools/m2netguest/main.cpp tools/m2netguest/sdl_mini.cpp src/core/arcade_net.cpp
                        ${M2_NET_C} $<TARGET_OBJECTS:game_gen>)
         target_link_libraries(m2netguest PRIVATE runtime ws2_32)
@@ -359,12 +359,12 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     # The game in the apps (docs/platforms.md): the bridge (src/core/arcade.cpp, the game thread), online play
     # (arcade_net.cpp) and the generated code, linked with each app's shell (Quest: scripts/build_quest.py, with
     # src/quest, src/core's C, src/platform and OpenXR). M2_QUEST_SDL2: the SDL2 headers the bridge compiles against.
-    # On Windows the flat app (HOTDVR.exe, cmake/flat_windows.cmake) links it too, with the SDL2 headers
-    # build_quest.py / build_windows.py fetch.
-    if(WIN32 AND NOT M2_QUEST_SDL2 AND EXISTS ${M2_NET_SDL2}/SDL.h)
+    # On Windows the flat app (HOTDVR.exe, cmake/flat_windows.cmake) links it too, and on iOS
+    # (cmake/flat_apple.cmake), with the SDL2 headers build_quest.py / build_windows.py fetch.
+    if((WIN32 OR IOS) AND NOT M2_QUEST_SDL2 AND EXISTS ${M2_NET_SDL2}/SDL.h)
         set(M2_QUEST_SDL2 ${M2_NET_SDL2})
     endif()
-    if((ANDROID OR WIN32) AND M2_QUEST_SDL2)
+    if((ANDROID OR WIN32 OR IOS) AND M2_QUEST_SDL2)
         add_library(arcade_core STATIC src/core/arcade.cpp src/core/arcade_net.cpp $<TARGET_OBJECTS:game_gen>)
         target_link_libraries(arcade_core PRIVATE runtime)
         target_include_directories(arcade_core PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${M2_QUEST_SDL2})
@@ -373,6 +373,9 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
         endif()
         if(WIN32)
             include(cmake/flat_windows.cmake)
+        elseif(IOS)
+            enable_language(OBJC)
+            include(cmake/flat_apple.cmake)
         endif()
     endif()
     target_link_libraries(m2run PRIVATE runtime)

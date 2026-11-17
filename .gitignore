@@ -11,6 +11,8 @@ extern/
 third_party/
 # the Quest app's build (scripts/build_quest.py)
 build_quest/
+# the iOS app's Xcode project, made by xcodegen beside its spec (scripts/build_apple.py)
+src/flat/ios/*.xcodeproj/
 vendor/
 
 # ---- ROMs and anything derived from them — LEGAL, not tidiness ----
