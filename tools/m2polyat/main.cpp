@@ -64,6 +64,57 @@ int main(int argc, char **argv) {
         }
         return 0;
     }
+    if (std::getenv("M2_POLYAT_KINDS")) {   // the frame's polygons by renderer (texheader[0] bits 13-14) and checker
+        int count[4][2] = {};
+        for (const rt::GeoPoly &p : polys) count[(p.texheader[0] >> 13) & 3][(p.texheader[0] >> 15) & 1]++;
+        for (int r = 0; r < 4; r++)
+            std::printf("  renderer %d (%s%s): %d, %d of them checkered\n", r, r & 2 ? "textured" : "solid",
+                        r & 1 ? ", translucent" : "", count[r][0] + count[r][1], count[r][1]);
+        const int want = std::atoi(std::getenv("M2_POLYAT_KINDS"));   // that renderer's polygons, their boxes
+        std::vector<uint8_t> mask(496 * 384, 0);   // M2_POLYAT_MASK=file.pgm: where its checkered ones are
+        for (size_t rank = 0; rank < order.size(); rank++) {
+            const rt::GeoPoly &p = polys[order[rank]];
+            if (((p.texheader[0] >> 13) & 3) != want) continue;
+            if ((p.texheader[0] >> 15) & 1) {
+                float px[8], py[8];
+                bool front = p.num_vertices >= 3;
+                for (int i = 0; i < p.num_vertices; i++) {
+                    const float z = p.v[i].p[0];
+                    if (z <= 0) front = false;
+                    else px[i] = float(video.crtc_x() + p.center[0]) + p.v[i].x / z, py[i] = float((384 - p.center[1]) + video.crtc_y()) - p.v[i].y / z;
+                }
+                for (int y = 0; front && y < 384; y++)
+                    for (int x = 0; x < 496; x++) {
+                        int pos = 0, neg = 0;
+                        for (int i = 0; i < p.num_vertices; i++) {
+                            const int j = (i + 1) % p.num_vertices;
+                            const float c = (px[j] - px[i]) * (y + .5f - py[i]) - (py[j] - py[i]) * (x + .5f - px[i]);
+                            if (c > 0) pos++; else if (c < 0) neg++;
+                        }
+                        if (!(pos && neg)) mask[size_t(y) * 496 + size_t(x)] = 255;
+                    }
+            }
+            float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f, zmin = 1e30f;
+            for (int i = 0; i < p.num_vertices; i++) {
+                const float z = p.v[i].p[0];
+                zmin = std::min(zmin, z);
+                if (z <= 0) continue;
+                const float x = float(video.crtc_x() + p.center[0]) + p.v[i].x / z;
+                const float y = float((384 - p.center[1]) + video.crtc_y()) - p.v[i].y / z;
+                x0 = std::min(x0, x), x1 = std::max(x1, x), y0 = std::min(y0, y), y1 = std::max(y1, y);
+            }
+            std::printf("  rank %5zu box x %4.0f..%4.0f y %4.0f..%4.0f z>=%8.3f window %d luma %3d texheader %04x %04x %04x %04x\n",
+                        rank, double(x0), double(x1), double(y0), double(y1), double(zmin), p.window, p.luma,
+                        p.texheader[0], p.texheader[1], p.texheader[2], p.texheader[3]);
+        }
+        if (const char *path = std::getenv("M2_POLYAT_MASK"))
+            if (FILE *f = std::fopen(path, "wb")) {
+                std::fprintf(f, "P5\n496 384\n255\n");
+                std::fwrite(mask.data(), 1, mask.size(), f);
+                std::fclose(f);
+            }
+        return 0;
+    }
     int shown = 0;
     for (size_t rank = 0; rank < order.size(); rank++) {
         const rt::GeoPoly &p = polys[order[rank]];

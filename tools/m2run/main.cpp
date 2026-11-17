@@ -190,6 +190,7 @@ int main(int argc, char **argv) {
         std::vector<float> fm, pcm;
         uint64_t drive_commands = 0, drive_kinds[16] = {}; // the force feedback drive board's commands, by type
         for (uint64_t f = 0; f < frames; f++) {
+            script.pokes(game.board().frame(), game.board());   // (the script's memory writes: e.g. a player kept alive)
             game.run_frame(script.at(game.board().frame()));
             for (uint8_t c : std::exchange(game.board().io().drive_commands, {})) ++drive_commands, ++drive_kinds[c >> 4];
             if (native) { // the app's native audio path, frame by frame

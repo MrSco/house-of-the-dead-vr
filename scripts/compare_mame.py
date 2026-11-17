@@ -50,6 +50,7 @@ def main():
     ap.add_argument('--depth', choices=('order', 'key'), default='order')
     ap.add_argument('--out', default=os.path.join(B, 'cmp', 'compare'))
     a = ap.parse_args()
+    a.out = os.path.abspath(a.out)
     frames = sorted(int(f) for f in a.frames.split(','))
     inputs = os.path.abspath(a.inputs) if a.inputs else ''
     work = os.path.join(a.out, 'work')

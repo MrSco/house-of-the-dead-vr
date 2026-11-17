@@ -455,7 +455,8 @@ void build(Slot &s, const rt::Video &video, uint32_t serial) {
     comfort_from_sky(polys, s.sc);
     {   // A scene with 3D but none of the world (window 2: every stage, the title, the attract's scenes have it):
         // the game-over scene, a character spinning in the dark as the camera circles it. In VR that turns the
-        // world round you; quest_xr.c shows it on a screen ahead instead (arcade_screen_scene), after kScreenHold
+        // world round you (and you fall onto the camera); quest_xr.c shows it on a screen ahead in the dark instead,
+        // the view staying immersive (arcade_screen_scene), after kScreenHold
         // frames of it and back after as many without (no flicker at its ends).
         bool world = false;
         for (const rt::GeoPoly &p : polys) if (p.window == 2) { world = true; break; }

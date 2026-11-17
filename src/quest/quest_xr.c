@@ -115,6 +115,8 @@ static struct {
     uint32_t *frame;
     // the game's scene (d3d_vr.h)
     int cabinet;                         // 0 immersive, 1 the arcade room
+    int screen_scene;                    // immersive, a scene the arcade shows round nothing (the game-over's): its
+                                         // picture on a screen ahead in the dark, you still in the immersive view
     float scale;                         // metres per game unit
     const VrScene *scene; uint32_t scene_serial;
     GLuint cab_fbo, cab_tex, cab_depth;
@@ -942,12 +944,14 @@ static void game_sync(void) {
         S.scene = sc;
         S.scene_serial = sc->serial;
         m2_gl_sync();
-        {   // a scene the arcade game shows round nothing (the game-over scene's spinning camera): on the cabinet's
-            // screen while it lasts, whatever the View setting (arcade_quest.cpp arcade_screen_scene)
+        {   // a scene the arcade game shows round nothing (the game-over scene: you fall, the camera at your body):
+            // immersive, on a screen ahead in the dark while it lasts (arcade_quest.cpp arcade_screen_scene); the
+            // view stays immersive (it went to the cabinet's room: a jarring cut)
             extern volatile int arcade_screen_scene, arcade_view_cabinet;
-            const int cab = S.opt[QOPT_VIEW] == QVIEW_CABINET || arcade_screen_scene;
+            const int cab = S.opt[QOPT_VIEW] == QVIEW_CABINET, scr = !cab && arcade_screen_scene;
             if (cab != S.cabinet) { S.cabinet = cab; S.cab_dirty = 1; }
-            arcade_view_cabinet = cab;
+            S.screen_scene = scr;
+            arcade_view_cabinet = cab || scr;
         }
         S.cab_dirty = 1;
     }
@@ -1014,13 +1018,18 @@ static void tex_quad(const float *mvp, const float *q, GLuint tex, float tw, flo
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), q + 3);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
-// the 2D overlay (HUD, menus) where the game's screen is: the picture's corners at depth zp in game units
-static void draw_overlay(const float *mvp, float zp) {
-    if (!S.tex_w) return;
+// the game's screen's corners at depth zp in game units (left, right, top, bottom), as the game projects
+static void screen_rect(float zp, float *l, float *r, float *t, float *b) {
     const VrScene *sc = S.scene;
     float fx = sc ? sc->fx : 640, fy = sc ? sc->fy : -620, cx = sc ? sc->cx : 320, cy = sc ? sc->cy : 240;
     float w = sc ? (float)sc->w : 640, h = sc ? (float)sc->h : 480;
-    float l = -cx * zp / fx, r = (w - cx) * zp / fx, t = -cy * zp / fy, b = (h - cy) * zp / fy;
+    *l = -cx * zp / fx, *r = (w - cx) * zp / fx, *t = -cy * zp / fy, *b = (h - cy) * zp / fy;
+}
+// the 2D overlay (HUD, menus) where the game's screen is: the picture's corners at depth zp in game units
+static void draw_overlay(const float *mvp, float zp) {
+    if (!S.tex_w) return;
+    float l, r, t, b;
+    screen_rect(zp, &l, &r, &t, &b);
     const float q[] = { l, t, zp, 0, 0,  r, t, zp, 1, 0,  r, b, zp, 1, 1,
                         l, t, zp, 0, 0,  r, b, zp, 1, 1,  l, b, zp, 0, 1 };
     glDisable(GL_DEPTH_TEST);
@@ -1176,7 +1185,7 @@ static void draw_dim(float a) {
 }
 // Turn vignette (comfort): while the game camera turns fast, the edges of the view darken (a ring in each eye)
 static void draw_vignette(void) {
-    if (S.vig < 0.01f || S.cabinet) return;
+    if (S.vig < 0.01f || S.cabinet || S.screen_scene) return;
     static const float q[12] = { -1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1 };
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -1644,17 +1653,27 @@ static void draw_scene(const float *proj, const float *view, const float *pv) {
         game_to_local(g2l);
         mat_mul(m, pv, g2l);
         level_mat(lv);
-        {   // the world: its own near plane, then the depth cleared for what is near you
-            float pvw[16], mw[16], mlw[16];
-            world_pv(pvw, proj, view);
-            mat_mul(mw, pvw, g2l);
-            mat_mul(mlw, mw, lv);
-            m2_gl_near(WORLD_NEAR / S.scale);
-            draw_game(mlw);
-            glClear(GL_DEPTH_BUFFER_BIT);
+        if (S.screen_scene) {   // the game-over scene: the arcade's picture (the overlay in it) where the overlay goes
+            float l, r, t, b;
+            const float zp = S.panel_m / S.scale;
+            screen_rect(zp, &l, &r, &t, &b);
+            const float q[] = { l, t, zp, 0, 1,  r, t, zp, 1, 1,  r, b, zp, 1, 0,
+                                l, t, zp, 0, 1,  r, b, zp, 1, 0,  l, b, zp, 0, 0 };   // (upside down for GL)
+            draw_col(pv, tris, ntris, GL_TRIANGLES);
+            if (S.scene) tex_quad(m, q, S.cab_tex, CAB_W, CAB_H, 0);
+        } else {
+            {   // the world: its own near plane, then the depth cleared for what is near you
+                float pvw[16], mw[16], mlw[16];
+                world_pv(pvw, proj, view);
+                mat_mul(mw, pvw, g2l);
+                mat_mul(mlw, mw, lv);
+                m2_gl_near(WORLD_NEAR / S.scale);
+                draw_game(mlw);
+                glClear(GL_DEPTH_BUFFER_BIT);
+            }
+            draw_col(pv, tris, ntris, GL_TRIANGLES);
+            draw_overlay(m, S.panel_m / S.scale);
         }
-        draw_col(pv, tris, ntris, GL_TRIANGLES);
-        draw_overlay(m, S.panel_m / S.scale);
     } else {
         if (cabinet_room() == QROOM_COURTYARD) {   // the first stage's courtyard round the cabinet, level, at eye height
             float g2l[16], m[16];
@@ -1696,7 +1715,7 @@ static void draw_scene(const float *proj, const float *view, const float *pv) {
     }
     if (S.menu_open) {
         // the menu: the game dimmed behind it, the panel, then the guns and lasers in front of it
-        if (!S.cabinet) draw_fade();
+        if (!S.cabinet && !S.screen_scene) draw_fade();
         draw_dim(0.5f);
         glClear(GL_DEPTH_BUFFER_BIT);
         draw_menu(pv);
@@ -1711,7 +1730,7 @@ static void draw_scene(const float *proj, const float *view, const float *pv) {
     glDisable(GL_BLEND);
     draw_rack_hint(pv);
     draw_online_label(pv);
-    if (!S.cabinet && !S.menu_open) { draw_fade(); draw_vignette(); }
+    if (!S.cabinet && !S.menu_open) { if (!S.screen_scene) draw_fade(); draw_vignette(); }   // (the screen has its fade)
 }
 static void facing_pose(float *m, float up, float ahead);
 // No game to show (its files missing, or it didn't start): the message page (quest_show_message) on a panel ahead of
@@ -1802,7 +1821,7 @@ static void render_eye(int e, const XrView *view) {
     mat_mul(pv, p, v);
     if (S.need_files || S.game_failed) draw_message(p, v, pv);   // the setup page (or why the game didn't start)
     else draw_scene(p, v, pv);
-    if (!S.need_files && !S.game_failed && !S.cabinet) m2_gl_draw_face(p, arcade_eye_x[e]);   // a zombie's hit, on your face
+    if (!S.need_files && !S.game_failed && !S.cabinet && !S.screen_scene) m2_gl_draw_face(p, arcade_eye_x[e]);   // a zombie's hit, on your face
     const GLenum discard[2] = { GL_DEPTH_ATTACHMENT, GL_STENCIL_ATTACHMENT };
     glInvalidateFramebuffer(GL_FRAMEBUFFER, 2, discard);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1933,9 +1952,10 @@ static void apply_options(void) {
     {
         int cab = S.opt[QOPT_VIEW] == QVIEW_CABINET;
         if (cab != S.cabinet) { S.cabinet = cab; S.cab_dirty = 1; }
-        {   // the arcade game's picture keeps its damage marks in the cabinet (arcade_quest.cpp: the face layer)
+        if (cab) S.screen_scene = 0;
+        {   // the arcade game's picture keeps its damage marks on a screen (arcade_quest.cpp: the face layer)
             extern volatile int arcade_view_cabinet;
-            arcade_view_cabinet = cab;
+            arcade_view_cabinet = cab || S.screen_scene;
         }
         extern int port_draw_crosshairs;
         // the cabinet shows the game's crosshairs (Screen crosshair); immersive aims in 3D, but online the partner's
@@ -2828,7 +2848,7 @@ static void frame(void) {
         if (test_talk < 0) { test_talk = getenv("QUEST_TEST_TALK") && atoi(getenv("QUEST_TEST_TALK")); if (test_talk) online_set_voice_mode(2); }
         if (test_talk) online_talk_key(true);
     }
-    if (S.cabinet && fs.shouldRender) render_cabinet_view();
+    if ((S.cabinet || S.screen_scene) && fs.shouldRender) render_cabinet_view();
     if (gun_slot != net_local || gun_kind != S.opt[QOPT_GUN_MODEL]) load_gun();   // the setting, or your player online
     else if (gun_size != S.opt[QOPT_GUN_SIZE]) { gun_size = S.opt[QOPT_GUN_SIZE]; gun_fit(gun_cabinet, gun_size); }
     {   // online: ours out (as drawn last frame), the partner's in
