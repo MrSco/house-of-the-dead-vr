@@ -173,6 +173,11 @@ int flat_gl_init(void) {
     glGetIntegerv(GL_MAX_SAMPLES, &max_samples);
     F.ms = max_samples >= 4 ? 4 : 1;
     m2_gl_init();
+    {   // a flat picture: the arcade's order decides what is in front, as on the arcade (M2_GL_ORDER=0, tests: real
+        // depth, as the headset draws)
+        const char *e = getenv("M2_GL_ORDER");
+        m2_gl_arcade_order(!(e && *e == '0'));
+    }
     quest_overlay_key = D3D_VR_KEY;   // the game's 2D layers: this colour is see-through (arcade.cpp)
     return F.frame != NULL;
 }
@@ -273,6 +278,11 @@ static void draw_fade(void) {
 }
 static void render_picture(void) {
     const VrScene *sc = F.scene;
+#ifdef GL_FRAMEBUFFER_SRGB
+    // desktop GL (Windows) encodes into an sRGB target only when asked (GLES always does): without it the picture
+    // kept linear values and showed far too dark (MAME's mid tones at 0.6, measured)
+    glEnable(GL_FRAMEBUFFER_SRGB);
+#endif
     glBindFramebuffer(GL_FRAMEBUFFER, F.ms_fbo ? F.ms_fbo : F.pic_fbo);
     glViewport(0, 0, F.pic_w, F.pic_h);
     const uint32_t c = sc ? sc->clear : 0;
@@ -299,6 +309,9 @@ static void render_picture(void) {
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, F.pic_fbo);
         glBlitFramebuffer(0, 0, F.pic_w, F.pic_h, 0, 0, F.pic_w, F.pic_h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     }
+#ifdef GL_FRAMEBUFFER_SRGB
+    glDisable(GL_FRAMEBUFFER_SRGB);   // (the window's pass encodes itself)
+#endif
 }
 
 void flat_draw(int w, int h, unsigned framebuffer) {
@@ -351,6 +364,26 @@ void flat_draw(int w, int h, unsigned framebuffer) {
     glViewport(0, 0, w, h);
     flat_touch_draw(w, h);
     flat_menu_draw(w, h);
+    {   // M2_SHOTS (arcade.cpp, tests): the game waits after one of those frames until its picture is saved
+        extern volatile uint64_t arcade_shot_serial;
+        extern volatile uint32_t arcade_shot_frame;
+        if (arcade_shot_serial && F.scene_serial == arcade_shot_serial) {
+            char name[64];
+            snprintf(name, sizeof name, "shot_%05u.ppm", (unsigned)arcade_shot_frame);
+            unsigned char *px = malloc((size_t)F.vw * F.vh * 4);
+            FILE *f = px ? fopen(name, "wb") : NULL;
+            if (f) {   // the picture alone (its 4:3 place in the window)
+                glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+                glReadPixels(F.vx, h - F.vy - F.vh, F.vw, F.vh, GL_RGBA, GL_UNSIGNED_BYTE, px);
+                fprintf(f, "P6\n%d %d\n255\n", F.vw, F.vh);
+                for (int y = F.vh - 1; y >= 0; y--)
+                    for (int x = 0; x < F.vw; x++) fwrite(px + ((size_t)y * F.vw + x) * 4, 1, 3, f);
+                fclose(f);
+            }
+            free(px);
+            arcade_shot_serial = 0;
+        }
+    }
     {   // FLAT_SHOT=seconds (tests): the picture as flat_shot.ppm in the files folder, that long after the first frame
         static double at = -2;
         static uint64_t t0;

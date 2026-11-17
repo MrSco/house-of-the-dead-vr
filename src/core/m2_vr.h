@@ -23,6 +23,9 @@ typedef struct {
     float r, g, b;          // a solid polygon's colour (gamma applied)
     uint32_t info[4];       // m2.hlsl PolyIn.info
     uint32_t more[2];       // m2.hlsl PolyIn.more
+    float key;              // depth only (the headset's): the point out along its view ray x key is at the z the
+                            // arcade sorted its polygon by (rt::GeoPoly::sortz); 1: where it is; negative: the
+                            // polygon reaches behind the camera, its depth is the plane z = -key's (at x, y)
 } M2Vert;
 
 #define M2_TEX_WORDS 0x100000u   // texture RAM: sheet 0 then sheet 1, 0x80000 dwords each (1024 x 1024 R32UI)
@@ -59,6 +62,8 @@ void m2_gl_draw(const float *mvp);
 // and its colours raised to a power under 1, lifting the shadows (0: as drawn; whites stay white)
 void m2_gl_brightness(int percent);
 // the projection's near plane in game units, for the next draws (how far the draw order's steps must reach)
+// The flat apps: the depth from the arcade's draw order alone, as its picture (no headset to give real depth a use)
+void m2_gl_arcade_order(int on);
 void m2_gl_near(float near_game_units);
 // The face layer, for one eye: proj is the eye's projection; eye_x the eye's offset from the middle of the head
 // (metres, left eye negative). Drawn in front of everything, fixed to the head.

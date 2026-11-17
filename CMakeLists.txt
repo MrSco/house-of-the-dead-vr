@@ -348,6 +348,9 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     # save states (online play's drop-in) checked: a loaded game against the one that saved
     add_executable(m2statetest tools/m2statetest/main.cpp $<TARGET_OBJECTS:game_gen>)
     target_link_libraries(m2statetest PRIVATE runtime)
+    # which polygons cover a pixel, with their sort keys (renderer differences against MAME)
+    add_executable(m2polyat tools/m2polyat/main.cpp $<TARGET_OBJECTS:game_gen>)
+    target_link_libraries(m2polyat PRIVATE runtime)
     # A desktop player 2 joining the Quest app's online game over the network: src/net (online.c and the NMN2
     # client / built-in host) with arcade_net, as in the app. Windows (ws2_32); the SDL2 headers build_quest.py fetches.
     set(M2_NET_SRC ${CMAKE_SOURCE_DIR}/src/net)

@@ -466,6 +466,7 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 
 			/* copy the object information */
 			poly->z = object.z;
+			poly->sortz = zvalue;
 			poly->texheader[0] = object.texheader[0];
 			poly->texheader[1] = object.texheader[1];
 			poly->texheader[2] = object.texheader[2];

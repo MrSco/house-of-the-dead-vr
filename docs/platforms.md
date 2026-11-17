@@ -227,8 +227,26 @@ generated code and the fetched libraries over ssh; `python3 scripts/build_apple.
   (save on one, load on the other: the same for 600 frames; the two machines' states of a frame are the same bytes).
   Details in docs/vr.md, "Online play and voice chat". A build of version 2 can't share a room with these.
 
+- **Checked against the original (MAME 0.289)**: `scripts/compare_mame.py` puts MAME's frame beside ours (the
+  software rasterizer, MAME's algorithm, and the apps' m2_gl), found by picture; MAME is driven by our input scripts
+  (`tools/mame-plugins/hotd_shots.lua`) and the app saves exact frames (`M2_SHOTS`, `M2_INPUT_SCRIPT`, arcade.cpp).
+  The game and the software rasterizer match MAME pixel for pixel; m2_gl had three faults, now fixed:
+  - **Figures in walls and floors**: the arcade has no depth buffer (its sort order decides), and the game's models
+    dip into what they stand on or lean against: with real depth the girl at the mansion's door showed only her
+    hand, the dead lying on the ground were mostly gone, feet sank into floors. The flat apps now draw in the
+    arcade's order alone (`m2_gl_arcade_order`: its picture exactly); the headset keeps real positions but writes
+    each polygon's depth at the z the arcade sorted it by (`GeoPoly::sortz`, `M2Vert::key`; a polygon reaching
+    behind the camera, as the VR scenery's ground does, by the plane at that z), so the guns and hands still meet
+    the world in depth. Against the arcade's order over 102 frames of attract and stage 1: the same but for slivers
+    of distant ground at the screen's edge (0.44% of the pixels at most).
+  - **Windows drew the 3D far too dark** (MAME's mid tones at 0.6): desktop GL encodes into an sRGB target only
+    with `GL_FRAMEBUFFER_SRGB` on (GLES always does). At Brightness 0% Windows now matches the software
+    rasterizer's colours; the 50% default is brighter than the arcade, as on the Quest.
+  - The "plain floor" seen on Windows was those two together (the marble's pattern is there).
+
 **Left for a player (the end check):** on the headset, a stage and an online game with this build (joining a game under way, both ways: the
-headset here lost tracking on the desk, so its app couldn't be opened for a live join); on Windows, the
+headset here lost tracking on the desk, so its app couldn't be opened for a live join), and the headset's new
+depth (figures over the floors and walls they dip into: the girl at the door, the first zombie's feet); on Windows, the
 mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM dialog, and voice with real speech;
 a real phone (touch, a pad, the ROM picker, voice); a Steam Frame; an iPhone or iPad (a signed build, touch, voice);
 the Mac app by hand.

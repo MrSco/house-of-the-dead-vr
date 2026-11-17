@@ -7,6 +7,9 @@
 // The Model 2 has no depth buffer: the first polygon in its draw order to reach a pixel wins. Here the depth
 // test decides, and each step in that order sits a little further out along its own view ray (M2Vert.prio), so
 // that coplanar ones (shadows, decals) keep the arcade's choice. The screen's effects come last, over the world.
+// A flat picture needs no real depth: there the order alone decides (m2_gl_arcade_order), as on the arcade, where a
+// figure the game sorts in front stays in front even where its mesh is behind a wall's (the girl at the mansion's
+// door in the intro: with real depth only her hand showed).
 #include "m2_vr.h"
 #include "platform/gl.h"
 #include "platform/platform.h"
@@ -27,9 +30,11 @@ static const char *VS =
     "layout(location = 2) in float depth;\n"
     "layout(location = 3) in float prio;\n"
     "uniform float prio_k;\n"
+    "uniform float order;\n"   // > 0: the depth is the draw order's alone (prio x order: 0 near, 1 far)
     "layout(location = 4) in vec3 col;\n"
     "layout(location = 5) in uvec4 info;\n"
     "layout(location = 6) in uvec2 more;\n"
+    "layout(location = 7) in float key;\n"
     "out vec2 v_uv;\n"
     "out float v_z;\n"
     "flat out vec3 v_col;\n"
@@ -38,7 +43,19 @@ static const char *VS =
     "void main() {\n"
     // (out along its ray: m2_vr.h prio; far off, more: the depth buffer's step grows with the distance squared, so the
     // relative step must grow with the distance to stay a few of its steps; prio_k from the projection's near plane)
-    "  gl_Position = mvp * vec4(pos * (1.0 + prio * clamp(length(pos) * prio_k, 1.0, 16.0)), 1.0);\n"
+    "  gl_Position = mvp * vec4(pos, 1.0);\n"
+    "  if (order > 0.0) {\n"
+    "    gl_Position.z = (min(prio * order, 1.0) * 2.0 - 1.0) * gl_Position.w;\n"
+    "  } else {\n"
+    // the depth alone of the point moved out along its ray to the arcade's sort depth (key) and a step further for its
+    // place in the draw order: figures the arcade sorts in front of a floor or wall their meshes dip into stay in
+    // front, as it draws them; the point itself stays where it is (no parallax from the move)
+    "    vec3 q = key < 0.0 ? vec3(pos.xy, -key) : pos * key;\n"
+    "    q *= 1.0 + prio * clamp(length(q) * prio_k, 1.0, 16.0);\n"
+    "    vec4 d = mvp * vec4(q, 1.0);\n"
+    // (behind the eye too: the clipper then cuts the polygon where it crosses the eye's plane, its depth unchanged)
+    "    if (d.w > 0.0) gl_Position.z = clamp(d.z / d.w, -1.0, 0.99999) * gl_Position.w;\n"
+    "  }\n"
     "  v_uv = uv; v_z = depth; v_col = col; v_info = info; v_more = more;\n"
     "}\n";
 
@@ -208,8 +225,8 @@ static struct {
     int face_any;
     uint32_t face_serial;
     GLuint prog, vao, vbo, tex, luma, xlat;
-    GLint u_mvp, u_prio_k, u_lift;
-    float prio_k, lift;
+    GLint u_mvp, u_prio_k, u_lift, u_order;
+    float prio_k, lift, order;   // (order: m2_gl_arcade_order)
     GLsizei nv, nv_world;
     int ready;
 } M;
@@ -238,6 +255,7 @@ static void make_vao(GLuint *vao, GLuint *vbo) {
     glEnableVertexAttribArray(1); glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, st, (void *)offsetof(M2Vert, u));
     glEnableVertexAttribArray(2); glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, st, (void *)offsetof(M2Vert, depth));
     glEnableVertexAttribArray(3); glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, st, (void *)offsetof(M2Vert, prio));
+    glEnableVertexAttribArray(7); glVertexAttribPointer(7, 1, GL_FLOAT, GL_FALSE, st, (void *)offsetof(M2Vert, key));
     glEnableVertexAttribArray(4); glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, st, (void *)offsetof(M2Vert, r));
     glEnableVertexAttribArray(5); glVertexAttribIPointer(5, 4, GL_UNSIGNED_INT, st, (void *)offsetof(M2Vert, info));
     glEnableVertexAttribArray(6); glVertexAttribIPointer(6, 2, GL_UNSIGNED_INT, st, (void *)offsetof(M2Vert, more));
@@ -275,6 +293,7 @@ void m2_gl_init(void) {
     glUseProgram(M.prog);
     M.u_mvp = glGetUniformLocation(M.prog, "mvp");
     M.u_prio_k = glGetUniformLocation(M.prog, "prio_k");
+    M.u_order = glGetUniformLocation(M.prog, "order");
     M.u_lift = glGetUniformLocation(M.prog, "lift");
     if (M.lift <= 0) M.lift = 1;
     glUniform1i(glGetUniformLocation(M.prog, "texram"), 2);
@@ -396,6 +415,7 @@ void m2_gl_draw(const float *mvp) {
     glUseProgram(M.prog);
     glUniformMatrix4fv(M.u_mvp, 1, GL_FALSE, mvp);
     glUniform1f(M.u_prio_k, M.prio_k);
+    glUniform1f(M.u_order, M.order);
     glUniform1f(M.u_lift, M.lift);
     glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, M.tex);
     glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, M.luma);
@@ -496,6 +516,7 @@ void m2_gl_draw_backdrop(const float *mvp) {
     glUseProgram(M.prog);
     glUniformMatrix4fv(M.u_mvp, 1, GL_FALSE, m);
     glUniform1f(M.u_prio_k, M.prio_k);
+    glUniform1f(M.u_order, 0.0f);
     glUniform1f(M.u_lift, M.lift);
     glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, B.tex);
     glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, B.luma);
@@ -525,6 +546,10 @@ void m2_gl_brightness(int percent) {
     if (percent > 100) percent = 100;
     arcade_brightness = percent;
     M.lift = 1.0f / (1.0f + 0.4f * (float)percent / 100.0f);
+}
+void m2_gl_arcade_order(int on) {
+    // prio is rank x 2.5e-5 (arcade.cpp kRankStep): 65536 ranks over the depth range, each a step of it
+    M.order = on ? 1.0f / (2.5e-5f * 65536.0f) : 0.0f;
 }
 void m2_gl_near(float near_game_units) {
     if (near_game_units < 1e-4f) near_game_units = 1e-4f;

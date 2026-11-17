@@ -16,6 +16,7 @@
 //    arcade_net.cpp (two players, as at the cabinet);
 //  - sound: the SCSP board's output through the SDL audio callback.
 #include "core/m2_vr.h"
+#include "../../tools/common/input_script.h"
 #include "core/arcade_net.h"
 #include "platform/platform.h"
 
@@ -356,9 +357,18 @@ int poly_vertices(const rt::GeoPoly &poly, const rt::VideoMem &mem, uint32_t ran
         // the texture level from the distance (the arcade's z, for its own camera's view: behind it
         // that is negative, and to the sides too small)
         pv[k].depth = std::sqrt(pv[k].x * pv[k].x + pv[k].y * pv[k].y + z * z);
+        // the headset's depth: at the z the arcade sorted the polygon by (m2_vr.h key), so that what it draws in
+        // front (a figure over the floor or the wall its mesh dips into: the first zombie's feet, the dead lying on
+        // the ground, the girl at the mansion's door) stays in front
+        // (a polygon reaching behind the camera, as the VR scenery's ground does, can't go out along its rays: its
+        // depth is the plane z = sortz's at each vertex: key < 0)
+        pv[k].key = !(poly.sortz > 0.f && poly.sortz < 1e9f) ? 1.f
+                    : zmin > 1e-3f                          ? std::clamp(poly.sortz / z, 1.f / 64, 64.f)
+                                                            : -poly.sortz;
         if (effect) { // placed on the world behind it once the world is known (below); its texture level as the arcade's
             pv[k].depth = z;
             pv[k].prio = 0;
+            pv[k].key = 1;
         }
     }
     return poly.num_vertices;
@@ -473,7 +483,7 @@ void build(Slot &s, const rt::Video &video, uint32_t serial) {
 // carry it), on a thread of its own while the game is played: a second game, without sound, played to kCourtyardFrame (two coins and Start, player 1 kept alive, a
 // shot every 15 frames, every 7th off the screen: scripts/inputs/hotd_courtyard.txt, the same frame on every
 // machine), its world (everything round the camera, as
-// VR mode keeps it), texture RAM, luma and colour tables and the sky's up saved in courtyard3.m2w:
+// VR mode keeps it), texture RAM, luma and colour tables and the sky's up saved in courtyard4.m2w:
 //   "M2WORLD1", uint32 vertices, float up[3], M2Vert[vertices], texture RAM (M2_TEX_WORDS dwords), luma
 //   (M2_LUMA_ENTRIES bytes), colour translation (M2_XLAT_ENTRIES bytes).
 // Frame 4080: in front of the fountain, the mansion behind it, Sophie fallen by the fountain (the gargoyle takes her
@@ -886,6 +896,26 @@ private:
     std::thread t_; // (last: started once the rest is ready)
 };
 
+// M2_SHOTS=f1,f2,... (tests, compared with MAME by scripts/compare_mame.py): after drawing each of those frames
+// the game waits until the shell has saved its picture (flat.c: shot_<frame>.ppm); M2_INPUT_SCRIPT=path plays a
+// scripts/inputs file (alone only) instead of the player's controls, frame for frame as m2run does.
+extern "C" volatile uint64_t arcade_shot_serial = 0; // the scene to save, set by the game thread; 0 again once saved
+extern "C" volatile uint32_t arcade_shot_frame = 0;
+namespace {
+std::vector<uint64_t> shot_frames() {
+    std::vector<uint64_t> v;
+    if (const char *e = getenv("M2_SHOTS"))
+        for (const char *p = e; *p;) {
+            char *end;
+            const unsigned long long f = std::strtoull(p, &end, 10);
+            if (end == p) { p++; continue; }
+            v.push_back(f);
+            p = end;
+        }
+    return v;
+}
+} // namespace
+
 rt::GameLoop *the_game = nullptr;
 uint32_t game_crc() { return the_game->board().state_hash(); } // online play's checksum (arcade_net)
 
@@ -1039,9 +1069,10 @@ extern "C" int SDL_main(int argc, char **argv) {
                        "epr-19697a.16), as hotd.zip or hotd.7z in\n" + game_dir + "\n\nPress the menu button to quit.");
     }
     {   // the cabinet room's courtyard, once (the images just kept: a new set's images make it again)
-        // (courtyard3: the fountain, with the whole scenery sent (hook_hotd_scenery_cull); the earlier ones, the road
+        // (courtyard4 (3 before M2Vert::key): the fountain, with the whole scenery sent (hook_hotd_scenery_cull); the earlier ones, the road
         // outside the gate, are dropped)
-        const std::string cy = game_dir + "/courtyard3.m2w", images = game_dir + "/images";
+        const std::string cy = game_dir + "/courtyard4.m2w", images = game_dir + "/images";
+        std::remove((game_dir + "/courtyard3.m2w").c_str()); // (4: M2Vert::key)
         std::remove((game_dir + "/courtyard2.m2w").c_str());
         std::remove((game_dir + "/courtyard.m2w").c_str());
         if (made_images) std::remove(cy.c_str());
@@ -1086,6 +1117,13 @@ extern "C" int SDL_main(int argc, char **argv) {
     game->set_profile_clock(now_ns);
     struct { uint64_t frames = 0, board = 0, core = 0, tgpx4 = 0, geo = 0, video = 0, scene = 0, sound = 0, tgpx4_at = 0; } prof;
     SoundThread sound_thread; // (after the game: it goes first, before the sound board its packets use)
+    const std::vector<uint64_t> shots = shot_frames();
+    std::unique_ptr<tools::Script> input_script;
+    if (const char *e = getenv("M2_INPUT_SCRIPT"); e && *e) {
+        input_script = std::make_unique<tools::Script>();
+        input_script->load(e);
+        LOGI("input script %s", e);
+    }
     while (!quit) {
         poll_events(quit);
         // a guest joining: the host's game as it is (its save state), loaded instead of running every frame since
@@ -1104,6 +1142,10 @@ extern "C" int SDL_main(int argc, char **argv) {
         // this frame's cabinet input: made here (alone, or hosting: and sent), or the host's (a guest waits for it)
         rt::Inputs in;
         if (!arcade_net::frame(local_controls(), in, game_crc)) continue;
+        if (input_script && arcade_net::mode() == arcade_net::Off) {
+            in = input_script->at(game->frames());
+            input_script->pokes(game->frames(), game->board());
+        }
         rt::GameLoop::SoundPacket packet; // this frame's sound board work: on the sound thread, during the next frame
         const uint64_t t_board = now_ns();
         try {
@@ -1163,6 +1205,16 @@ extern "C" int SDL_main(int argc, char **argv) {
             prof.tgpx4_at = tg;
         }
         if (behind < 2) SDL_RenderPresent(ren); // waits while paused (the system menu, the headset off)
+        if (std::find(shots.begin(), shots.end(), game->frames()) != shots.end()) {
+            {
+                std::lock_guard<std::mutex> lock(g.mu);
+                arcade_shot_frame = uint32_t(game->frames());
+                arcade_shot_serial = g.serial;
+            }
+            for (int i = 0; i < 2500 && arcade_shot_serial; i++) plat_sleep_until_ns(now_ns() + 2000000);
+            if (arcade_shot_serial) LOGE("shot of frame %u: not saved", unsigned(game->frames()));
+            arcade_shot_serial = 0;
+        }
 
         // settings and scores: written when they change (checked every ~5 s)
         if (game->frames() % 300 == 0) {

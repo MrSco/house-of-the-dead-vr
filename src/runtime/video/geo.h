@@ -35,6 +35,9 @@ struct GeoVertex {
 // model2_3d_process_polygon adds it to its list.
 struct GeoPoly {
     uint16_t z = 0;
+    // The z it was sorted by (z above is this, packed, after the z adjust): its nearest or farthest vertex's, or an
+    // earlier polygon's (a figure's polygons sort as one). A headset's depth buffer takes it (arcade.cpp key).
+    float sortz = 0;
     uint16_t texheader[4] = {0, 0, 0, 0};
     uint8_t luma = 0;
     int32_t texlod = 0;

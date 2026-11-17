@@ -16,7 +16,7 @@ namespace rt {
 
 namespace {
 constexpr char kMagic[5] = "M2ST";
-constexpr uint32_t kVersion = 1;
+constexpr uint32_t kVersion = 2; // (2: GeoPoly::sortz)
 
 uint32_t crc32(const uint8_t *p, size_t n) {
     static uint32_t table[256];
@@ -132,7 +132,7 @@ void Geo::state(State &s) {
         polys.resize(size_t(n));
     }
     for (GeoPoly &p : polys) {
-        s(p.z)(p.texheader)(p.luma)(p.texlod)(p.viewport)(p.center)(p.window)(p.reverse)(p.num_vertices)(p.focus);
+        s(p.z)(p.sortz)(p.texheader)(p.luma)(p.texlod)(p.viewport)(p.center)(p.window)(p.reverse)(p.num_vertices)(p.focus);
         if (p.num_vertices > 8) throw State::Bad("save states: a polygon of more than 8 vertices");
         for (unsigned i = 0; i < p.num_vertices; i++) vertex(s, p.v[i]);
     }
