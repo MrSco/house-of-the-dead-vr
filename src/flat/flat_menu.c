@@ -41,6 +41,7 @@ static QMenuHost host(void) {
     h.saved = true;
     h.flat = true;
     h.touch = flat_os_touch() != 0;
+    h.reports = flat_os_has_reports() != 0;
     return h;
 }
 

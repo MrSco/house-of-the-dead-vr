@@ -7,6 +7,7 @@
 #include <android/input.h>
 #include <android/keycodes.h>
 #include <android/native_activity.h>
+#include <android/sensor.h>
 #include <android/window.h>
 #include <android_native_app_glue.h>
 #include <EGL/egl.h>
@@ -38,12 +39,20 @@ static struct {
     float lx, ly, rx, ry, l2, r2;
     float sx, sy;
     int pad_fire, pad_reload, pad_on;
+    // the gyroscope (Gyro aim): its queue, and the display's rotation (0-3: Surface.ROTATION_*)
+    ASensorManager *sensors;
+    const ASensor *gyro;
+    ASensorEventQueue *gyro_q;
+    int gyro_live, rotation;
+    float rate_right, rate_up;
 } A = { .aim_id = -1, .sx = -1 };
 
 // ---- flat.h's front-end calls
 void flat_os_fullscreen(int on) { (void)on; }
 void flat_os_quit(void) { A.quit = 1; }
 int flat_os_touch(void) { return 1; }
+void flat_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (none here yet)
+int flat_os_has_reports(void) { return 0; }
 void flat_os_import_rom(void) { plat_android_start("com.mrsco.hotdvr.ImportActivity"); }   // (it restarts the app)
 
 // ---------------------------------------------------------------- EGL
@@ -119,9 +128,9 @@ static int32_t on_motion(AInputEvent *e) {
     case AMOTION_EVENT_ACTION_POINTER_DOWN: {
         const int b = flat_touch_button(x, y);
         if (b) { A.btn_of[id] = b; button(b, 1); break; }
-        if (A.aim_id < 0) {      // the aiming finger: shoots where it touches
+        if (A.aim_id < 0) {      // the aiming finger: shoots where it touches (with gyro aim: at the sight)
             A.aim_id = id;
-            flat_pointer(x, y);
+            if (!flat_gyro_on()) flat_pointer(x, y);
             flat_trigger(1);
             A.aim_down = 1;
         } else if (!A.reload_down) {   // a second finger: reload
@@ -133,7 +142,8 @@ static int32_t on_motion(AInputEvent *e) {
     }
     case AMOTION_EVENT_ACTION_MOVE:
         for (size_t i = 0; i < AMotionEvent_getPointerCount(e); i++)
-            if ((AMotionEvent_getPointerId(e, i) & 7) == A.aim_id) flat_pointer((int)AMotionEvent_getX(e, i), (int)AMotionEvent_getY(e, i));
+            if ((AMotionEvent_getPointerId(e, i) & 7) == A.aim_id && !flat_gyro_on())
+                flat_pointer((int)AMotionEvent_getX(e, i), (int)AMotionEvent_getY(e, i));
         break;
     case AMOTION_EVENT_ACTION_UP:
     case AMOTION_EVENT_ACTION_POINTER_UP:
@@ -219,6 +229,48 @@ static void pad_frame(double dt) {
     if (reload != A.pad_reload) { flat_reload(reload); A.pad_reload = reload; }
 }
 
+// ---------------------------------------------------------------- gyro aim
+// The gyroscope's rates are about the device's own axes (its natural, portrait, orientation: x right, y up, z out of
+// the screen); the sight wants them about the screen's as it is turned (the display's rotation).
+static void gyro_drain(void);
+static void gyro_service(double dt) {
+    if (!A.sensors) {
+        A.sensors = ASensorManager_getInstanceForPackage("com.mrsco.hotdvr.android");
+        A.gyro = A.sensors ? ASensorManager_getDefaultSensor(A.sensors, ASENSOR_TYPE_GYROSCOPE) : NULL;
+        // (its own looper id: the main loop drains it when it says so, else ALooper_pollOnce would keep returning)
+        if (A.gyro) A.gyro_q = ASensorManager_createEventQueue(A.sensors, ALooper_forThread(), LOOPER_ID_USER, NULL, NULL);
+        plat_log(PLAT_LOG_INFO, "gyro: %s", A.gyro ? ASensor_getName(A.gyro) : "none");
+    }
+    if (!A.gyro_q) return;
+    const int want = flat_gyro_on() && A.visible;
+    if (want != A.gyro_live) {   // (on only while it aims: it costs battery)
+        if (want) { ASensorEventQueue_enableSensor(A.gyro_q, A.gyro); ASensorEventQueue_setEventRate(A.gyro_q, A.gyro, 10000); }
+        else ASensorEventQueue_disableSensor(A.gyro_q, A.gyro);
+        A.gyro_live = want;
+        A.rotation = plat_android_display_rotation();
+    }
+    gyro_drain();
+    if (A.gyro_live) flat_gyro(A.rate_right, A.rate_up, dt);
+    else A.rate_right = A.rate_up = 0;
+}
+// the gyroscope's events waiting: the newest rates, in the screen's axes
+static void gyro_drain(void) {
+    if (!A.gyro_q) return;
+    ASensorEvent ev[16];
+    ssize_t n;
+    while ((n = ASensorEventQueue_getEvents(A.gyro_q, ev, 16)) > 0)
+        for (ssize_t i = 0; i < n; i++) {
+            if (ev[i].type != ASENSOR_TYPE_GYROSCOPE) continue;
+            const float x = ev[i].vector.x, y = ev[i].vector.y;
+            switch (A.rotation) {   // device axes -> the screen's right and up
+            case 1: A.rate_right = -y; A.rate_up = x; break;
+            case 2: A.rate_right = -x; A.rate_up = -y; break;
+            case 3: A.rate_right = y; A.rate_up = -x; break;
+            default: A.rate_right = x; A.rate_up = y; break;
+            }
+        }
+}
+
 // ---------------------------------------------------------------- the activity
 static void on_cmd(struct android_app *app, int32_t cmd) {
     switch (cmd) {
@@ -227,6 +279,7 @@ static void on_cmd(struct android_app *app, int32_t cmd) {
     case APP_CMD_GAINED_FOCUS: case APP_CMD_RESUME: A.visible = 1; break;
     case APP_CMD_LOST_FOCUS: case APP_CMD_PAUSE: A.visible = 0; break;
     case APP_CMD_CONFIG_CHANGED: case APP_CMD_WINDOW_RESIZED:
+        A.rotation = plat_android_display_rotation();   // (turned round: landscape the other way)
         if (A.surf != EGL_NO_SURFACE) { eglQuerySurface(A.dpy, A.surf, EGL_WIDTH, &A.w); eglQuerySurface(A.dpy, A.surf, EGL_HEIGHT, &A.h); }
         break;
     case APP_CMD_DESTROY: A.quit = 1; break;
@@ -252,16 +305,20 @@ void android_main(struct android_app *app) {
     plat_android_set_activity(app->activity);   // (the microphone's permission, the Java activities)
     if (!has_rom(files)) flat_os_import_rom();  // the first start: your ROM set (ImportActivity starts the app again)
     if (!flat_app_start(files)) { ANativeActivity_finish(app->activity); return; }
+    if (online_session()) plat_android_multicast_lock();   // (a LAN host hears its partner's search only so)
     double last = 0;
     while (!A.quit && !flat_app_restart_requested()) {
         int events;
         struct android_poll_source *src;
-        while (ALooper_pollOnce(A.visible && A.surf != EGL_NO_SURFACE ? 0 : 50, NULL, &events, (void **)&src) >= 0) {
+        int id;
+        while ((id = ALooper_pollOnce(A.visible && A.surf != EGL_NO_SURFACE ? 0 : 50, NULL, &events, (void **)&src)) >= 0) {
             if (src) src->process(app, src);
+            if (id == LOOPER_ID_USER) gyro_drain();
             if (app->destroyRequested) A.quit = 1;
         }
         const double now = (double)plat_now_ns() * 1e-9;
         pad_frame(last ? now - last : 0);
+        gyro_service(last ? now - last : 0);
         last = now;
         flat_app_frame(!A.visible || A.surf == EGL_NO_SURFACE);
         if (!A.visible || A.surf == EGL_NO_SURFACE || !A.gl_ready) continue;

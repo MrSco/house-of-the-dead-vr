@@ -10,6 +10,7 @@
 #import <UIKit/UIKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <AVFoundation/AVFoundation.h>
+#import <CoreMotion/CoreMotion.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <math.h>
@@ -49,6 +50,7 @@ static struct {
 
 @interface HotdView : UIView
 @end
+static CMMotionManager *motion;
 @interface HotdController : UIViewController <UIDocumentPickerDelegate>
 @property (nonatomic, strong) CADisplayLink *link;
 - (void)pickRom;
@@ -58,6 +60,8 @@ static HotdController *the_controller;
 // ---------------------------------------------------------------- flat.h's front-end calls
 void flat_os_fullscreen(int on) { (void)on; }
 int flat_os_touch(void) { return 1; }
+void flat_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (none here yet)
+int flat_os_has_reports(void) { return 0; }
 void flat_os_quit(void) { A.quit = 1; }
 void flat_os_import_rom(void) { dispatch_async(dispatch_get_main_queue(), ^{ [the_controller pickRom]; }); }
 
@@ -124,7 +128,7 @@ static void button(int b, int down) {
         if (flat_menu_is_open()) { if (!A.aim) { A.aim = t; flat_menu_mouse((int)p.x, (int)p.y, 1); } continue; }
         const int b = flat_touch_button((int)p.x, (int)p.y);
         if (b) { A.held[b] = t; button(b, 1); continue; }
-        if (!A.aim) { A.aim = t; flat_pointer((int)p.x, (int)p.y); flat_trigger(1); }
+        if (!A.aim) { A.aim = t; if (!flat_gyro_on()) flat_pointer((int)p.x, (int)p.y); flat_trigger(1); }
         else if (!A.reload) { A.reload = t; flat_reload(1); }
     }
 }
@@ -133,7 +137,7 @@ static void button(int b, int down) {
         if (t != A.aim) continue;
         const CGPoint p = [self px:t];
         if (flat_menu_is_open()) flat_menu_mouse((int)p.x, (int)p.y, 1);
-        else flat_pointer((int)p.x, (int)p.y);
+        else if (!flat_gyro_on()) flat_pointer((int)p.x, (int)p.y);
     }
 }
 - (void)lift:(NSSet<UITouch *> *)touches {
@@ -234,6 +238,19 @@ static void pad_frame(double dt) {
     }
     const double now = (double)plat_now_ns() * 1e-9;
     pad_frame(A.last ? now - A.last : 0);
+    {   // gyro aim: CoreMotion's rotation rate (the device's portrait axes) about the screen's, landscape either way
+        if (!motion) { motion = [[CMMotionManager alloc] init]; motion.deviceMotionUpdateInterval = 1.0 / 120; }
+        const BOOL want = flat_gyro_on() && !A.background && motion.deviceMotionAvailable;
+        if (want && !motion.deviceMotionActive) [motion startDeviceMotionUpdates];
+        if (!want && motion.deviceMotionActive) [motion stopDeviceMotionUpdates];
+        if (want && motion.deviceMotion) {
+            const CMRotationRate r = motion.deviceMotion.rotationRate;
+            const BOOL left = self.view.window.windowScene.interfaceOrientation == UIInterfaceOrientationLandscapeLeft;
+            // LandscapeRight: the device turned anticlockwise (its top to the left); LandscapeLeft: clockwise
+            const float right = left ? (float)r.y : (float)-r.y, up = left ? (float)-r.x : (float)r.x;
+            flat_gyro(right, up, A.last ? now - A.last : 0);
+        }
+    }
     A.last = now;
     flat_app_frame(A.background);
     if (A.background) return;

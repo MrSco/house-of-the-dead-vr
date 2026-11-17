@@ -55,6 +55,33 @@ def vs_env():
     sys.exit('build_windows: no Visual Studio with the C++ tools (MSVC x64) found')
 
 
+def pdb_id(exe):
+    """The PDB's GUID and age from the exe's CodeView debug record (the PE debug directory), as crash_win.c writes it
+    (and a symbol server names it)."""
+    import struct
+    d = open(exe, 'rb').read()
+    pe = struct.unpack_from('<I', d, 0x3c)[0]
+    nsec = struct.unpack_from('<H', d, pe + 6)[0]
+    opt = pe + 24
+    rva, size = struct.unpack_from('<II', d, opt + 112 + 6 * 8)   # PE32+: data directory 6, debug
+    secs = opt + struct.unpack_from('<H', d, pe + 20)[0]
+
+    def off(r):   # an RVA in the file
+        for i in range(nsec):
+            va, vsize, raw = struct.unpack_from('<III', d, secs + 40 * i + 12)[0:3:2] + (struct.unpack_from('<I', d, secs + 40 * i + 20)[0],)
+            vsz = struct.unpack_from('<I', d, secs + 40 * i + 8)[0]
+            if va <= r < va + max(vsz, 1): return raw + r - va
+        return None
+    base = off(rva)
+    for i in range(size // 28 if base is not None else 0):
+        typ, sz, addr, raw = struct.unpack_from('<IIII', d, base + 28 * i + 12)
+        if typ != 2 or d[raw:raw + 4] != b'RSDS': continue   # IMAGE_DEBUG_TYPE_CODEVIEW
+        g1, g2, g3 = struct.unpack_from('<IHH', d, raw + 4)
+        age, = struct.unpack_from('<I', d, raw + 20)
+        return '%08X%04X%04X%s%X' % (g1, g2, g3, d[raw + 12:raw + 20].hex().upper(), age)
+    return ''
+
+
 def version():
     text = open(os.path.join(ROOT, 'src', 'quest', 'AndroidManifest.xml'), encoding='utf-8').read()
     m = re.search(r'android:versionName="([^"]+)"', text)
@@ -73,8 +100,10 @@ def main():
     port.quest_thirdparty()
     port.voice_jobs([])
     env = vs_env()
+    # (/Z7: debug information in every object, for HOTDVR.pdb: the crash reports' frames get names from it)
     subprocess.check_call(['cmake', '-S', ROOT, '-B', BDIR, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
                            '-DCMAKE_C_COMPILER=cl', '-DCMAKE_CXX_COMPILER=cl',
+                           '-DCMAKE_C_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Z7', '-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Z7',
                            '-DM2_ROMSET=' + SET, '-DM2_GAME=houseofthedead', '-DM2_SPIN_SKIP=ON',
                            '-DM2_GEN_ROOT=' + gen.replace('\\', '/')], env=env)
     subprocess.check_call(['cmake', '--build', BDIR, '--target', 'hotdvr'], env=env)
@@ -82,6 +111,13 @@ def main():
     exe = os.path.join(OUT, 'HOTDVR.exe')
     shutil.copy2(os.path.join(BDIR, 'HOTDVR.exe'), exe)
     port.log('built %s' % exe)
+    # its PDB, kept by build id (crash_win.c's: the PDB's GUID and age) for the crash reports' frames
+    bid = pdb_id(exe)
+    if bid and os.path.exists(os.path.join(BDIR, 'HOTDVR.pdb')):
+        sym = os.path.join(OUT, 'symbols', bid)
+        os.makedirs(sym, exist_ok=True)
+        shutil.copy2(os.path.join(BDIR, 'HOTDVR.pdb'), os.path.join(sym, 'HOTDVR.pdb'))
+        port.log('symbols: %s' % sym)
     if a.zip:
         z = os.path.join(OUT, 'HOTDVR-%s-windows.zip' % version())
         with zipfile.ZipFile(z, 'w', zipfile.ZIP_DEFLATED) as f:

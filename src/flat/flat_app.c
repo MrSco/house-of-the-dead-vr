@@ -47,6 +47,27 @@ static void apply_options(void) {
     flat_set_picture(A.opt[QOPT_PICTURE] == QPICTURE_ORIGINAL ? FLAT_PICTURE_ORIGINAL : FLAT_PICTURE_HD);
 }
 int flat_opt_get(int o) { return o >= 0 && o < QOPT_COUNT ? A.opt[o] : 0; }
+
+// ---------------------------------------------------------------- gyro aim
+static float gyro_x = -1, gyro_y;   // the sight, window pixels
+int flat_gyro_on(void) { return A.opt[QOPT_GYRO] != 0 && !flat_menu_is_open(); }
+void flat_gyro(float rate_right, float rate_up, double dt) {
+    if (!flat_gyro_on()) { gyro_x = -1; return; }
+    int vx, vy, vw, vh;
+    flat_view_rect(&vx, &vy, &vw, &vh);
+    if (vw <= 0) return;
+    if (gyro_x < 0) { gyro_x = vx + vw * 0.5f; gyro_y = vy + vh * 0.5f; }   // from the middle
+    // 100%: about 40 degrees (0.7 rad) across the picture
+    const float k = (float)vw / 0.7f * (float)A.opt[QOPT_GYRO_SPEED] / 100.0f;
+    gyro_x -= rate_up * k * (float)dt;
+    gyro_y -= rate_right * k * (float)dt;
+    // (a little past the picture's edges: aiming off it reloads, as on the cabinet)
+    if (gyro_x < vx - vw * 0.06f) gyro_x = vx - vw * 0.06f;
+    if (gyro_x > vx + vw * 1.06f) gyro_x = vx + vw * 1.06f;
+    if (gyro_y < vy - vh * 0.06f) gyro_y = vy - vh * 0.06f;
+    if (gyro_y > vy + vh * 1.06f) gyro_y = vy + vh * 1.06f;
+    flat_pointer((int)gyro_x, (int)gyro_y);
+}
 void flat_opt_set(int o, int v) {
     if (o < 0 || o >= QOPT_COUNT) return;
     if (v < qopt_defs[o].min) v = qopt_defs[o].min;
@@ -120,6 +141,7 @@ int flat_app_start(const char *files_dir) {
         if (o) { t[fread(t, 1, sizeof t - 1, o)] = 0; fclose(o); }
         if (!strstr(t, qopt_defs[QOPT_CROSSHAIR].key)) A.opt[QOPT_CROSSHAIR] = 1;
     }
+    flat_os_crash_reports(files, A.opt);   // (a crash of the last run: reported before this run's port.log)
     // online co-op (src/net/online.c): this run may be the restart into an online game (online-session.cfg), whose
     // game starts from fresh saves (game_main); voice chat beside it
     voice_init();

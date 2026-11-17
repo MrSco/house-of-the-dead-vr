@@ -66,4 +66,5 @@ targets:
       - sdk: AudioToolbox.framework
       - sdk: CoreAudio.framework
       - sdk: GameController.framework
+      - sdk: CoreMotion.framework
       - sdk: UniformTypeIdentifiers.framework

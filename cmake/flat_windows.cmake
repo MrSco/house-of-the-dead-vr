@@ -40,16 +40,19 @@ set(M2_FLAT_C
     src/flat/win/main_win.c src/flat/win/pad_win.c src/flat/flat.c src/flat/flat_app.c src/flat/flat_menu.c src/flat/flat_touch.c
     src/core/host_sdl.c src/core/voice.c src/core/voice_dsp.c src/core/m2_gl.c
     src/core/quest_menu.c src/core/quest_canvas.c src/core/quest_options.c
-    src/platform/windows/platform_win.c src/platform/windows/audio_win.c src/platform/windows/gl_win.c)
+    src/platform/windows/platform_win.c src/platform/windows/audio_win.c src/platform/windows/gl_win.c
+    src/platform/windows/crash_win.c)
 add_executable(hotdvr WIN32 ${M2_FLAT_C} ${M2_NET_C})
 set_target_properties(hotdvr PROPERTIES OUTPUT_NAME HOTDVR C_STANDARD 11)
 target_include_directories(hotdvr PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${M2_NET_SRC} ${M2_QUEST_SDL2})
 target_compile_definitions(hotdvr PRIVATE HOTD_ARCADE HOTD_VOICE _CRT_SECURE_NO_WARNINGS)
-target_link_libraries(hotdvr PRIVATE arcade_core runtime opus m2_speexdsp m2_rnnoise ws2_32 opengl32 ole32 winmm iphlpapi)
+target_link_libraries(hotdvr PRIVATE arcade_core runtime opus m2_speexdsp m2_rnnoise ws2_32 opengl32 ole32 winmm iphlpapi
+                      dbghelp winhttp)
 if(MSVC)
     # C11 atomics (voice.c); GCC's attributes are hints only (msvc_compat.h); C4244: the shared C converts int to
     # float freely (written for clang -Wall)
     target_compile_options(hotdvr PRIVATE $<$<COMPILE_LANGUAGE:C>:/std:c11> $<$<COMPILE_LANGUAGE:C>:/experimental:c11atomics>
                            $<$<COMPILE_LANGUAGE:C>:/FI${CMAKE_SOURCE_DIR}/tools/m2netguest/msvc_compat.h> $<$<COMPILE_LANGUAGE:C>:/wd4244>)
-    target_link_options(hotdvr PRIVATE /STACK:8388608)
+    # a PDB for the crash reports' frames (the code is compiled with /Z7: build_windows.py), as small as /OPT allows
+    target_link_options(hotdvr PRIVATE /STACK:8388608 /DEBUG /OPT:REF /OPT:ICF)
 endif()

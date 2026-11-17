@@ -126,6 +126,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 void flat_os_fullscreen(int on) { fullscreen(on); }
 void flat_os_quit(void) { W.quit = 1; }
 int flat_os_touch(void) { return 0; }
+void crash_win_start(const char *files, const int *opt);   // crash_win.c
+void flat_os_crash_reports(const char *files, const int *opt) { crash_win_start(files, opt); }
+int flat_os_has_reports(void) { return 1; }
 // the ROM set: chosen in Windows' Open dialog, copied into files/arcade as hotd.zip or hotd.7z; then the app starts
 // again with it (the images made from the old one are made again: their stamp names the set)
 void flat_os_import_rom(void) {

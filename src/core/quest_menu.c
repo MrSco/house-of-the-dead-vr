@@ -108,7 +108,7 @@ static const RowDef GRAPHICS_ROWS[] = {
     { QOPT_HZ, "Refresh rate", "120 Hz shows each game frame twice", "How often the headset redraws. The game runs at the arcade's 57.5 frames a second; 120 Hz is the smoothest.",
       T_SEG, { "72 HZ", "90 HZ", "120 HZ" }, 3, 1, "", false },
 };
-// the flat apps' PICTURE tab (in place of GRAPHICS)
+// the flat apps' GAME tab (in place of GRAPHICS)
 static const RowDef PICTURE_ROWS[] = {
     { QOPT_PICTURE, "Picture", "How the game is drawn",
       "HD: the game's 3D drawn sharp at your screen's resolution. ORIGINAL: at the arcade's own 496 x 384, its pixels scaled up.",
@@ -118,6 +118,20 @@ static const RowDef PICTURE_ROWS[] = {
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
     { QOPT_FULLSCREEN, "Display", "A window, or the whole screen", "Alt+Enter or F11 switches too.",
       T_SEG, { "WINDOW", "FULL SCREEN" }, 2, 1, "", false },
+};
+// ...on a touch screen: no window; the gyro aims if you like
+static const RowDef TOUCH_ROWS[] = {
+    { QOPT_PICTURE, "Picture", "How the game is drawn",
+      "HD: the game's 3D drawn sharp at your screen's resolution. ORIGINAL: at the arcade's own 496 x 384, its pixels scaled up.",
+      T_SEG, { "HD", "ORIGINAL" }, 2, 1, "", false },
+    { QOPT_CROSSHAIR, "Crosshair", "The game's sight where you aim",
+      "ON: the game shows where you aim, as its two-player sights do. OFF: none, as on the real cabinet.",
+      T_SEG, { "ON", "OFF" }, 2, 1, "", false },
+    { QOPT_GYRO, "Gyro aim", "Aim by turning the screen",
+      "ON: turn and tilt the phone or tablet to move the sight; a tap anywhere on the picture shoots at it. Off the picture: reload. OFF: a tap shoots where you tap.",
+      T_SEG, { "OFF", "ON" }, 2, 1, "", false },
+    { QOPT_GYRO_SPEED, "Gyro speed", "How far the sight goes for a turn", "100%: a turn of about 40 degrees crosses the picture.",
+      T_SLIDER, { 0 }, 0, 25, "%", false },
 };
 static const RowDef SYSTEM_ROWS[] = {
     { QOPT_VOLUME, "Game volume", "Everything the game plays", "All of the game's sound: music, voices and guns. Voice chat isn't in it.",
@@ -318,7 +332,7 @@ static void tabs(void) {
     focusable(ID(K_TABS, 0), F_TABS, QMENU_W / 2);
     for (int i = 0; i < QMENU_TAB_COUNT; i++) {
         if (!tab_shown(i)) continue;
-        const char *name = H->flat && i == QMENU_TAB_GRAPHICS ? "PICTURE" : names[i];
+        const char *name = H->flat && i == QMENU_TAB_GRAPHICS ? "GAME" : names[i];
         const int id = ID(K_TAB, i), w = width(UI_B24, name) + 4 + 40;
         hit(id, (int)x, 78, w, 55);
         const bool active = tab == i, hot = is_hover(id) || (is_focus(ID(K_TABS, 0)) && active);
@@ -809,6 +823,7 @@ static void controls_page_flat(void) {
         controls_row(lx, &ly, lw, "A second finger, RELOAD", "Reload");
         controls_row(lx, &ly, lw, "START", "Coins and Start; skip a scene");
         controls_row(lx, &ly, lw, "MENU, Back", "This menu (the game pauses, not online)");
+        controls_row(lx, &ly, lw, "Gyro aim ON", "Turn the screen to aim; a tap shoots at the sight");
         text(UI_B20, rx, ry, "GAME PADS", ACCENT); ry += 12;
         controls_row(rx, &ry, rw, "Either stick", "Move the sight");
         controls_row(rx, &ry, rw, "R2 / R1", "Shoot");
@@ -981,12 +996,12 @@ static void layout(int which) {
         else settings(VIEW_ROWS, sizeof VIEW_ROWS / sizeof *VIEW_ROWS);
     }
     else if (tab == QMENU_TAB_COMFORT) settings(COMFORT_ROWS, sizeof COMFORT_ROWS / sizeof *COMFORT_ROWS);
-    // (Display, the last: a window's; a touch screen has none)
-    else if (tab == QMENU_TAB_GRAPHICS && H->flat) settings(PICTURE_ROWS, sizeof PICTURE_ROWS / sizeof *PICTURE_ROWS - (H->touch ? 1 : 0));
+    else if (tab == QMENU_TAB_GRAPHICS && H->flat && H->touch) settings(TOUCH_ROWS, sizeof TOUCH_ROWS / sizeof *TOUCH_ROWS);
+    else if (tab == QMENU_TAB_GRAPHICS && H->flat) settings(PICTURE_ROWS, sizeof PICTURE_ROWS / sizeof *PICTURE_ROWS);
     else if (tab == QMENU_TAB_GRAPHICS) settings(GRAPHICS_ROWS, sizeof GRAPHICS_ROWS / sizeof *GRAPHICS_ROWS);
     else if (tab == QMENU_TAB_SYSTEM) {
-        // (crash reports: the Quest's only, its last row)
-        const int n = sizeof SYSTEM_ROWS / sizeof *SYSTEM_ROWS - (H->flat ? 1 : 0);
+        // (crash reports, the last row: the Quest's and the flat builds that send them)
+        const int n = sizeof SYSTEM_ROWS / sizeof *SYSTEM_ROWS - (H->flat && !H->reports ? 1 : 0);
         settings_in(SYSTEM_ROWS, n, n + 1);   // (its ROM button below them: a sixth slot)
         const float by = CY0 + row_step(n + 1) * n + 6;
         // the game's own ROM set: another one (a different revision, a fresh copy)

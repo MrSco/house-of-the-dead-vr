@@ -1,6 +1,7 @@
-// platform.h on Apple's systems (iOS and iPadOS; macOS with the Mac app): the log (the unified log and stderr, which
-// the app sends to port.log), sound out and the microphone through CoreAudio's I/O units, the microphone's permission
-// through AVAudioSession. Time, threads and files are posix.c's.
+// platform.h on Apple's systems (iOS and iPadOS; macOS): the log (the unified log and stderr, which the app sends to
+// port.log), sound out through CoreAudio's I/O units, the microphone (iOS: RemoteIO's input; macOS: AVAudioEngine's
+// input node, at the device's own rate), its permission (AVAudioSession on iOS, AVCaptureDevice on macOS). Time,
+// threads and files are posix.c's.
 #import <AVFoundation/AVFoundation.h>
 #include <AudioToolbox/AudioToolbox.h>
 #include <TargetConditionals.h>
@@ -108,7 +109,14 @@ static OSStatus mic_cb(void *ud, AudioUnitRenderActionFlags *flags, const AudioT
 }
 int plat_mic_permission(void) {
 #if TARGET_OS_OSX
-    return 1;
+    static atomic_int asked;
+    switch ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio]) {
+    case AVAuthorizationStatusAuthorized: return 1;
+    case AVAuthorizationStatusDenied: case AVAuthorizationStatusRestricted: return -1;
+    default:
+        if (!atomic_exchange(&asked, 1)) [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) { (void)granted; }];
+        return 0;
+    }
 #else
     static atomic_int asked;
     switch ([AVAudioSession sharedInstance].recordPermission) {
@@ -120,10 +128,51 @@ int plat_mic_permission(void) {
     }
 #endif
 }
+#if TARGET_OS_OSX
+static AVAudioEngine *mac_engine;
+static id mac_change;
+#endif
 int plat_mic_open(int rate, plat_mic_push push) {
 #if TARGET_OS_OSX
-    (void)rate; (void)push;
-    return 0;   // (the Mac app's microphone comes with it)
+    (void)rate;   // (the device's own rate: voice.c converts it)
+    mic_push_fn = push;
+    atomic_store(&mic_lost, 0);
+    mac_engine = [[AVAudioEngine alloc] init];
+    AVAudioInputNode *in = mac_engine.inputNode;
+    AVAudioFormat *hw = [in outputFormatForBus:0];
+    if (hw.sampleRate <= 0 || hw.channelCount == 0) {
+        plat_log(PLAT_LOG_ERROR, "voice: no microphone (no input device)");
+        mac_engine = nil;
+        return 0;
+    }
+    const int dev_rate = (int)hw.sampleRate;
+    [in installTapOnBus:0 bufferSize:1024 format:hw block:^(AVAudioPCMBuffer *b, AVAudioTime *when) {
+        (void)when;
+        const float *c = b.floatChannelData ? b.floatChannelData[0] : NULL;
+        if (!c) return;
+        int16_t out[1024];
+        for (AVAudioFrameCount off = 0; off < b.frameLength;) {
+            const AVAudioFrameCount n = b.frameLength - off < 1024 ? b.frameLength - off : 1024;
+            for (AVAudioFrameCount i = 0; i < n; i++) {
+                const float v = c[off + i] * 32767.0f;
+                out[i] = (int16_t)(v > 32767.0f ? 32767 : v < -32768.0f ? -32768 : (int)v);
+            }
+            mic_push_fn(out, (int)n, dev_rate);
+            off += n;
+        }
+    }];
+    // the input device changed (unplugged, another chosen): reopened by the caller
+    mac_change = [NSNotificationCenter.defaultCenter addObserverForName:AVAudioEngineConfigurationChangeNotification object:mac_engine
+        queue:nil usingBlock:^(NSNotification *n) { (void)n; atomic_store(&mic_lost, 1); }];
+    NSError *err = nil;
+    if (![mac_engine startAndReturnError:&err]) {
+        plat_log(PLAT_LOG_ERROR, "voice: no microphone: %s", err.localizedDescription.UTF8String);
+        [in removeTapOnBus:0];
+        mac_engine = nil;
+        return 0;
+    }
+    plat_log(PLAT_LOG_INFO, "voice: microphone on, %d Hz (AVAudioEngine)", dev_rate);
+    return 1;
 #else
     mic_unit = new_unit(kAudioUnitSubType_RemoteIO);
     if (!mic_unit) return 0;
@@ -148,6 +197,14 @@ int plat_mic_open(int rate, plat_mic_push push) {
 #endif
 }
 void plat_mic_close(void) {
+#if TARGET_OS_OSX
+    if (!mac_engine) return;
+    if (mac_change) { [NSNotificationCenter.defaultCenter removeObserver:mac_change]; mac_change = nil; }
+    [mac_engine.inputNode removeTapOnBus:0];
+    [mac_engine stop];
+    mac_engine = nil;
+    return;
+#endif
     if (!mic_unit) return;
     AudioOutputUnitStop(mic_unit);
     AudioUnitUninitialize(mic_unit);

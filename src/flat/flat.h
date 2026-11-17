@@ -41,6 +41,11 @@ void flat_menu_key(int key);            // a key pressed while it is open (FLAT_
 void flat_menu_mouse(int x, int y, int button_down);   // window pixels
 void flat_menu_draw(int w, int h);      // (flat_draw calls it)
 
+// ---- gyro aim (flat_app.c; the GAME tab's Gyro aim, touch screens): the device's turn rates about the screen's own
+// axes (radians a second, right-handed: up = turning left, right = tilting the top towards you) move the sight
+int flat_gyro_on(void);                 // a tap then shoots at the sight, not where it lands
+void flat_gyro(float rate_right, float rate_up, double dt);
+
 // ---- the settings (flat_app.c: options.cfg, the menu's)
 int flat_opt_get(int option);
 void flat_opt_set(int option, int value);
@@ -50,6 +55,9 @@ void flat_os_fullscreen(int on);
 void flat_os_import_rom(void);          // choose the ROM set; it is copied in and the app starts again with it
 void flat_os_quit(void);
 int flat_os_touch(void);                // a touch screen (the menu's layout)
+// crash reports (Windows: platform/windows/crash_win.c), at start before the game thread; elsewhere none yet
+void flat_os_crash_reports(const char *files, const int *opt);
+int flat_os_has_reports(void);
 
 // GL helpers for the panel (flat.c)
 unsigned flat_gl_program(const char *vs, const char *fs);

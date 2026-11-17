@@ -56,6 +56,8 @@ void flat_os_fullscreen(int on) {
     });
 }
 int flat_os_touch(void) { return 0; }
+void flat_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (none here yet)
+int flat_os_has_reports(void) { return 0; }
 void flat_os_quit(void) { A.quit = 1; }
 static int pick_rom(void) {
     NSOpenPanel *p = [NSOpenPanel openPanel];
