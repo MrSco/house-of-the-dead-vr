@@ -53,7 +53,7 @@ Proposed layout (P0 does this with the Quest build unchanged):
 | `src/core` | The game bridge (`arcade_quest.cpp` without Android), `arcade_net`, `m2_gl.c`, the menu and canvas, options, voice DSP | all |
 | `src/platform/platform.h` | The seam: files dir, log, ROM picker, HTTP POST, mic open/permission, haptics, "restart the app" | all |
 | `src/xr` | OpenXR VR shell from `quest_xr.c`, split into the shared OpenXR code and a graphics binding (GLES on Android, GL on Windows) | Quest, Steam Frame, PCVR |
-| `src/flat` | The flat shell: a window, the game-camera draw, the HUD overlay, the menu as a 2D panel, mouse / touch / pad / gyro to the gun | Windows, Android, iOS, macOS |
+| `src/flat` | The flat shell: the game-camera draw, the HUD overlay, the menu as a 2D panel, the app round the game; a front end per OS (`win/`) for the window and mouse / touch / pad / gyro | Windows, Android, iOS, macOS |
 | `src/platform/{android,windows,apple}` | The bodies of `platform.h` | per OS |
 | `src/visionos` | Compositor Services + ARKit instead of OpenXR | Vision Pro |
 
@@ -127,31 +127,49 @@ Each phase ends with the crossplay check against every platform already done, an
 
 ## Progress
 
-**P0, done so far (2026-11-16):**
+**P0, done (2026-11-16):**
 - `src/core` holds the shared code, moved from `src/quest`: the bridge (`arcade.cpp`, was `arcade_quest.cpp`),
-  `arcade_net`, `m2_gl.c`, the menu, canvas and options, the voice DSP, and the headers between the game thread and
-  a shell (`quest.h`, `m2_vr.h`, `d3d_vr.h`). `netplay.h` moved to `src/net` beside `online.c`. File and function
+  `arcade_net`, `m2_gl.c`, the menu, canvas and options, voice chat (`voice.c`, `voice_dsp.c`), the SDL2 subset the
+  game thread runs on (`host_sdl.c`, was `src/quest/quest_sdl.c`), and the headers between the game thread and a
+  shell (`quest.h`, `m2_vr.h`, `d3d_vr.h`). `netplay.h` moved to `src/net` beside `online.c`. File and function
   names keep their `quest_` prefixes for now; renaming them is a mechanical pass for later.
-- `src/platform/platform.h` is the OS seam: log, monotonic clock, sleep-until, files, a helper thread's priority.
-  `posix.c` (Android, later Apple) and `android/log.c` implement it; `gl.h` picks the GL ES 3.0 header.
-  `src/core` no longer includes any Android header.
-- The Quest APK builds from the new layout; its library has 0.3.0's symbols plus the `plat_*` ones.
+- `src/platform/platform.h` is the OS seam: log, clock, sleep-until, threads (with a stack size), static locks and
+  condition variables, SDL's recursive mutex, files, env, sound out and the microphone. `posix.c` (Android, later
+  Apple), `android/` (log, AAudio out, the microphone and its permission over JNI) and `windows/` (Win32, WASAPI)
+  implement it; `gl.h` picks GL ES 3.0, or desktop GL 3.3 loaded at run time (`windows/gl_win.h`), and the GLSL
+  version line. `src/core` includes no Android header.
+- The Quest APK builds from the new layout; its library has 0.3.0's symbols plus the `plat_*` ones. On the Quest 3
+  the game loads and runs, AAudio plays (a 25 s audio dump has the game's sound), voice chat starts.
 - `m2nettest` runs with the VR scenery hook on, as the apps do. **`scripts/crossplay_check.py`** records a host run
-  on each of the PC (x64, MSVC `/fp:strict`) and the Quest (arm64, NDK clang) and replays it on the other:
-  30 of 30 checksums matched both ways over 1,800 frames.
+  on each of the PC (x64, MSVC 14.51 `/fp:strict`, as HOTDVR.exe) and the Quest (arm64, NDK clang) and replays it
+  on the other: 30 of 30 checksums matched both ways over 1,800 frames.
 
-**P0, left:**
-- On the headset: play a stage and an online game with this build (the desk check was blocked by a Guardian dialog).
-- The SDL2 shim (`src/quest/quest_sdl.c`) splits in two: the game-facing half (event queue, the software canvas,
-  the frame handoff, pause) into `src/core`, and the OS half (AAudio output, pthreads, timers) behind
-  `platform.h`. It is done with P1's Windows shell, which it serves, so the desktop target that links the core is
-  P1's first step. Because the shim defines SDL's own symbols, a flat shell cannot also link the real SDL2: the
-  Windows shell uses GLFW for its window, GL context and input, and its own audio backend (WASAPI) under
-  `platform.h`.
-- `src/xr`: the OpenXR shell (`quest_xr.c`, guns, hands, cabinet room) leaves `src/quest` when Steam Frame (P2)
-  or PCVR (P4) needs it; until then `src/quest` is the Android VR shell, with the voice capture, the crash reports
-  and the Java activities.
-- Run the crossplay check with clang-cl too (CI's compiler); it was not installed on the dev PC for this run.
+**P1, Windows flat (2026-11-16): done but for a player's check.** `python scripts/build_windows.py [--zip]` builds
+`build_windows/HOTDVR.exe` (MSVC and Ninja in Visual Studio's environment; the newest Visual Studio, for C11
+atomics) and `HOTDVR-<version>-windows.zip`.
+- `src/flat` is the flat shell for every screen: `flat.c` draws the VR app's cabinet view at the window's size
+  (HD, 4x MSAA) or at the arcade's 496 x 384 scaled up sharp (Original), 4:3 in the middle; `flat_app.c` runs the
+  files folder, voice, online start-up and the game thread; `flat_menu.c` shows the shared menu as a panel (its flat
+  layout: PICTURE, SYSTEM, ONLINE). `win/main_win.c` is the Windows front end (WGL 3.3 core, per-monitor DPI, mouse
+  and keys, Alt+Enter / F11 full screen, the ROM set by an Open dialog at the first start), `win/pad_win.c` the
+  XInput pads. Its window and input are Win32's own (the plan said GLFW: no dependency was needed).
+- Online: HOTDVR.exe joined the Quest's LAN game by IP and played stage 1 by script: 120 of 120 checksums over
+  7,200 frames, voice both ways (about 3,000 Opus frames each way, none lost). Two copies on the PC by room code on
+  zonesync.net: 60 of 60; over the LAN: 100 of 100. `online.c` had voice stubbed off on every build but Android;
+  it is on wherever `HOTD_VOICE` is defined.
+- Test switches for this (env.txt): `FLAT_SHOT`, `FLAT_QUIT_AT`, `FLAT_MENU_AT`, `FLAT_TEST_ONLINE`,
+  `FLAT_TEST_PLAY`, `FLAT_TEST_TALK`; on the Quest `QUEST_TEST_ONLINE` gained `hostlan` and `joinip:`, and
+  `QUEST_TEST_TALK` holds push to talk.
+
+**Left for a player (the end check):** on the headset, a stage and an online game with this build; on Windows, the
+mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM dialog, and voice with real speech.
+
+**Left, later:**
+- Crash reports on Windows (WinHTTP; the SYSTEM tab hides the row on flat builds until then).
+- `src/xr`: the OpenXR shell (`quest_xr.c`, guns, hands, cabinet room) leaves `src/quest` when PCVR (P4) needs it.
+- The crossplay check with clang-cl too (CI's compiler; not installed on the dev PC).
+- The Quest's `QUEST_TEST_ONLINE` deletes all of env.txt before its restart, so other switches don't survive it;
+  the flat hook drops only its own line.
 
 ## Risks
 

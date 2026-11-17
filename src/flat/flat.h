@@ -28,6 +28,7 @@ void flat_draw(int w, int h, unsigned framebuffer);
 // ---- input, in window pixels (y down)
 void flat_pointer(int x, int y);        // the gun's aim
 int flat_pointer_in_view(int x, int y); // over the game's picture (the front end hides the system pointer there)
+void flat_view_rect(int *x, int *y, int *w, int *h);   // where the picture is in the window (pixels, y down)
 void flat_trigger(int down);            // shoot (the left mouse button, a tap, a pad's trigger)
 void flat_reload(int down);             // reload (the right mouse button; shooting off the picture also reloads)
 void flat_start(int down);              // coins and Start, skipping (Space, Enter, a pad's Start)

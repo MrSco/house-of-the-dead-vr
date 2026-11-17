@@ -358,6 +358,7 @@ void flat_pointer(int x, int y) {
     quest_pointer(fx, fy);
 }
 int flat_pointer_in_view(int x, int y) { return x >= F.vx && x < F.vx + F.vw && y >= F.vy && y < F.vy + F.vh; }
+void flat_view_rect(int *x, int *y, int *w, int *h) { *x = F.vx; *y = F.vy; *w = F.vw; *h = F.vh; }
 void flat_trigger(int down) { flat_pointer(last_x, last_y); quest_mouse_button(SDL_BUTTON_LEFT, down); }
 void flat_reload(int down) { quest_mouse_button(SDL_BUTTON_RIGHT, down); }
 void flat_start(int down) { quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, down); }

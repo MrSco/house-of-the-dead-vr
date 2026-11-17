@@ -1,5 +1,6 @@
 // The flat app's Windows front end (HOTDVR.exe): a window with an OpenGL 3.3 core context (WGL), the mouse as the
-// gun (light guns such as Sinden, GunCon 3 and Gun4IR are mice to Windows), Space or Enter for coins and Start.
+// gun (light guns such as Sinden, GunCon 3 and Gun4IR are mice to Windows), Space or Enter for coins and Start; game
+// pads too (pad_win.c).
 // Alt+Enter or F11: fullscreen (a borderless window over the monitor). The files folder is "files" beside the exe
 // (--files DIR: another, e.g. two copies on one PC playing each other).
 //
@@ -31,6 +32,8 @@
 #define WGL_CONTEXT_CORE_PROFILE_BIT_ARB 0x00000001
 typedef HGLRC (WINAPI *PFN_wglCreateContextAttribsARB)(HDC, HGLRC, const int *);
 typedef BOOL (WINAPI *PFN_wglSwapIntervalEXT)(int);
+void pad_poll(double now, double dt);   // pad_win.c
+void pad_mouse_moved(void);
 
 static struct {
     HWND wnd;
@@ -73,6 +76,8 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         const int x = (short)LOWORD(lp), y = (short)HIWORD(lp), down = (wp & MK_LBUTTON) != 0;
         if (msg == WM_LBUTTONDOWN) SetCapture(h);
         if (msg == WM_LBUTTONUP) ReleaseCapture();
+        static int last_x = -1, last_y = -1;
+        if (x != last_x || y != last_y) { last_x = x; last_y = y; pad_mouse_moved(); }
         flat_menu_mouse(x, y, down);
         if (flat_menu_is_open()) { if (W.trigger) { W.trigger = 0; flat_trigger(0); } return 0; }
         flat_pointer(x, y);
@@ -283,6 +288,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
             if (m.message == WM_QUIT) W.quit = 1;
             TranslateMessage(&m);
             DispatchMessageW(&m);
+        }
+        {
+            static double last;
+            const double now = (double)plat_now_ns() * 1e-9;
+            pad_poll(now, last ? now - last : 0);
+            last = now;
         }
         flat_app_frame(W.minimized);
         if (W.minimized || !W.w || !W.h) { Sleep(16); continue; }
