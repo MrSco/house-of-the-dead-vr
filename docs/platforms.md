@@ -206,7 +206,7 @@ generated code and the fetched libraries over ssh; `python3 scripts/build_apple.
 **Since (2026-11-16):**
 - **The 3D was too dark everywhere**: the shared renderer decoded the arcade's colours with a 2.2 power and the sRGB
   framebuffer encoded them with the sRGB curve, which crushed the shadows (5% showed under 2%). It uses the exact
-  sRGB curve now (the Quest too). A **Brightness** setting (GRAPHICS in VR, GAME in the flat apps, 50% by default)
+  sRGB curve now (the Quest too). A **Brightness** setting (GRAPHICS in VR, GAME in the flat apps, 25% by default)
   raises the black level and lifts the shadows; 0% is as the arcade drew it.
 - **Pads**: Windows loads SDL3.dll (built from `extern/sdl3`, shipped beside HOTDVR.exe) for Xbox, PlayStation,
   Switch and other pads, XInput without it; pads with a gyroscope can aim with it (GAME: Pad gyro aim). Checked with
@@ -241,7 +241,9 @@ generated code and the fetched libraries over ssh; `python3 scripts/build_apple.
     of distant ground at the screen's edge (0.44% of the pixels at most).
   - **Windows drew the 3D far too dark** (MAME's mid tones at 0.6): desktop GL encodes into an sRGB target only
     with `GL_FRAMEBUFFER_SRGB` on (GLES always does). At Brightness 0% Windows now matches the software
-    rasterizer's colours; the 50% default is brighter than the arcade, as on the Quest.
+    rasterizer's colours. The Brightness default, chosen while Windows was too dark, is 25% now (was 50%: it washed
+    out the lit scenes; 25% opens the darkest rooms and leaves those near the arcade's), under a new key in
+    options.cfg (`brightness_level_pct`) so the 50 saved files carry is dropped.
   - The "plain floor" seen on Windows was those two together (the marble's pattern is there).
 
 **Left for a player (the end check):** on the headset, a stage and an online game with this build (joining a game under way, both ways: the

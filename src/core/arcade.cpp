@@ -125,7 +125,7 @@ inline uint16_t le16(const uint8_t *base, uint32_t index) { return uint16_t(base
 // (the scenes the shells draw), never the game's state: crossplay is the same. The shells set arcade_brightness
 // (m2_gl_brightness); the game thread rebuilds the table when it changes.
 uint8_t gamma_lut[256];
-extern "C" { volatile int arcade_brightness = 50; }
+extern "C" { volatile int arcade_brightness = 25; }
 int gamma_for = -1;
 void update_gamma() {
     const int p = std::clamp(int(arcade_brightness), 0, 100);

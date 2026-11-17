@@ -94,7 +94,7 @@ def main():
         shutil.rmtree(files)
     os.makedirs(files)
     shutil.copytree(os.path.join(WIN, 'files', 'arcade'), os.path.join(files, 'arcade'))
-    open(os.path.join(files, 'options.cfg'), 'w').write('brightness_pct=0\n')
+    open(os.path.join(files, 'options.cfg'), 'w').write('brightness_level_pct=0\n')
     env = dict(os.environ, M2_SHOTS=','.join(map(str, frames)), FLAT_QUIT_AT=str(frames[-1] / 57.5 + 8),
                M2_GL_ORDER='1' if a.depth == 'order' else '0')
     if inputs:

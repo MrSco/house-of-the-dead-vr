@@ -42,7 +42,9 @@ const QOptDef qopt_defs[QOPT_COUNT] = {
     [QOPT_FULLSCREEN] = { "flat_fullscreen", 0, 1, 0 },
     [QOPT_GYRO] = { "flat_gyro", 0, 1, 0 },
     [QOPT_GYRO_SPEED] = { "flat_gyro_speed_pct", 25, 300, 100 },
-    [QOPT_BRIGHTNESS] = { "brightness_pct", 0, 100, 50 },   // (0: as the arcade drew it)
+    // (0: as the arcade drew it; 25 opens the darkest rooms and leaves the lit scenes near the arcade's. A new key:
+    // brightness_pct's 50 was chosen while Windows drew the 3D too dark, and saved files carry it)
+    [QOPT_BRIGHTNESS] = { "brightness_level_pct", 0, 100, 25 },
 };
 
 void qoptions_defaults(int *v) {
