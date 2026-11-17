@@ -161,8 +161,28 @@ atomics) and `HOTDVR-<version>-windows.zip`.
   `FLAT_TEST_PLAY`, `FLAT_TEST_TALK`; on the Quest `QUEST_TEST_ONLINE` gained `hostlan` and `joinip:`, and
   `QUEST_TEST_TALK` holds push to talk.
 
+**P2, Android phones and the Steam Frame (2026-11-16): done but for devices.** `python scripts/build_quest.py
+--flavor quest|frame|phone` (the Quest app stays the default).
+- **phone** (`com.mrsco.hotdvr.android`, `hotdvr-android.apk`): `src/flat` with an Android front end
+  (`src/flat/android/main_android.c`: NativeActivity, EGL / GL ES 3.0, landscape). Touch: a tap on the picture
+  shoots there, a second finger reloads; `src/flat/flat_touch.c` puts RELOAD, START and MENU in the bars beside the
+  4:3 picture (faint over its corners on a 4:3 screen); Back opens the menu (its touch layout: no Display row).
+  Pads: either stick moves a sight, R2 / R1 shoot, L2 / L1 / X reload, A / Start coins, Select the menu. The ROM set
+  comes through the Quest app's ImportActivity, the restarts through its RestartActivity
+  (`src/platform/android/activity.c` starts either). arm64 only, Android 10 and later.
+  Checked in the Android 14 x86_64 emulator (arm64 through its translation, the dev PC's `hotd_test` AVD): the game
+  runs (board ~10 ms a frame translated), the touch buttons give coins and Start and start a game, the menu opens and
+  RESUME closes it, taps aim; it joined HOTDVR.exe's LAN game at 10.0.2.2: 80 of 80 checksums over 4,800 frames.
+  The dev phone at hand (moto g pure) has a 32-bit userspace and can't install it.
+- **frame** (`com.mrsco.hotdvr.frame`, `hotdvr-frame.apk`): the Quest app's library as it is, with the Quest's
+  manifest minus Meta's features (hand tracking, passthrough, supported devices, the Oculus VR category) and head
+  tracking not required, as GoldenEye VR's frame flavor. The Quest build already had what Lepton needs: the
+  Khronos OpenXR loader (not Meta's), OpenXR 1.0, the graphics requirements asked before the session, every Meta
+  extension optional, Touch controllers bound. Built, untested: no Frame at hand.
+
 **Left for a player (the end check):** on the headset, a stage and an online game with this build; on Windows, the
-mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM dialog, and voice with real speech.
+mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM dialog, and voice with real speech;
+a real phone (touch, a pad, the ROM picker, voice); a Steam Frame.
 
 **Left, later:**
 - Crash reports on Windows (WinHTTP; the SYSTEM tab hides the row on flat builds until then).
@@ -170,6 +190,9 @@ mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM di
 - The crossplay check with clang-cl too (CI's compiler; not installed on the dev PC).
 - The Quest's `QUEST_TEST_ONLINE` deletes all of env.txt before its restart, so other switches don't survive it;
   the flat hook drops only its own line.
+- Phones: gyro aim; the navigation bar (the theme hides the status bar; immersive mode needs the UI thread); a
+  32-bit (armeabi-v7a) build for phones without a 64-bit userspace, if wanted; LAN discovery (the Quest takes a
+  Wi-Fi multicast lock through JNI; the phone does not yet: joining by IP and by room code work).
 
 ## Risks
 

@@ -5,11 +5,14 @@
 // Test switches: FLAT_TEST_ONLINE=seconds,host|hostlan|join:CODE|joinip:IP|leave does that ONLINE action that long
 // after the start (the line is then taken out of env.txt, so the restart it makes doesn't do it again);
 // FLAT_TEST_PLAY=1 plays: coins and Start every few seconds, and shots round the screen, every eighth off it;
-// FLAT_TEST_TALK=1 talks: push to talk, held the whole time (voice frames sent without a voice).
+// FLAT_TEST_TALK=1 talks: push to talk, held the whole time (voice frames sent without a voice);
+// FLAT_QUIT_AT=seconds closes the app then; FLAT_MENU_AT=seconds[,tab] opens the menu then (on that tab:
+// quest_menu.h's QMENU_TAB_*); FLAT_SHOT=seconds writes the picture to flat_shot.ppm (flat.c).
 #include "flat.h"
 #include "platform/platform.h"
 #include "quest.h"
 #include "quest_options.h"
+#include "quest_menu.h"
 #include "voice.h"
 #include "online.h"
 #include <SDL.h>
@@ -164,6 +167,16 @@ static void test_hooks(void) {
         else if (!strncmp(what, "joinip:", 7)) { online_set_join_ip(what + 7); online_join_ip(); }
         else if (!strcmp(what, "leave")) online_leave();
     }
+    static double quit_at = -2, menu_at = -2;
+    static int menu_tab = -1;
+    if (quit_at == -2) {
+        const char *q = getenv("FLAT_QUIT_AT"), *m = getenv("FLAT_MENU_AT");
+        quit_at = q && *q ? atof(q) : -1;
+        menu_at = -1;
+        if (m && *m) sscanf(m, "%lf,%d", &menu_at, &menu_tab);
+    }
+    if (quit_at >= 0 && t >= quit_at) { quit_at = -1; flat_os_quit(); }
+    if (menu_at >= 0 && t >= menu_at) { menu_at = -1; flat_menu_set_open(1); if (menu_tab >= 0) qmenu_open(menu_tab); }
     static int talk = -1;
     if (talk < 0) { talk = getenv("FLAT_TEST_TALK") && atoi(getenv("FLAT_TEST_TALK")); if (talk) online_set_voice_mode(2); }
     if (talk) online_talk_key(true);

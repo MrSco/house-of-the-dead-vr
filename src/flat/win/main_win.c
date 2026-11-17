@@ -4,9 +4,7 @@
 // Alt+Enter or F11: fullscreen (a borderless window over the monitor). The files folder is "files" beside the exe
 // (--files DIR: another, e.g. two copies on one PC playing each other).
 //
-// Test switches (env.txt in the files folder, or the environment): FLAT_SHOT=seconds writes the window's picture to
-// flat_shot.ppm that long after the start; FLAT_QUIT_AT=seconds closes the app then; FLAT_MENU_AT=seconds[,tab] opens
-// the menu then (on that tab: quest_menu.h's QMENU_TAB_*).
+// Test switches: flat_app.c's (env.txt in the files folder, or the environment).
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
@@ -127,6 +125,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 // ---- flat.h's front-end calls
 void flat_os_fullscreen(int on) { fullscreen(on); }
 void flat_os_quit(void) { W.quit = 1; }
+int flat_os_touch(void) { return 0; }
 // the ROM set: chosen in Windows' Open dialog, copied into files/arcade as hotd.zip or hotd.7z; then the app starts
 // again with it (the images made from the old one are made again: their stamp names the set)
 void flat_os_import_rom(void) {
@@ -183,22 +182,6 @@ static int gl_context(void) {
     PFN_wglSwapIntervalEXT swap = (PFN_wglSwapIntervalEXT)wglGetProcAddress("wglSwapIntervalEXT");
     if (swap) swap(1);
     return 1;
-}
-
-// the window's picture as flat_shot.ppm (tests)
-static void screenshot(void) {
-    unsigned char *px = malloc((size_t)W.w * W.h * 4);
-    if (!px) return;
-    glReadPixels(0, 0, W.w, W.h, GL_RGBA, GL_UNSIGNED_BYTE, px);
-    FILE *f = fopen("flat_shot.ppm", "wb");
-    if (f) {
-        fprintf(f, "P6\n%d %d\n255\n", W.w, W.h);
-        for (int y = W.h - 1; y >= 0; y--)
-            for (int x = 0; x < W.w; x++) fwrite(px + ((size_t)y * W.w + x) * 4, 1, 3, f);
-        fclose(f);
-        LOGI("flat_shot.ppm: %dx%d", W.w, W.h);
-    }
-    free(px);
 }
 
 static void utf8(const wchar_t *w, char *out, int n) { WideCharToMultiByte(CP_UTF8, 0, w, -1, out, n, NULL, NULL); }
@@ -263,12 +246,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     GetClientRect(W.wnd, &r);
     W.w = r.right; W.h = r.bottom;
 
-    const char *e = getenv("FLAT_SHOT");
-    const double shot_at = e ? atof(e) : -1, quit_at = getenv("FLAT_QUIT_AT") ? atof(getenv("FLAT_QUIT_AT")) : -1;
-    const uint64_t t0 = plat_now_ns();
-    int shot_done = 0, menu_tab = -1;
-    double menu_at = -1;
-    if (getenv("FLAT_MENU_AT")) sscanf(getenv("FLAT_MENU_AT"), "%lf,%d", &menu_at, &menu_tab);
     if (flat_opt_get(QOPT_FULLSCREEN)) { W.fullscreen = 0; fullscreen(1); }
     // no ROM set yet: ask for it at once
     {
@@ -298,10 +275,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
         flat_app_frame(W.minimized);
         if (W.minimized || !W.w || !W.h) { Sleep(16); continue; }
         flat_draw(W.w, W.h, 0);
-        const double t = (double)(plat_now_ns() - t0) * 1e-9;
-        if (menu_at >= 0 && t >= menu_at) { menu_at = -1; flat_menu_set_open(1); if (menu_tab >= 0) qmenu_open(menu_tab); }
-        if (shot_at >= 0 && !shot_done && t >= shot_at) { screenshot(); shot_done = 1; }
-        if (quit_at >= 0 && t >= quit_at) W.quit = 1;
         SwapBuffers(W.dc);
     }
     const int restart = flat_app_restart_requested() || W.import_restart;

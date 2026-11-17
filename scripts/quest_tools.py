@@ -280,9 +280,11 @@ def quest_dex(tools, out):
     return dex
 
 
-def package_apk(tools, out, so, xr_lib, pkg, label, release=False):
+def package_apk(tools, out, so, xr_lib, pkg, label, release=False, manifest=None, apk_name=None, assets=True):
+    """The APK: manifest (text; the Quest's by default), the library, the OpenXR loader (xr_lib; None: none), the Java
+    activities, the gun and hands (assets), signed. apk_name: its file name (else the package's last part)."""
     man = os.path.join(out, 'AndroidManifest.xml')
-    text = open(os.path.join(ROOT, 'src', 'quest', 'AndroidManifest.xml'), encoding='utf-8').read()
+    text = manifest or open(os.path.join(ROOT, 'src', 'quest', 'AndroidManifest.xml'), encoding='utf-8').read()
     open(man, 'w', encoding='utf-8').write(text.replace('@PACKAGE@', pkg).replace('@LABEL@', label))
     unaligned, aligned = os.path.join(out, 'unaligned.apk'), os.path.join(out, 'aligned.apk')
     dex = quest_dex(tools, out)
@@ -292,15 +294,16 @@ def package_apk(tools, out, so, xr_lib, pkg, label, release=False):
     run([tools['strip'], '--strip-unneeded', '-o', stripped, so])
     with zipfile.ZipFile(unaligned, 'a', zipfile.ZIP_DEFLATED) as z:
         z.write(stripped, 'lib/arm64-v8a/libhotdvr.so')
-        z.write(os.path.join(xr_lib, 'libopenxr_loader.so'), 'lib/arm64-v8a/libopenxr_loader.so')
+        if xr_lib: z.write(os.path.join(xr_lib, 'libopenxr_loader.so'), 'lib/arm64-v8a/libopenxr_loader.so')
         z.write(dex, 'classes.dex')                                  # RestartActivity (online play restarts the app)
         z.writestr('assets/build-info.txt', build_info(text, so))   # for crash reports (quest_report.c)
         # the gun model (CC0) and the hands (CC BY 4.0; see their .json) and anything else in src/quest/assets
-        adir = os.path.join(ROOT, 'src', 'quest', 'assets')
+        adir = os.path.join(ROOT, 'src', 'quest', 'assets') if assets else ''
+
         for n in sorted(os.listdir(adir)) if os.path.isdir(adir) else []:
             if not n.endswith('.json'): z.write(os.path.join(adir, n), 'assets/' + n)
     run([tools['zipalign'], '-p', '-f', '4', unaligned, aligned])
-    apk = os.path.join(out, pkg.rsplit('.', 1)[-1] + '.apk')
+    apk = os.path.join(out, apk_name or pkg.rsplit('.', 1)[-1] + '.apk')
     key = release_key()
     if release and not key: sys.exit('no release key (%s): python scripts/quest_tools.py release-key' % RELEASE_PROPS)
     if key:

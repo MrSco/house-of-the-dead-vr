@@ -16,6 +16,7 @@ static int mic_rate, asked;
 static atomic_int mic_failed;
 
 void plat_android_set_activity(void *native_activity) { activity = native_activity; }
+ANativeActivity *plat_android_activity(void) { return activity; }   // (activity.c)
 
 // Context.checkSelfPermission / Activity.requestPermissions on the NativeActivity object. NativeActivity ignores the
 // answer (onRequestPermissionsResult), so the caller asks again with checkSelfPermission once a second.

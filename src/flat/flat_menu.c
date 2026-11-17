@@ -18,7 +18,8 @@ static struct {
     GLuint tex, prog_tex, prog_dim;
     GLint u_tex_mvp, u_dim_mvp;
     float x, y, s;                // the panel's place in the window: top-left, scale
-    int mx, my, down, was_down, pointer;
+    int mx, my, down, pointer;
+    int press, release;           // a press and a let-go since the last frame (a tap may come and go between two)
     int key[8];                   // keys pressed since the last frame
 } M;
 
@@ -39,6 +40,7 @@ static QMenuHost host(void) {
     h.action = menu_action;
     h.saved = true;
     h.flat = true;
+    h.touch = flat_os_touch() != 0;
     return h;
 }
 
@@ -47,7 +49,7 @@ void flat_menu_set_open(int open) {
     M.open = open;
     if (open) qmenu_open(-1);
     memset(M.key, 0, sizeof M.key);
-    M.was_down = M.down;   // (the click that opened or closed it is not a click in it, or a shot)
+    M.press = M.release = 0;   // (the click that opened or closed it is not a click in it, or a shot)
     plat_log(PLAT_LOG_INFO, "menu %s", open ? "open" : "closed");
 }
 int flat_menu_is_open(void) { return M.open; }
@@ -66,7 +68,12 @@ void flat_menu_key(int key) {
     if (key == FLAT_KEY_BACK && !qmenu_modal()) { flat_menu_set_open(0); return; }   // Esc closes it
     if (key >= 0 && key < 8) M.key[key] = 1;
 }
-void flat_menu_mouse(int x, int y, int button_down) { M.mx = x; M.my = y; M.down = button_down; }
+void flat_menu_mouse(int x, int y, int button_down) {
+    M.mx = x; M.my = y;
+    if (button_down && !M.down) M.press = 1;
+    if (!button_down && M.down) M.release = 1;
+    M.down = button_down;
+}
 
 void flat_menu_draw(int w, int h) {
     if (!M.open) return;
@@ -99,10 +106,10 @@ void flat_menu_draw(int w, int h) {
     const float px = ((float)M.mx - M.x) / s, py = ((float)M.my - M.y) / s;
     in.pointer = px >= 0 && py >= 0 && px < QMENU_W && py < QMENU_H;
     in.px = px; in.py = py;
-    in.press = M.down && !M.was_down;
-    in.release = !M.down && M.was_down;
-    in.held = M.down;
-    M.was_down = M.down;
+    // a press this frame; its let-go the next (a quick tap brings both at once)
+    if (M.press) { in.press = 1; in.held = 1; M.press = 0; }
+    else if (M.release) { in.release = 1; M.release = 0; }
+    else in.held = M.down;
     in.stick_x = M.key[FLAT_KEY_RIGHT] ? 1.0f : M.key[FLAT_KEY_LEFT] ? -1.0f : 0.0f;
     in.stick_y = M.key[FLAT_KEY_UP] ? 1.0f : M.key[FLAT_KEY_DOWN] ? -1.0f : 0.0f;
     in.select = M.key[FLAT_KEY_ENTER] != 0;

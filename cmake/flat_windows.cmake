@@ -37,7 +37,7 @@ if(MSVC)
 endif()
 
 set(M2_FLAT_C
-    src/flat/win/main_win.c src/flat/win/pad_win.c src/flat/flat.c src/flat/flat_app.c src/flat/flat_menu.c
+    src/flat/win/main_win.c src/flat/win/pad_win.c src/flat/flat.c src/flat/flat_app.c src/flat/flat_menu.c src/flat/flat_touch.c
     src/core/host_sdl.c src/core/voice.c src/core/voice_dsp.c src/core/m2_gl.c
     src/core/quest_menu.c src/core/quest_canvas.c src/core/quest_options.c
     src/platform/windows/platform_win.c src/platform/windows/audio_win.c src/platform/windows/gl_win.c)

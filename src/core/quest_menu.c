@@ -288,6 +288,7 @@ static float kbd_width(const char *const *k, int n) { float x = 0; const int kee
 static const char *const KEYS_LASER[] = { "TRIGGER", "select", "B", "back", "GRIPS", "tabs" };
 static const char *const KEYS_STICK[] = { "STICK", "move", "A", "select", "B", "back", "GRIPS", "tabs" };
 static const char *const KEYS_MOUSE[] = { "CLICK", "select", "ESC", "back", "TAB", "tabs" };
+static const char *const KEYS_TOUCH[] = { "TAP", "select", "BACK", "back", "TAB", "tabs" };
 static const char *const KEYS_ARROWS[] = { "ARROWS", "move", "ENTER", "select", "ESC", "back", "TAB", "tabs" };
 // the tabs a build shows: the flat apps have no VR settings
 static bool tab_shown(int t) { return !H || !H->flat || t == QMENU_TAB_GRAPHICS || t == QMENU_TAB_SYSTEM || t == QMENU_TAB_ONLINE; }
@@ -304,8 +305,8 @@ static void header(void) {
         const char *t = "SAVING FAILED - settings not kept"; const int w = width(UI_B16, t) + 28;
         rrect(right - w, 26, w, 30, 15, WARN); text(UI_B16, right - w + 14, 47, t, WARNINK);
     } else {
-        const char *const *k = H->flat ? (stick_mode ? KEYS_ARROWS : KEYS_MOUSE) : stick_mode ? KEYS_STICK : KEYS_LASER;
-        const int n = stick_mode ? 4 : 3;
+        const char *const *k = H->flat ? (stick_mode ? KEYS_ARROWS : H->touch ? KEYS_TOUCH : KEYS_MOUSE) : stick_mode ? KEYS_STICK : KEYS_LASER;
+        const int n = stick_mode ? 4 : H->touch ? 2 : 3;
         float x = right - kbd_width(k, n); for (int i = 0; i < n; i++) kbd(&x, 47, k[i * 2], k[i * 2 + 1]);
     }
 }
@@ -802,6 +803,24 @@ static void controls_page_flat(void) {
     text(UI_B32, x + 32, y + 26 + 30, "CONTROLS", ACCENT);
     const float lx = x + 32, rx = x + 600, lw = 530, rw = w - 600 - 32;
     float ly = y + 96, ry = y + 96;
+    if (H->touch) {
+        text(UI_B20, lx, ly, "TOUCH", ACCENT); ly += 12;
+        controls_row(lx, &ly, lw, "Tap the picture", "Shoot there. Off the picture: reload");
+        controls_row(lx, &ly, lw, "A second finger, RELOAD", "Reload");
+        controls_row(lx, &ly, lw, "START", "Coins and Start; skip a scene");
+        controls_row(lx, &ly, lw, "MENU, Back", "This menu (the game pauses, not online)");
+        text(UI_B20, rx, ry, "GAME PADS", ACCENT); ry += 12;
+        controls_row(rx, &ry, rw, "Either stick", "Move the sight");
+        controls_row(rx, &ry, rw, "R2 / R1", "Shoot");
+        controls_row(rx, &ry, rw, "L2 / L1 / X", "Reload");
+        controls_row(rx, &ry, rw, "A / Start", "Coins and Start");
+        controls_row(rx, &ry, rw, "Select / Back", "This menu");
+        const float bw = 180;
+        if (button(ID(K_MBTN, 1), x + w - 32 - bw, y + h - 26 - 52, bw, 52, "CLOSE", UI_B22, 1, NULL)) modal = M_NONE;
+        focusable(ID(K_MBTN, 1), F_BUTTON, (int)(x + w - 32 - bw / 2));
+        next_row();
+        return;
+    }
     text(UI_B20, lx, ly, "MOUSE AND KEYS", ACCENT); ly += 12;
     controls_row(lx, &ly, lw, "Mouse", "Aim (a light gun that is a mouse to Windows works the same)");
     controls_row(lx, &ly, lw, "Left button", "Shoot. Off the picture: reload");
@@ -945,7 +964,8 @@ static void restore_base(void) {
 static void layout(int which) {
     pass = which; nhits = 0; nfoci = 0; frow = 0;
     if (H->flat)
-        snprintf(help, sizeof help, "%s", stick_mode ? "Arrows: move and change \xC2\xB7 Enter: select \xC2\xB7 Esc: back \xC2\xB7 Tab: tabs" : "Point at anything and click.");
+        snprintf(help, sizeof help, "%s", stick_mode ? "Arrows: move and change \xC2\xB7 Enter: select \xC2\xB7 Esc: back \xC2\xB7 Tab: tabs"
+                                          : H->touch ? "Tap anything." : "Point at anything and click.");
     else
         snprintf(help, sizeof help, "%s", stick_mode ? "Stick: move and change \xC2\xB7 A: select \xC2\xB7 B: back \xC2\xB7 grips: tabs" : "Point at anything and pull the trigger.");
     if (drawing()) restore_base();
@@ -961,7 +981,8 @@ static void layout(int which) {
         else settings(VIEW_ROWS, sizeof VIEW_ROWS / sizeof *VIEW_ROWS);
     }
     else if (tab == QMENU_TAB_COMFORT) settings(COMFORT_ROWS, sizeof COMFORT_ROWS / sizeof *COMFORT_ROWS);
-    else if (tab == QMENU_TAB_GRAPHICS && H->flat) settings(PICTURE_ROWS, sizeof PICTURE_ROWS / sizeof *PICTURE_ROWS);
+    // (Display, the last: a window's; a touch screen has none)
+    else if (tab == QMENU_TAB_GRAPHICS && H->flat) settings(PICTURE_ROWS, sizeof PICTURE_ROWS / sizeof *PICTURE_ROWS - (H->touch ? 1 : 0));
     else if (tab == QMENU_TAB_GRAPHICS) settings(GRAPHICS_ROWS, sizeof GRAPHICS_ROWS / sizeof *GRAPHICS_ROWS);
     else if (tab == QMENU_TAB_SYSTEM) {
         // (crash reports: the Quest's only, its last row)

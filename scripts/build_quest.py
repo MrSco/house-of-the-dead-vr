@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """The arcade game in the Quest VR app: an APK of its own (com.mrsco.hotdvr).
 
-  python scripts/build_quest.py [--apk-only] [--no-launch]
+  python scripts/build_quest.py [--apk-only] [--no-launch] [--flavor quest|frame|phone]
+
+Flavors (docs/platforms.md): quest, the Meta Quest app (com.mrsco.hotdvr, hotdvr.apk); frame, the same app for the
+Steam Frame's Lepton (com.mrsco.hotdvr.frame, hotdvr-frame.apk: the Quest's manifest without Meta's features, the
+Khronos loader both use); phone, the flat app for Android phones and tablets (com.mrsco.hotdvr.android,
+hotdvr-android.apk: src/flat with its Android front end, no OpenXR).
 
 The app: src/quest (OpenXR, the guns and hands, the cabinet room, voice), src/core (the bridge to the game, the
 Model 2 shading, the menus), src/platform (the OS seam) and src/net (online play), with the runtime and the generated code built by CMake for
@@ -57,18 +62,35 @@ def build_core(tools, sdl_inc):
     return [l for l in libs if os.path.exists(l)]
 
 
+def frame_manifest():
+    """The Steam Frame's (Valve's Lepton on SteamVR's OpenXR runtime): the Quest's, without Meta's own features, and no
+    VR feature required to install (Lepton's Android may not list them). What Lepton needs is already there: MAIN and
+    LAUNCHER on the NativeActivity itself, Khronos's IMMERSIVE_HMD category, arm64 only. (As GoldenEye VR's frame
+    flavor, docs/pc-platforms.md there.)"""
+    import re
+    text = open(os.path.join(ARCADE, 'src', 'quest', 'AndroidManifest.xml'), encoding='utf-8').read()
+    text = text.replace('android:name="android.hardware.vr.headtracking" android:required="true"',
+                        'android:name="android.hardware.vr.headtracking" android:required="false"')
+    # Meta's: hand tracking, passthrough, the supported devices, its VR category
+    text = re.sub(r'\n[ \t]*<(uses-feature|uses-permission|meta-data|category)[^>]*(oculus|com\.oculus)[^>]*/>', '', text)
+    assert 'oculus' not in re.sub(r'<!--.*?-->', '', text, flags=re.S), 'frame_manifest: something of Meta\'s is left'
+    return text
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--apk-only', action='store_true', help='build the APK, do not install it')
     ap.add_argument('--no-launch', action='store_true', help='install but do not start it')
     ap.add_argument('--release', action='store_true', help='a release: refuse to build without the release key')
+    ap.add_argument('--flavor', choices=('quest', 'frame', 'phone'), default='quest', help='which app (default: quest)')
     a = ap.parse_args()
     os.chdir(ARCADE)                     # (quest_tools' paths are relative to the repository's root)
     tools = port.find_android()
     sdl_inc, xr_inc, xr_lib = port.quest_thirdparty()
     libs = build_core(tools, sdl_inc)
 
-    out = os.path.join(ARCADE, 'build_quest', 'arcade')
+    phone = a.flavor == 'phone'
+    out = os.path.join(ARCADE, 'build_quest', 'phone' if phone else 'arcade')
     glue = os.path.join(ARCADE, 'build_quest', 'glue')
     os.makedirs(glue, exist_ok=True)
     for n in ('android_native_app_glue.c', 'android_native_app_glue.h'):
@@ -80,11 +102,18 @@ def main():
     base = [tools['clang'], target, '-fPIC', '-O2', '-fno-strict-aliasing', '-ffp-contract=off']
     sflags = ['-Wall', '-Wno-unused-function', '-gline-tables-only', '-DHOTD_ARCADE', '-Isrc', '-Isrc/quest', '-Isrc/core', '-Isrc/net',
               '-Ibuild_quest/glue', '-I' + sdl_inc, '-I' + xr_inc]
-    quest = ['src/core/host_sdl.c', 'src/quest/quest_xr.c', 'src/quest/quest_gun.c', 'src/quest/quest_hand.c',
-             'src/quest/quest_report.c', 'src/quest/quest_cabinet.c', 'build_quest/glue/android_native_app_glue.c',
-             'src/core/quest_menu.c', 'src/core/quest_canvas.c', 'src/core/quest_options.c', 'src/core/m2_gl.c',
-             'src/platform/posix.c', 'src/platform/android/log.c', 'src/platform/android/audio.c', 'src/platform/android/mic.c']
-    jobs = [(s, sflags) for s in quest] + [(s, sflags) for s in port.net_sources()]
+    shared = ['src/core/host_sdl.c', 'build_quest/glue/android_native_app_glue.c',
+              'src/core/quest_menu.c', 'src/core/quest_canvas.c', 'src/core/quest_options.c', 'src/core/m2_gl.c',
+              'src/platform/posix.c', 'src/platform/android/log.c', 'src/platform/android/audio.c', 'src/platform/android/mic.c',
+              'src/platform/android/activity.c']
+    if phone:   # the flat shell (src/flat) and its Android front end
+        app = ['src/flat/android/main_android.c', 'src/flat/flat.c', 'src/flat/flat_app.c', 'src/flat/flat_menu.c',
+               'src/flat/flat_touch.c']
+        sflags = sflags + ['-DHOTD_VOICE']
+    else:       # the VR shell
+        app = ['src/quest/quest_xr.c', 'src/quest/quest_gun.c', 'src/quest/quest_hand.c', 'src/quest/quest_report.c',
+               'src/quest/quest_cabinet.c']
+    jobs = [(s, sflags) for s in shared + app] + [(s, sflags) for s in port.net_sources()]
     jobs += port.voice_jobs(sflags)
     objs = port.compile_all(jobs, os.path.join(out, 'obj'), lambda s, o, flags: base + flags + ['-c', s, '-o', o])
     so = os.path.join(out, 'libhotdvr.so')
@@ -92,13 +121,29 @@ def main():
     open(rsp, 'w').write('\n'.join('"%s"' % o.replace('\\', '/') for o in objs))
     clangxx = tools['clang'].replace('clang.exe', 'clang++.exe') if tools['clang'].endswith('.exe') else tools['clang'] + '++'
     port.run([clangxx, target, '-shared', '-o', so, '@' + rsp, '-Wl,--start-group'] + libs + ['-Wl,--end-group',
-              '-static-libstdc++', '-L' + xr_lib, '-lopenxr_loader', '-landroid', '-llog', '-lEGL', '-lGLESv3', '-laaudio',
+              '-static-libstdc++'] + ([] if phone else ['-L' + xr_lib, '-lopenxr_loader']) + ['-landroid', '-llog', '-lEGL', '-lGLESv3', '-laaudio',
               '-lz', '-lm', '-Wl,-u,ANativeActivity_onCreate', '-Wl,-soname,libhotdvr.so', '-Wl,-z,max-page-size=16384',
               '-Wl,--build-id=sha1', '-Wl,--no-undefined'], cwd=ARCADE)
     port.keep_symbols(so)
-    apk = port.package_apk(tools, out, so, xr_lib, PKG, LABEL, release=a.release)
+    pkg = PKG
+    if a.flavor == 'quest':
+        apk = port.package_apk(tools, out, so, xr_lib, pkg, LABEL, release=a.release)
+    elif a.flavor == 'frame':
+        pkg = PKG + '.frame'
+        apk = port.package_apk(tools, out, so, xr_lib, pkg, LABEL, release=a.release, manifest=frame_manifest(),
+                               apk_name='hotdvr-frame.apk')
+    else:
+        pkg = PKG + '.android'
+        import re
+        man = open(os.path.join(ARCADE, 'src', 'flat', 'android', 'AndroidManifest.xml'), encoding='utf-8').read()
+        quest = open(os.path.join(ARCADE, 'src', 'quest', 'AndroidManifest.xml'), encoding='utf-8').read()
+        for attr in ('versionCode', 'versionName'):   # (the Quest app's: one version for every flavor)
+            v = re.search(r'android:%s="([^"]*)"' % attr, quest).group(1)
+            man = re.sub(r'android:%s="[^"]*"' % attr, 'android:%s="%s"' % (attr, v), man)
+        apk = port.package_apk(tools, out, so, None, pkg, LABEL, release=a.release, manifest=man,
+                               apk_name='hotdvr-android.apk', assets=False)
     if not a.apk_only:
-        port.quest_deploy(tools, apk, PKG, not a.no_launch)
+        port.quest_deploy(tools, apk, pkg, not a.no_launch)
 
 
 if __name__ == '__main__':

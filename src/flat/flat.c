@@ -10,6 +10,7 @@
 #include "m2_vr.h"
 #include <SDL.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -118,11 +119,13 @@ static void tex_quad(const float *mvp, const float *q, GLuint tex, float tw, flo
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 
-// a rectangle in window pixels (y down), uv 0,0 at its top left, with a program taking pos and uv
-void flat_gl_rect(unsigned prog, int mvp_uniform, float x, float y, float w, float h, int win_w, int win_h) {
+// a rectangle in window pixels (y down), uv u0,v0 at its top left, with a program taking pos and uv
+void flat_gl_rect_uv(unsigned prog, int mvp_uniform, float x, float y, float w, float h, int win_w, int win_h,
+                     float u0, float v0, float u1, float v1) {
     const float x0 = 2 * x / (float)win_w - 1, x1 = 2 * (x + w) / (float)win_w - 1;
     const float y0 = 1 - 2 * y / (float)win_h, y1 = 1 - 2 * (y + h) / (float)win_h;
-    const float q[] = { x0, y0, 0, 0, 0,  x1, y0, 0, 1, 0,  x1, y1, 0, 1, 1,  x0, y0, 0, 0, 0,  x1, y1, 0, 1, 1,  x0, y1, 0, 0, 1 };
+    const float q[] = { x0, y0, 0, u0, v0,  x1, y0, 0, u1, v0,  x1, y1, 0, u1, v1,
+                        x0, y0, 0, u0, v0,  x1, y1, 0, u1, v1,  x0, y1, 0, u0, v1 };
     glUseProgram(prog);
     glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, identity);
     stream(q, 6, 5);
@@ -131,6 +134,10 @@ void flat_gl_rect(unsigned prog, int mvp_uniform, float x, float y, float w, flo
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)(3 * sizeof(float)));
     glDrawArrays(GL_TRIANGLES, 0, 6);
+}
+
+void flat_gl_rect(unsigned prog, int mvp_uniform, float x, float y, float w, float h, int win_w, int win_h) {
+    flat_gl_rect_uv(prog, mvp_uniform, x, y, w, h, win_w, win_h, 0, 0, 1, 1);
 }
 
 int flat_gl_init(void) {
@@ -338,7 +345,28 @@ void flat_draw(int w, int h, unsigned framebuffer) {
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)(3 * sizeof(float)));
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glViewport(0, 0, w, h);
+    flat_touch_draw(w, h);
     flat_menu_draw(w, h);
+    {   // FLAT_SHOT=seconds (tests): the picture as flat_shot.ppm in the files folder, that long after the first frame
+        static double at = -2;
+        static uint64_t t0;
+        if (at == -2) { const char *e = getenv("FLAT_SHOT"); at = e && *e ? atof(e) : -1; t0 = plat_now_ns(); }
+        if (at >= 0 && (double)(plat_now_ns() - t0) * 1e-9 >= at) {
+            at = -1;
+            unsigned char *px = malloc((size_t)w * h * 4);
+            FILE *f = px ? fopen("flat_shot.ppm", "wb") : NULL;
+            if (f) {
+                glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+                glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+                fprintf(f, "P6\n%d %d\n255\n", w, h);
+                for (int y = h - 1; y >= 0; y--)
+                    for (int x = 0; x < w; x++) fwrite(px + ((size_t)y * w + x) * 4, 1, 3, f);
+                fclose(f);
+                LOGI("flat_shot.ppm: %dx%d", w, h);
+            }
+            free(px);
+        }
+    }
 }
 
 // ---------------------------------------------------------------- input

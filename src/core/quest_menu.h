@@ -17,6 +17,7 @@ typedef struct QMenuHost {
     bool saved;                          // the settings file was written
     int hz_now;                          // the display's refresh rate now (0: unknown)
     bool flat;                           // the flat apps (src/flat): a PICTURE tab, SYSTEM and ONLINE; mouse and keys
+    bool touch;                          // ...on a touch screen (no window to size; taps, Back)
 } QMenuHost;
 
 typedef struct QMenuInput {

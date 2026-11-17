@@ -49,10 +49,20 @@ void flat_opt_set(int option, int value);
 void flat_os_fullscreen(int on);
 void flat_os_import_rom(void);          // choose the ROM set; it is copied in and the app starts again with it
 void flat_os_quit(void);
+int flat_os_touch(void);                // a touch screen (the menu's layout)
 
 // GL helpers for the panel (flat.c)
 unsigned flat_gl_program(const char *vs, const char *fs);
 void flat_gl_rect(unsigned program, int mvp_uniform, float x, float y, float w, float h, int win_w, int win_h);
+void flat_gl_rect_uv(unsigned program, int mvp_uniform, float x, float y, float w, float h, int win_w, int win_h,
+                     float u0, float v0, float u1, float v1);
+
+// ---- touch screens (flat_touch.c): a tap on the picture shoots there; buttons beside it
+enum { FLAT_BTN_NONE, FLAT_BTN_START, FLAT_BTN_RELOAD, FLAT_BTN_MENU };
+void flat_touch_controls(int on);       // show them (the touch front ends)
+int flat_touch_button(int x, int y);    // the button at a window point, or FLAT_BTN_NONE
+void flat_touch_pressed(int button, int down);   // drawn pressed while held
+void flat_touch_draw(int w, int h);     // (flat_draw calls it)
 
 #ifdef __cplusplus
 }
