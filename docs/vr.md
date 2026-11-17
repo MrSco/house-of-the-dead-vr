@@ -124,6 +124,22 @@ bundle carries a checksum of main and work RAM (M2Board::state_hash). Player
 gun report). The arcade's rooms have their own game id ("ha", rooms.h), so it
 never meets the PC game's.
 
+Joining a game under way (link version 3, 2026-11-16): the guest doesn't run
+the host's frames from its start any more. When it comes, the host saves its
+game after the frame it is at (GameLoop::save_state, runtime/board/state.h:
+every part's fields, the same bytes on every platform; 17 ms on the PC, 50 ms
+on the Quest), packs it on a thread of its own (state_pack.h: the runs copied
+from the ROMs, texture, character and sound RAM, go as references, the rest
+LZMA: 8.7 MB to about 180 KB; 0.2 s on the PC, 0.5 s on the Quest) and sends
+it in 'S' datagrams; the guest keeps every piece, acknowledges how far they run
+without a gap, loads the state (60 ms on the Quest) and runs on from the host's
+bundles. Through zonesync.net a join took 2.4-3 s from the session's start
+(the old way: about 45 s for a game 3 minutes in, longer the longer it ran).
+tools/m2statetest checks it: a loaded game against the one that saved, frame
+for frame (checksums, screens, sound, and the states at the end), or a state
+saved on another platform (crossplay_check.py does both ways with the Quest:
+the PC's state and the Quest's of the same frame are the same bytes).
+
 Tests:
 - tools/m2nettest: host with two scripted players, record the bundles; replay
   them as the guest: 70 of 70 checksums (scripts/inputs/hotd_2p.txt).

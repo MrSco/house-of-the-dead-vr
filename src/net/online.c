@@ -291,8 +291,9 @@ static uint8_t g_ct, g_cr, g_ck;        // the guest's counters, as last seen
 static int snap_state;
 static uint8_t *snap;
 static uint32_t snap_len, snap_frame, snap_acked, snap_cursor, snap_moved;
+static uint32_t snap_t0, snap_pieces, snap_rewinds;   // (the log: when it was ready, pieces sent, times sent again)
 // guest: the host's save state as it comes in
-static uint8_t *gsnap;
+static uint8_t *gsnap, *gsnap_have;     // (gsnap_have: the pieces in, a byte each: kept after a lost one)
 static uint32_t gsnap_len, gsnap_frame, gsnap_got, gsnap_got_sent;
 static int gsnap_done;
 // guest
@@ -343,14 +344,18 @@ static int snap_frame_out(uint8_t *buf, uint32_t now) {
     memset(buf, 0, FRAME_SIZE);
     if (snap_state == 2) {
         if (snap_cursor < snap_acked) snap_cursor = snap_acked;
-        if (snap_cursor > snap_acked && (int)(now - snap_moved) > rto_ms()) { snap_cursor = snap_acked; snap_moved = now; }
-        if (snap_cursor < snap_len && snap_cursor - snap_acked < SNAP_WINDOW) {
-            uint32_t n = snap_len - snap_cursor < SNAP_PIECE ? snap_len - snap_cursor : SNAP_PIECE;
+        // when the guest's count stops moving, from there again (it keeps the pieces it has: its count jumps on as
+        // the lost ones come; one lost piece at a time was slower, losses come many together on a busy link)
+        if (snap_cursor > snap_acked && (int)(now - snap_moved) > rto_ms()) { snap_cursor = snap_acked; snap_moved = now; snap_rewinds++; }
+        uint32_t at = snap_cursor;
+        if (at < snap_len && snap_cursor - snap_acked < SNAP_WINDOW) {
+            uint32_t n = snap_len - at < SNAP_PIECE ? snap_len - at : SNAP_PIECE;
             buf[0] = 'S'; buf[1] = ONLINE_VER;
-            wr32(buf + 2, my_id); wr32(buf + 6, snap_frame); wr32(buf + 10, snap_len); wr32(buf + 14, snap_cursor);
+            wr32(buf + 2, my_id); wr32(buf + 6, snap_frame); wr32(buf + 10, snap_len); wr32(buf + 14, at);
             buf[18] = (uint8_t)n; buf[19] = (uint8_t)(n >> 8);
-            memcpy(buf + 20, snap + snap_cursor, n);
-            snap_cursor += n;
+            memcpy(buf + 20, snap + at, n);
+            if (at == snap_cursor) snap_cursor += n;
+            snap_pieces++;
             return 1;
         }
     }
@@ -375,7 +380,7 @@ static void snapshot_out(uint32_t frame, const uint8_t *data, int len) {
         snap = malloc((size_t)len);
         if (snap) {
             memcpy(snap, data, (size_t)len);
-            snap_len = (uint32_t)len; snap_frame = frame; snap_acked = snap_cursor = 0; snap_moved = now_ms();
+            snap_len = (uint32_t)len; snap_frame = frame; snap_acked = snap_cursor = 0; snap_moved = snap_t0 = now_ms(); snap_pieces = snap_rewinds = 0;
             snap_state = 2;
         }
     }
@@ -496,7 +501,8 @@ static void frame_in(int slot, const uint8_t *buf, uint32_t seq) {
             uint32_t got = rd32(buf + 18);
             if (got > snap_acked && got <= snap_len) { snap_acked = got; snap_moved = now; }
             if (a >= snap_frame && a <= hn) {             // loaded: the bundles after it from here
-                host_log("online: the guest has the game: its bundles from frame %u\n", snap_frame + 1);
+                host_log("online: the guest has the game (%u ms: %u pieces, sent again %u times, ping %d): its bundles from frame %u\n",
+                         now - snap_t0, snap_pieces, snap_rewinds, eng_net_ping_ms(), snap_frame + 1);
                 snap_state = 0; free(snap); snap = NULL;
             }
         }
@@ -523,21 +529,28 @@ static void frame_in(int slot, const uint8_t *buf, uint32_t seq) {
         last_h_rx = now;
         if (host_gone) { host_gone = 0; toast("THE HOST IS BACK"); }
         uint32_t f = rd32(buf + 6), len = rd32(buf + 10), off = rd32(buf + 14), n = buf[18] | (uint32_t)buf[19] << 8;
-        if (!len || len > (64u << 20) || n > SNAP_PIECE || off > len || n > len - off) return;
+        if (!len || len > (64u << 20) || n > SNAP_PIECE || off > len || n > len - off || off % SNAP_PIECE) return;
         if (!gsnap || len != gsnap_len || f != gsnap_frame) {   // (a newer one: from its start)
-            free(gsnap);
+            free(gsnap); free(gsnap_have);
             gsnap = malloc(len);
-            if (!gsnap) return;
+            gsnap_have = calloc(len / SNAP_PIECE + 1, 1);
+            if (!gsnap || !gsnap_have) { free(gsnap); free(gsnap_have); gsnap = gsnap_have = NULL; return; }
             gsnap_len = len; gsnap_frame = f; gsnap_got = 0;
         }
-        if (off == gsnap_got) { memcpy(gsnap + off, buf + 20, n); gsnap_got += n; }   // (in order; the host goes back)
+        // any piece is kept; what is acknowledged is how far they run without a gap (the host goes back to there)
+        if (n == (len - off < SNAP_PIECE ? len - off : SNAP_PIECE) && !gsnap_have[off / SNAP_PIECE]) {
+            memcpy(gsnap + off, buf + 20, n);
+            gsnap_have[off / SNAP_PIECE] = 1;
+            while (gsnap_got < gsnap_len && gsnap_have[gsnap_got / SNAP_PIECE])
+                gsnap_got += gsnap_len - gsnap_got < SNAP_PIECE ? gsnap_len - gsnap_got : SNAP_PIECE;
+        }
         if (gsnap_got == gsnap_len) {
             net_lock();
             net_snapshot_in(f, gsnap, (int)len);
             net_unlock();
             ack = f;                                   // the bundles after it: the host sends them next
             gsnap_done = 1;
-            free(gsnap); gsnap = NULL;
+            free(gsnap); free(gsnap_have); gsnap = gsnap_have = NULL;
             host_log("online: the host's game after frame %u came (%u bytes)\n", f, len);
             toast("CONNECTED TO %s: PRESS START (A / X, SPACE) TO PLAY", partner[0] ? partner : "THE HOST");
         }
@@ -699,7 +712,11 @@ static int thread_main(void *arg) {
             int s = eng_net_state();
             if (s == 0 && (!last_try || now - last_try > 2500)) { last_try = now; connect_now(); }
             eng_net_poll();
-            if (role == 1) for (int k = 0; k < 3 && snap_sending(); k++) eng_net_send_more();   // a save state going out
+            if (role == 1) {   // a save state going out: more pieces a round (HOTD_SNAP_BURST: tests)
+                static int burst = -1;
+                if (burst < 0) { const char *e = getenv("HOTD_SNAP_BURST"); burst = e ? atoi(e) : 0; }
+                for (int k = 0; k < burst && snap_sending(); k++) eng_net_send_more();
+            }
             // the partner left mid-session: a running session turns joins away, so the room opens again (back in its
             // lobby, where a partner, or the same one back, starts a new session with us)
             {
@@ -740,6 +757,9 @@ static int thread_main(void *arg) {
                 host_log("online: state %d, game frame %u, %s %u, tx %u rx %u, ping %d\n", eng_net_state(), net_tact(),
                          role == 1 ? "history / guest has / cursor" : "received", role == 1 ? hn : ack, n_tx, n_rx, eng_net_ping_ms());
                 if (role == 1) host_log("online:   guest has %u, cursor %u\n", gack, cursor);
+                if (role == 1 && snap_state) host_log("online:   save state %d: sent to %u, guest has %u of %u (%u pieces, %u again)\n",
+                                                      snap_state, snap_cursor, snap_acked, snap_len, snap_pieces, snap_rewinds);
+                if (role == 2 && !gsnap_done) host_log("online:   save state: %u of %u\n", gsnap_got, gsnap_len);
             }
         }
         // 2 ms between rounds; the host's backlog for a guest catching up goes out as fast as the server takes it

@@ -47,7 +47,8 @@ int main(int argc, char **argv) {
         if (!std::strcmp(argv[i], "--shots")) shots = argv[++i];
         else if (!std::strcmp(argv[i], "--start")) start_at = std::strtoull(argv[++i], nullptr, 10);
     }
-    const std::string env = "PORT_ONLINE=join-ip:" + host;
+    // HOST_ADDRESS: the LAN host's address, or code:ABCD for a room on the lobby server
+    const std::string env = host.rfind("code:", 0) == 0 ? "PORT_ONLINE=join:" + host.substr(5) : "PORT_ONLINE=join-ip:" + host;
 #ifdef _WIN32
     _putenv(env.c_str());
 #else

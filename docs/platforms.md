@@ -206,8 +206,8 @@ generated code and the fetched libraries over ssh; `python3 scripts/build_apple.
 **Since (2026-11-16):**
 - **The 3D was too dark everywhere**: the shared renderer decoded the arcade's colours with a 2.2 power and the sRGB
   framebuffer encoded them with the sRGB curve, which crushed the shadows (5% showed under 2%). It uses the exact
-  sRGB curve now (the Quest too). A **Brightness** setting (GRAPHICS in VR, GAME in the flat apps, 30% by default)
-  lifts the shadows further; 0% is as the arcade drew it.
+  sRGB curve now (the Quest too). A **Brightness** setting (GRAPHICS in VR, GAME in the flat apps, 50% by default)
+  raises the black level and lifts the shadows; 0% is as the arcade drew it.
 - **Pads**: Windows loads SDL3.dll (built from `extern/sdl3`, shipped beside HOTDVR.exe) for Xbox, PlayStation,
   Switch and other pads, XInput without it; pads with a gyroscope can aim with it (GAME: Pad gyro aim). Checked with
   a virtual SDL pad (`FLAT_TEST_PAD=1`: the stick moves the sight, A starts a game) and the Android emulator's
@@ -220,7 +220,15 @@ generated code and the fetched libraries over ssh; `python3 scripts/build_apple.
 - **The Mac's microphone** (AVAudioEngine, AVCaptureDevice permission); this Mac mini has no microphone, so only its
   receiving is checked. **Android phones** take Wi-Fi's multicast lock in an online run, as the Quest does.
 
-**Left for a player (the end check):** on the headset, a stage and an online game with this build; on Windows, the
+- **Joining a game under way is quick** (link version 3): the host sends its game as it is, a save state packed
+  against the ROMs to about 180 KB, instead of the guest running every frame since the host's start. Through
+  zonesync.net the guest was in 2.4-3 s after the session began; checked between two Windows apps (LAN: 40 of 40
+  checksums after the load), with m2netguest through the relay, and PC to Quest and back by `crossplay_check.py`
+  (save on one, load on the other: the same for 600 frames; the two machines' states of a frame are the same bytes).
+  Details in docs/vr.md, "Online play and voice chat". A build of version 2 can't share a room with these.
+
+**Left for a player (the end check):** on the headset, a stage and an online game with this build (joining a game under way, both ways: the
+headset here lost tracking on the desk, so its app couldn't be opened for a live join); on Windows, the
 mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM dialog, and voice with real speech;
 a real phone (touch, a pad, the ROM picker, voice); a Steam Frame; an iPhone or iPad (a signed build, touch, voice);
 the Mac app by hand.

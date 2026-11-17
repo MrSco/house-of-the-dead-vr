@@ -8,8 +8,10 @@ flag or runtime change.
   python scripts/crossplay_check.py [--frames 1800] [--skip-build]
 
 Both ways between this PC (Windows x64, MSVC as HOTDVR.exe) and the Quest over adb (arm64): the PC hosts and the Quest replays, then the
-Quest hosts and the PC replays. Needs:
-  - the Quest build configured: python scripts/build_quest.py --apk-only (its CMake folder builds m2nettest too);
+Quest hosts and the PC replays. Then save states (online play's drop-in) both ways: m2statetest saves the game
+at frame --frames on one, the other loads it and must compute the same checksums for 600 frames on. Needs:
+  - the Quest build configured: python scripts/build_quest.py --apk-only (its CMake folder builds m2nettest and
+    m2statetest too);
   - the Windows app's build configured: python scripts/build_windows.py (its folder builds m2nettest with the same
     compiler and flags as HOTDVR.exe);
   - the ROM set's images: the PC's from the recompile (--pc-images), the headset's where the app keeps them.
@@ -40,7 +42,7 @@ def cmake_build(bdir, extra=()):
     cmake, ninja_dir = build_quest.cmake_tools()
     env = dict(os.environ)
     if ninja_dir: env['PATH'] = ninja_dir + os.pathsep + env['PATH']
-    subprocess.check_call([cmake, '--build', bdir, '--target', 'm2nettest'] + list(extra), env=env)
+    subprocess.check_call([cmake, '--build', bdir, '--target', 'm2nettest', 'm2statetest'] + list(extra), env=env)
 
 
 def pc_exe():
@@ -48,6 +50,12 @@ def pc_exe():
               os.path.join(PC_BUILD, 'm2nettest')):
         if os.path.exists(p): return p
     sys.exit('crossplay_check: no m2nettest in %s' % PC_BUILD)
+
+
+def state_exe():
+    for p in (os.path.join(PC_BUILD, 'm2statetest.exe'), os.path.join(PC_BUILD, 'm2statetest')):
+        if os.path.exists(p): return p
+    sys.exit('crossplay_check: no m2statetest in %s' % PC_BUILD)
 
 
 def result(text):
@@ -71,7 +79,7 @@ def main():
     if not os.path.isdir(PC_BUILD): sys.exit('crossplay_check: run python scripts/build_windows.py first')
     if not a.skip_build:
         cmake_build(ANDROID_BUILD)
-        subprocess.check_call(['cmake', '--build', PC_BUILD, '--target', 'm2nettest'], env=build_windows.vs_env())
+        subprocess.check_call(['cmake', '--build', PC_BUILD, '--target', 'm2nettest', 'm2statetest'], env=build_windows.vs_env())
     exe = pc_exe()
     os.makedirs(OUT, exist_ok=True)
     env = dict(os.environ, MSYS_NO_PATHCONV='1')
@@ -86,9 +94,9 @@ def main():
         return p.stdout + p.stderr
 
     subprocess.check_call([adb, 'shell', 'mkdir -p ' + QUEST_DIR], env=env)
-    subprocess.check_call([adb, 'push', os.path.join(ANDROID_BUILD, 'm2nettest'), INPUTS, QUEST_DIR + '/'], env=env,
-                          stdout=subprocess.DEVNULL)
-    subprocess.check_call([adb, 'shell', 'chmod 755 %s/m2nettest' % QUEST_DIR], env=env)
+    subprocess.check_call([adb, 'push', os.path.join(ANDROID_BUILD, 'm2nettest'), os.path.join(ANDROID_BUILD, 'm2statetest'),
+                           INPUTS, QUEST_DIR + '/'], env=env, stdout=subprocess.DEVNULL)
+    subprocess.check_call([adb, 'shell', 'chmod 755 %s/m2nettest %s/m2statetest' % (QUEST_DIR, QUEST_DIR)], env=env)
 
     expect = a.frames // 60
     runs = []
@@ -107,7 +115,30 @@ def main():
     port.log('PC guest')
     runs.append(('Quest arm64 host -> PC x64 guest', result(pc('--guest', quest_bundles))))
 
+    # save states: saved on one, loaded on the other, its checksums compared for 600 frames
+    state_args = '--inputs hotd_2p.txt --at %d --run 600' % a.frames
+    pc_state = os.path.join(OUT, 'pc.m2st')
+    port.log('PC saves at frame %d' % a.frames)
+    subprocess.run([state_exe(), a.pc_images] + state_args.replace('hotd_2p.txt', INPUTS).split() + ['--save', pc_state],
+                   capture_output=True, text=True)
+    subprocess.check_call([adb, 'push', pc_state, pc_state + '.crc', QUEST_DIR + '/'], env=env, stdout=subprocess.DEVNULL)
+    port.log('Quest loads it')
+    out = sh('./m2statetest %s %s --load pc.m2st --expect pc.m2st.crc' % (QUEST_IMAGES, state_args))
+    states = [('PC x64 save -> Quest arm64 load', 'all the same' in out, out)]
+    port.log('Quest saves at frame %d' % a.frames)
+    sh('./m2statetest %s %s --save quest.m2st' % (QUEST_IMAGES, state_args))
+    quest_state = os.path.join(OUT, 'quest.m2st')
+    for f in ('quest.m2st', 'quest.m2st.crc'):
+        subprocess.check_call([adb, 'pull', QUEST_DIR + '/' + f, os.path.join(OUT, f)], env=env, stdout=subprocess.DEVNULL)
+    port.log('PC loads it')
+    p = subprocess.run([state_exe(), a.pc_images] + state_args.replace('hotd_2p.txt', INPUTS).split() +
+                       ['--load', quest_state, '--expect', quest_state + '.crc'], capture_output=True, text=True)
+    states.append(('Quest arm64 save -> PC x64 load', 'all the same' in p.stdout, p.stdout + p.stderr))
+
     ok = True
+    for name, good, text in states:
+        ok &= good
+        print('%-34s %s' % (name, 'the same for 600 frames' if good else 'FAILED\n' + text))
     for name, (n, desync) in runs:
         good = n == expect and not desync
         ok &= good
