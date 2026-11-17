@@ -44,7 +44,7 @@ set(M2_FLAT_C
 add_executable(hotdvr WIN32 ${M2_FLAT_C} ${M2_NET_C})
 set_target_properties(hotdvr PROPERTIES OUTPUT_NAME HOTDVR C_STANDARD 11)
 target_include_directories(hotdvr PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${M2_NET_SRC} ${M2_QUEST_SDL2})
-target_compile_definitions(hotdvr PRIVATE HOTD_ARCADE _CRT_SECURE_NO_WARNINGS)
+target_compile_definitions(hotdvr PRIVATE HOTD_ARCADE HOTD_VOICE _CRT_SECURE_NO_WARNINGS)
 target_link_libraries(hotdvr PRIVATE arcade_core runtime opus m2_speexdsp m2_rnnoise ws2_32 opengl32 ole32 winmm iphlpapi)
 if(MSVC)
     # C11 atomics (voice.c); GCC's attributes are hints only (msvc_compat.h); C4244: the shared C converts int to

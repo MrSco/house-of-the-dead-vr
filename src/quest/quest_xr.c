@@ -2313,6 +2313,7 @@ static void reload_step(void) {
     }
     arcade_reload_step = st;
 }
+static int test_talk = -1;   // QUEST_TEST_TALK (the frame loop)
 static void update_input(XrTime t) {
     S.now = t;
     {   // the head, for the menu and RECENTER
@@ -2498,7 +2499,7 @@ static void update_input(XrTime t) {
     // hold; online, push to talk is the other hand's click (a gun in each hand: the right switches, the left talks)
     #define VIEW_HOLD_NS 500000000LL
     const int view_hand = S.opt[QOPT_HAND] == QHAND_LEFT ? 0 : 1;
-    if (online_push_to_talk()) online_talk_key(get_bool(S.a_mode, S.hand[1 - view_hand]) && !S.menu_open);
+    if (online_push_to_talk() && !test_talk) online_talk_key(get_bool(S.a_mode, S.hand[1 - view_hand]) && !S.menu_open);
     {
         const int mode = get_bool(S.a_mode, S.hand[view_hand]) && !S.menu_open;
         if (mode && !S.mode_btn) S.mode_t = t;
@@ -2804,7 +2805,7 @@ static void frame(void) {
         if (at < 0) { const char *e = getenv("QUEST_MENU_AT"); at = e ? atof(e) : 0; if (e && strchr(e, ',')) tab = atoi(strchr(e, ',') + 1); t0 = fs.predictedDisplayTime; }
         if (at > 0 && (double)(fs.predictedDisplayTime - t0) / 1e9 >= at) { at = 0; menu_set_open(1); if (tab >= 0) qmenu_open(tab); }
     }
-    {   // QUEST_TEST_ONLINE=seconds,host|join:CODE|leave (env.txt, tests): that ONLINE tab action that long after the
+    {   // QUEST_TEST_ONLINE=seconds,host|hostlan|join:CODE|joinip:IP|leave (env.txt, tests): that ONLINE tab action that long after the
         // first frame. env.txt goes first, so the restart the action makes starts as a player would have it.
         static double at = -1; static XrTime t0; static char what[32];
         if (at < 0) { const char *e = getenv("QUEST_TEST_ONLINE"); at = e ? atof(e) : 0; if (e && strchr(e, ',')) snprintf(what, sizeof what, "%s", strchr(e, ',') + 1); t0 = fs.predictedDisplayTime; }
@@ -2813,9 +2814,15 @@ static void frame(void) {
             remove("env.txt");
             LOGI("test: online %s", what);
             if (!strcmp(what, "host")) online_host_room();
+            else if (!strcmp(what, "hostlan")) online_host_lan();
+            else if (!strncmp(what, "joinip:", 7)) { online_set_join_ip(what + 7); online_join_ip(); }
             else if (!strcmp(what, "leave")) online_leave();
             else if (!strncmp(what, "join:", 5)) online_join_code(what + 5);
         }
+    }
+    {   // QUEST_TEST_TALK=1 (env.txt, tests): push to talk, held the whole time (voice frames sent without a voice)
+        if (test_talk < 0) { test_talk = getenv("QUEST_TEST_TALK") && atoi(getenv("QUEST_TEST_TALK")); if (test_talk) online_set_voice_mode(2); }
+        if (test_talk) online_talk_key(true);
     }
     if (S.cabinet && fs.shouldRender) render_cabinet_view();
     if (gun_slot != net_local || gun_kind != S.opt[QOPT_GUN_MODEL]) load_gun();   // the setting, or your player online

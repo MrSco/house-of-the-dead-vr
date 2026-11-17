@@ -1,12 +1,18 @@
 // flat.h's app: what the VR app's shell does round the game (quest_xr.c setup_files, game_main), for a screen. The
 // files folder holds arcade/ (the ROM set, hotd.zip or hotd.7z, and its images), save/ (settings and scores),
 // options.cfg (the menu's), online.cfg, port.log and env.txt (KEY=VALUE lines: the switches of the tests).
+//
+// Test switches: FLAT_TEST_ONLINE=seconds,host|hostlan|join:CODE|joinip:IP|leave does that ONLINE action that long
+// after the start (the line is then taken out of env.txt, so the restart it makes doesn't do it again);
+// FLAT_TEST_PLAY=1 plays: coins and Start every few seconds, and shots round the screen, every eighth off it;
+// FLAT_TEST_TALK=1 talks: push to talk, held the whole time (voice frames sent without a voice).
 #include "flat.h"
 #include "platform/platform.h"
 #include "quest.h"
 #include "quest_options.h"
 #include "voice.h"
 #include "online.h"
+#include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -124,7 +130,68 @@ int flat_app_start(const char *files_dir) {
     return 1;
 }
 
+// FLAT_TEST_ONLINE and FLAT_TEST_PLAY (tests)
+static void env_txt_drop(const char *key) {
+    FILE *f = fopen("env.txt", "r");
+    if (!f) return;
+    static char all[16384];
+    size_t n = 0;
+    char line[8192];
+    while (fgets(line, sizeof line, f))
+        if (strncmp(line, key, strlen(key)) && n + strlen(line) < sizeof all) { memcpy(all + n, line, strlen(line)); n += strlen(line); }
+    fclose(f);
+    if ((f = fopen("env.txt", "w"))) { fwrite(all, 1, n, f); fclose(f); }
+}
+static void test_hooks(void) {
+    static uint64_t t0;
+    static double online_at = -2;
+    static char what[64];
+    if (!t0) t0 = plat_now_ns();
+    const double t = (double)(plat_now_ns() - t0) * 1e-9;
+    if (online_at == -2) {
+        const char *e = getenv("FLAT_TEST_ONLINE");
+        online_at = e && *e ? atof(e) : -1;
+        if (e && strchr(e, ',')) snprintf(what, sizeof what, "%s", strchr(e, ',') + 1);
+    }
+    if (online_at >= 0 && t >= online_at) {
+        online_at = -1;
+        env_txt_drop("FLAT_TEST_ONLINE=");
+        plat_setenv("FLAT_TEST_ONLINE", "");   // (nor from this process's environment, which a restart inherits)
+        LOGI("test: online %s", what);
+        if (!strcmp(what, "host")) online_host_room();
+        else if (!strcmp(what, "hostlan")) online_host_lan();
+        else if (!strncmp(what, "join:", 5)) online_join_code(what + 5);
+        else if (!strncmp(what, "joinip:", 7)) { online_set_join_ip(what + 7); online_join_ip(); }
+        else if (!strcmp(what, "leave")) online_leave();
+    }
+    static int talk = -1;
+    if (talk < 0) { talk = getenv("FLAT_TEST_TALK") && atoi(getenv("FLAT_TEST_TALK")); if (talk) online_set_voice_mode(2); }
+    if (talk) online_talk_key(true);
+    static int play = -1;
+    if (play < 0) play = getenv("FLAT_TEST_PLAY") && atoi(getenv("FLAT_TEST_PLAY"));
+    if (!play) return;
+    static double next_start = 3, next_shot = 4;
+    static int down, shots;
+    static uint32_t rng = 12345;
+    if (t >= next_start) {   // a tap of the skip button: coins and Start
+        quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, 1);
+        quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, 0);
+        next_start = t + 2.5;
+    }
+    if (down) { quest_mouse_button(SDL_BUTTON_LEFT, 0); down = 0; }
+    else if (t >= next_shot) {
+        rng = rng * 1103515245u + 12345u;
+        int x = 40 + (int)((rng >> 8) % 416), y = 40 + (int)((rng >> 18) % 304);
+        if (++shots % 8 == 0) x = -20;   // off the screen: reload
+        quest_pointer(x, y);
+        quest_mouse_button(SDL_BUTTON_LEFT, 1);
+        down = 1;
+        next_shot = t + 0.3;
+    }
+}
+
 void flat_app_frame(int minimized) {
+    test_hooks();
     extern int port_draw_crosshairs;
     extern volatile int arcade_view_cabinet;
     // the game's own sight where you aim (Crosshair); online the partner's shows regardless

@@ -33,10 +33,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(HOTD_VOICE)
 #include "voice.h"
 #else
-// the desktop build has no voice chat (it is a test partner)
+// the desktop test partner (tools/m2netguest) has no voice chat; the apps have (HOTD_VOICE: the flat ones)
 typedef struct { int active, capturing, talking, partner_talking, mic_denied, mode, muted, level, partner_level; uint32_t sent, received, lost; } voice_status_t;
 static void voice_set_active(int on) { (void)on; }
 static void voice_set_mode(int m) { (void)m; }
