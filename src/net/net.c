@@ -894,6 +894,12 @@ static void sim_init(void)
 }
 static bool sim_on(void) { if (sim_loss < 0) sim_init(); return sim_loss > 0 || sim_jit > 0 || sim_delay > 0 || sim_djit > 0; }
 
+/* a burst: one more FRAME now (the game has more to send than one a poll: a save state going out) */
+void eng_net_send_more(void)
+{
+    if (G && st == ST_SESSION) send_frame();
+}
+
 void eng_net_poll(void)
 {
     if (!G) G = &g_none;

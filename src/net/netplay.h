@@ -40,6 +40,11 @@ extern void (*net_bundle_out)(const uint8_t *bundle, int len);   // host: each f
 extern int (*net_bundle_wait)(void);       // guest: no bundle yet for this frame: wait a little, 1 = look again, 0 = give up
 extern void (*net_desync_out)(uint32_t frame);
 extern void (*net_guest_out)(int flags, int x, int y, int key);  // guest: this frame's local gun, to send to the host
+// save states (a guest joins with the host's game as it is): the host asks for one when a guest comes, it comes out
+// packed (from a thread of its own) with the frame it is after; the guest passes the one it received in
+extern void (*net_snapshot_out)(uint32_t frame, const uint8_t *data, int len);
+void net_snapshot_request(void);
+void net_snapshot_in(uint32_t frame, const uint8_t *data, int len);
 void net_lock(void);          // around calls into here from another thread (net_push_bundles, net_host_*)
 void net_unlock(void);
 int net_catching_up(void);    // guest: bundles are waiting (skip the 60 Hz pacing); 2 = many (skip drawing too)

@@ -69,7 +69,11 @@ int main(int argc, char **argv) {
         local.skip = live == start_at;                       // player 2's coins and Start
         local.fire = live > start_at + 300 && (f % 60) < 4;  // a shot a second
         rt::Inputs in;
-        if (!arcade_net::frame(local, in, state_crc)) break;
+        if (!arcade_net::frame(local, in, state_crc)) {
+            if (!arcade_net::snapshot_waiting()) break;
+            arcade_net::guest_load(game); // the host's game as it is (its save state): on from there
+            continue;
+        }
         game.run_frame(in);
         game.sound() ? (void)game.sound()->take_pcm() : (void)0;
         if (!shots.empty() && arcade_net::frames() % 300 == 0) {

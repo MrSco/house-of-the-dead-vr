@@ -117,5 +117,6 @@ int  eng_net_auto_lead(void);                            /* a max_lead that does
 uint32_t eng_net_wait(int max_lead, int timeout_ms);       /* the same as a blocking call: polls (paused) until it may advance; returns ms waited */                     /* frames waited so far (a counter for logs) */
 
 void eng_net_poll(void);                                 /* once per simulated frame, BEFORE the game reads its link */
+void eng_net_send_more(void);                            /* in a session: frame_out asked again, sent if it has more (a burst) */
 void eng_net_poll_paused(void);                          /* the same while the game is paused (a menu): keepalive only, no FRAMEs */
 #endif

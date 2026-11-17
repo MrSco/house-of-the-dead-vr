@@ -1088,6 +1088,19 @@ extern "C" int SDL_main(int argc, char **argv) {
     SoundThread sound_thread; // (after the game: it goes first, before the sound board its packets use)
     while (!quit) {
         poll_events(quit);
+        // a guest joining: the host's game as it is (its save state), loaded instead of running every frame since
+        // the host's start; the host's bundles follow from the frame after it
+        if (arcade_net::snapshot_waiting()) {
+            sound_thread.wait();
+            try {
+                arcade_net::guest_load(*game);
+            } catch (const std::exception &e) {
+                LOGE("the host's game did not load: %s", e.what());
+                return stay_on(std::string("The host's game did not load:\n\n") + e.what() +
+                               "\n\n(Both players need the same version of the app.) Press the menu button to quit.");
+            }
+            continue;
+        }
         // this frame's cabinet input: made here (alone, or hosting: and sent), or the host's (a guest waits for it)
         rt::Inputs in;
         if (!arcade_net::frame(local_controls(), in, game_crc)) continue;
@@ -1124,6 +1137,17 @@ extern "C" int SDL_main(int argc, char **argv) {
         if (game->sound()) {
             if (behind) game->sound()->take_pcm(); // (catching up: no sound of frames gone by)
             else push_audio(*game->sound());
+        }
+        if (arcade_net::snapshot_wanted()) {
+            // hosting, a guest joined: the game saved as it is after this frame, its sound frame run first (here:
+            // the sound thread is idle) so the state has it
+            try {
+                packet.execute();
+                packet = rt::GameLoop::SoundPacket{};
+                arcade_net::host_save(*game);
+            } catch (const std::exception &e) {
+                LOGE("the save state for the guest: %s", e.what());
+            }
         }
         sound_thread.run(std::move(packet));
         prof.scene += now_ns() - t_scene;

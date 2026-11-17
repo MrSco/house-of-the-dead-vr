@@ -7,8 +7,9 @@
 // same game: PORT_NET_RECORD on one, PORT_NET_REPLAY on the other, every checksum matches).
 //
 // So an online game begins with a restart: the ONLINE tab writes online-session.cfg and the app opens again into
-// it (online_restart). A host plays at once and keeps every bundle; a guest may join at any time: it runs the host's
-// game from the first frame, as fast as it can and without drawing, until it has caught up, then plays along.
+// it (online_restart). A host plays at once and keeps every bundle; a guest may join at any time: the host saves
+// its game as it is (a save state, packed to a couple of hundred KB against the ROMs both have: arcade_net.h) and
+// sends it; the guest loads it and runs the frames since from the host's bundles, then plays along.
 //
 // Transport: the NMN2 lobby / relay protocol of namco22-decompile (src/net/net.c, as Time Crisis II VR uses it):
 // rooms with four-letter codes on a lobby server (zonesync.net by default), or the built-in host on the local
@@ -16,9 +17,12 @@
 // bytes, every few milliseconds when it has something new:
 //   host 'H': its run's id, the first frame carried, how many, its newest frame, a voice block, then the bundles
 //             (each against the one before it in the datagram, so one datagram decodes on its own);
+//   host 'S': its run's id, the save state's frame, its size, the offset of the piece carried and its length, the
+//             piece: a joining guest's start, sent before any bundle (a window ahead of what the guest has, from
+//             there again when that doesn't move), several a round;
 //   guest 'G': its run's id, the last frame it has without a gap (the host sends on from there and goes back to
 //             it when nothing moves on), its gun (state, with counters of trigger pulls / reloads / skips so a quick
-//             pull between two datagrams still counts once), a voice block.
+//             pull between two datagrams still counts once), how much of the save state it has, a voice block.
 // Each side's guns and hands in VR (online_pose_out) ride along at the datagram's end: the host's length in its
 // byte 11, there only when the bundles leave room; the guest's length in its last byte, the pose just before it.
 // A datagram the receiver can't use (a gap before it) is dropped; the host's history makes every loss good.
@@ -50,13 +54,15 @@ static void voice_get_status(voice_status_t *s) { memset(s, 0, sizeof *s); }
 
 void host_log(const char *fmt, ...);
 
-#define ONLINE_VER     2                // the link version: only equal versions share a room
+#define ONLINE_VER     3                // the link version: only equal versions share a room (3: save states)
 #define FRAME_SIZE     256              // what a server gives a game it doesn't list
 #define DEFAULT_SERVER "zonesync.net"
 #define NAME_LEN       12
 #define WINDOW         600              // frames the host sends ahead of the guest's acknowledgement
 #define GONE_MS        6000             // a partner silent this long has left
 #define DIK_SKIP       0x39
+#define SNAP_PIECE     (FRAME_SIZE - 20)  // the save state's bytes in an 'S'
+#define SNAP_WINDOW    49152            // its bytes sent ahead of the guest's acknowledgement
 
 void (*online_restart)(void);
 
@@ -281,6 +287,14 @@ static uint32_t my_id;                  // this run's id
 static uint32_t guest_id, gack, cursor, ack_moved, last_tx, last_g_rx;
 static int guest_in;                    // a guest is in the game (its join went into a bundle)
 static uint8_t g_ct, g_cr, g_ck;        // the guest's counters, as last seen
+// host: the save state a joining guest starts from, packed (under hmu): 0 none, 1 asked of the game, 2 sending
+static int snap_state;
+static uint8_t *snap;
+static uint32_t snap_len, snap_frame, snap_acked, snap_cursor, snap_moved;
+// guest: the host's save state as it comes in
+static uint8_t *gsnap;
+static uint32_t gsnap_len, gsnap_frame, gsnap_got, gsnap_got_sent;
+static int gsnap_done;
 // guest
 static uint32_t host_id, last_h_rx, host_newest;
 static volatile uint32_t ack;           // frames received without a gap (= pushed into netplay's queue)
@@ -323,8 +337,63 @@ static int voice_into(uint8_t *at, int max) {
     int n = voice_pack(at, max > 120 ? 120 : max);
     return n > 0 ? n : 0;
 }
+// host, under hmu: the save state's next piece ('S'; 1), or while there is none to send (the game thread saving,
+// the guest's acknowledgement awaited) an empty 'H' now and then to keep the link (1), else 0
+static int snap_frame_out(uint8_t *buf, uint32_t now) {
+    memset(buf, 0, FRAME_SIZE);
+    if (snap_state == 2) {
+        if (snap_cursor < snap_acked) snap_cursor = snap_acked;
+        if (snap_cursor > snap_acked && (int)(now - snap_moved) > rto_ms()) { snap_cursor = snap_acked; snap_moved = now; }
+        if (snap_cursor < snap_len && snap_cursor - snap_acked < SNAP_WINDOW) {
+            uint32_t n = snap_len - snap_cursor < SNAP_PIECE ? snap_len - snap_cursor : SNAP_PIECE;
+            buf[0] = 'S'; buf[1] = ONLINE_VER;
+            wr32(buf + 2, my_id); wr32(buf + 6, snap_frame); wr32(buf + 10, snap_len); wr32(buf + 14, snap_cursor);
+            buf[18] = (uint8_t)n; buf[19] = (uint8_t)(n >> 8);
+            memcpy(buf + 20, snap + snap_cursor, n);
+            snap_cursor += n;
+            return 1;
+        }
+    }
+    if (now - last_tx < 40) return 0;
+    buf[0] = 'H'; buf[1] = ONLINE_VER;
+    wr32(buf + 2, my_id);
+    wr32(buf + 12, hn);
+    return 1;
+}
+static int snap_sending(void) {   // (host) pieces to send now: the network thread sends a burst
+    SDL_LockMutex(hmu);
+    int s = snap_state == 2 && snap_cursor < snap_len && snap_cursor - snap_acked < SNAP_WINDOW;
+    SDL_UnlockMutex(hmu);
+    return s;
+}
+// host: the save state, packed (arcade_net's thread): sent if a guest still waits for it. Any save state of the
+// host's game will do, with the bundles after its frame: a newer guest takes one asked for by an earlier.
+static void snapshot_out(uint32_t frame, const uint8_t *data, int len) {
+    SDL_LockMutex(hmu);
+    if (snap_state == 1 && len > 0) {
+        free(snap);
+        snap = malloc((size_t)len);
+        if (snap) {
+            memcpy(snap, data, (size_t)len);
+            snap_len = (uint32_t)len; snap_frame = frame; snap_acked = snap_cursor = 0; snap_moved = now_ms();
+            snap_state = 2;
+        }
+    }
+    SDL_UnlockMutex(hmu);
+    host_log("online: the game after frame %u for the guest: %d bytes to send\n", frame, len);
+}
+
 static int frame_out(uint8_t *buf) {
     uint32_t now = now_ms();
+    if (role == 1 && guest_id) {
+        SDL_LockMutex(hmu);
+        int r = snap_state ? snap_frame_out(buf, now) : -1;
+        SDL_UnlockMutex(hmu);
+        if (r >= 0) {
+            if (r) { last_tx = now; n_tx++; }
+            return r;
+        }
+    }
     if (now - last_tx < 4) return 0;
     memset(buf, 0, FRAME_SIZE);
     if (role == 1) {
@@ -369,7 +438,8 @@ static int frame_out(uint8_t *buf) {
         gun_sent = gun;
         unlock();
         uint32_t a = ack;
-        if (!changed && a == ack_sent && !(pose_fresh() && now - last_tx >= 12) && now - last_tx < 30) return 0;
+        if (!changed && a == ack_sent && gsnap_got == gsnap_got_sent && !(pose_fresh() && now - last_tx >= 12) &&
+            now - last_tx < 30) return 0;
         buf[0] = 'G'; buf[1] = ONLINE_VER;
         wr32(buf + 2, my_id);
         wr32(buf + 6, a);
@@ -377,11 +447,13 @@ static int frame_out(uint8_t *buf) {
         buf[11] = (uint8_t)gun_sent.x; buf[12] = (uint8_t)(gun_sent.x >> 8);
         buf[13] = (uint8_t)gun_sent.y; buf[14] = (uint8_t)(gun_sent.y >> 8);
         buf[15] = gun_sent.ct; buf[16] = gun_sent.cr; buf[17] = gun_sent.ck;
-        int v = voice_into(buf + 19, 120);
-        buf[18] = (uint8_t)v;
+        wr32(buf + 18, gsnap_got);
+        gsnap_got_sent = gsnap_got;
+        int v = voice_into(buf + 23, 120);
+        buf[22] = (uint8_t)v;
         {   // our pose, just before the last byte (its length)
             uint8_t pose[ONLINE_POSE_MAX];
-            int p = pose_take(pose, FRAME_SIZE - 1 - (19 + v));
+            int p = pose_take(pose, FRAME_SIZE - 1 - (23 + v));
             if (p) { memcpy(buf + FRAME_SIZE - 1 - p, pose, (size_t)p); buf[FRAME_SIZE - 1] = (uint8_t)p; }
         }
         ack_sent = a; last_tx = now; n_tx++;
@@ -407,7 +479,11 @@ static void frame_in(int slot, const uint8_t *buf, uint32_t seq) {
             net_lock();
             if (guest_in) net_host_leave(1);
             net_host_join(1, partner, "");
+            net_snapshot_request();                    // its start: the game as it is after the next frame
             net_unlock();
+            SDL_LockMutex(hmu);
+            snap_state = 1; free(snap); snap = NULL;
+            SDL_UnlockMutex(hmu);
             guest_id = id; guest_in = 1; gack = 0; cursor = 1; ack_moved = now;
             g_ct = buf[15]; g_cr = buf[16]; g_ck = buf[17];
             lock(); linked_view = 1; unlock();
@@ -416,7 +492,15 @@ static void frame_in(int slot, const uint8_t *buf, uint32_t seq) {
         }
         uint32_t a = rd32(buf + 6);
         SDL_LockMutex(hmu);
-        if (a > gack && a <= hn) { gack = a; ack_moved = now; }
+        if (snap_state == 2) {
+            uint32_t got = rd32(buf + 18);
+            if (got > snap_acked && got <= snap_len) { snap_acked = got; snap_moved = now; }
+            if (a >= snap_frame && a <= hn) {             // loaded: the bundles after it from here
+                host_log("online: the guest has the game: its bundles from frame %u\n", snap_frame + 1);
+                snap_state = 0; free(snap); snap = NULL;
+            }
+        }
+        if (a > gack && a <= hn && !snap_state) { gack = a; ack_moved = now; }
         SDL_UnlockMutex(hmu);
         int flags = buf[10], x = (int16_t)(buf[11] | buf[12] << 8), y = (int16_t)(buf[13] | buf[14] << 8), pressed = 0, key = 0;
         if (buf[15] != g_ct) { pressed |= 1; g_ct = buf[15]; }
@@ -425,16 +509,43 @@ static void frame_in(int slot, const uint8_t *buf, uint32_t seq) {
         net_lock();
         net_host_input(1, flags | pressed, (float)x, (float)y, 0, key);
         net_unlock();
-        if (buf[18]) voice_unpack(buf + 19, buf[18]);
+        if (buf[22]) voice_unpack(buf + 23, buf[22]);
         {
             int p = buf[FRAME_SIZE - 1];
-            if (p && 19 + buf[18] + p <= FRAME_SIZE - 1) pose_got(buf + FRAME_SIZE - 1 - p, p);
+            if (p && 23 + buf[22] + p <= FRAME_SIZE - 1) pose_got(buf + FRAME_SIZE - 1 - p, p);
+        }
+        return;
+    }
+    if (role == 2 && buf[0] == 'S') {                 // the host's game, piece by piece
+        uint32_t id = rd32(buf + 2);
+        if (!host_id) { host_id = id; partner_name(); toast("JOINING %s'S GAME", partner[0] ? partner : "THE HOST"); voice_set_active(1); }
+        if (id != host_id || gsnap_done) return;
+        last_h_rx = now;
+        if (host_gone) { host_gone = 0; toast("THE HOST IS BACK"); }
+        uint32_t f = rd32(buf + 6), len = rd32(buf + 10), off = rd32(buf + 14), n = buf[18] | (uint32_t)buf[19] << 8;
+        if (!len || len > (64u << 20) || n > SNAP_PIECE || off > len || n > len - off) return;
+        if (!gsnap || len != gsnap_len || f != gsnap_frame) {   // (a newer one: from its start)
+            free(gsnap);
+            gsnap = malloc(len);
+            if (!gsnap) return;
+            gsnap_len = len; gsnap_frame = f; gsnap_got = 0;
+        }
+        if (off == gsnap_got) { memcpy(gsnap + off, buf + 20, n); gsnap_got += n; }   // (in order; the host goes back)
+        if (gsnap_got == gsnap_len) {
+            net_lock();
+            net_snapshot_in(f, gsnap, (int)len);
+            net_unlock();
+            ack = f;                                   // the bundles after it: the host sends them next
+            gsnap_done = 1;
+            free(gsnap); gsnap = NULL;
+            host_log("online: the host's game after frame %u came (%u bytes)\n", f, len);
+            toast("CONNECTED TO %s: PRESS START (A / X, SPACE) TO PLAY", partner[0] ? partner : "THE HOST");
         }
         return;
     }
     if (role == 2 && buf[0] == 'H') {
         uint32_t id = rd32(buf + 2);
-        if (!host_id) { host_id = id; partner_name(); toast("CONNECTED TO %s: PRESS START (A / X, SPACE) TO PLAY", partner[0] ? partner : "THE HOST"); voice_set_active(1); }
+        if (!host_id) { host_id = id; partner_name(); toast("JOINING %s'S GAME", partner[0] ? partner : "THE HOST"); voice_set_active(1); }
         if (id != host_id) {                           // the host's game started again: this one can't follow it
             if (!host_gone) { host_gone = 1; toast("THE HOST RESTARTED - LEAVE AND JOIN AGAIN"); }
             return;
@@ -588,6 +699,7 @@ static int thread_main(void *arg) {
             int s = eng_net_state();
             if (s == 0 && (!last_try || now - last_try > 2500)) { last_try = now; connect_now(); }
             eng_net_poll();
+            if (role == 1) for (int k = 0; k < 3 && snap_sending(); k++) eng_net_send_more();   // a save state going out
             // the partner left mid-session: a running session turns joins away, so the room opens again (back in its
             // lobby, where a partner, or the same one back, starts a new session with us)
             {
@@ -607,6 +719,7 @@ static int thread_main(void *arg) {
             if (role == 1 && guest_in && (int32_t)(now_ms() - last_g_rx) > GONE_MS) {
                 net_lock(); net_host_leave(1); net_unlock();
                 guest_in = 0; guest_id = 0;
+                SDL_LockMutex(hmu); snap_state = 0; free(snap); snap = NULL; SDL_UnlockMutex(hmu);
                 lock(); linked_view = 0; unlock();
                 toast("%s LEFT - YOU PLAY ON", partner[0] ? partner : "P2");
                 voice_set_active(0);
@@ -675,6 +788,7 @@ int online_boot(const char *files_dir) {
     net_bundle_wait = bundle_wait;
     net_guest_out = guest_gun;
     net_desync_out = on_desync;
+    net_snapshot_out = snapshot_out;
     eng_net_set_autostart(1);                          // in a room together: the session starts by itself
     voice_set_mode(voice_mode); voice_set_muted(muted); voice_set_volume(volume);
     host_log("online: %s %s%s%s (room %d, code %s)\n", role == 1 ? "hosting" : "joining", lan ? "on the local network " : "on ",

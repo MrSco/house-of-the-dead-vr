@@ -3,12 +3,15 @@
 #include "core/arcade_net.h"
 
 #include "runtime/board/cabinet_controls.h"
+#include "runtime/board/game_loop.h"
+#include "runtime/board/state_pack.h"
 
 #include <chrono>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -51,6 +54,11 @@ uint32_t latched = 0;
 float latched_x = 0, latched_y = 0;
 int guest_skips = 0;
 bool guest_in = false;
+
+// save states: the host's wanted (a guest joined); the guest's, received (packed) and its frame
+bool snap_wanted = false, snap_have = false;
+std::vector<uint8_t> snap_in;
+uint32_t snap_frame = 0;
 
 // guest: bundles received, in order
 std::vector<uint8_t> queue;
@@ -111,6 +119,7 @@ void (*net_bundle_out)(const uint8_t *bundle, int len) = nullptr;
 int (*net_bundle_wait)(void) = nullptr;
 void (*net_desync_out)(uint32_t frame) = nullptr;
 void (*net_guest_out)(int flags, int x, int y, int key) = nullptr;
+void (*net_snapshot_out)(uint32_t frame, const uint8_t *data, int len) = nullptr;
 int net_local = 0;
 
 void net_lock(void) { mu.lock(); }
@@ -147,6 +156,15 @@ void net_host_input(int slot, int flags, float wx, float wy, int chr, int key) {
     latest.flags = uint32_t(flags), latest.wx = wx, latest.wy = wy;
     if (key == kDikSkip) guest_skips++;
 }
+// host: a guest joined: a save state after the next frame (net_snapshot_out)
+void net_snapshot_request(void) { snap_wanted = true; }
+// guest: the host's save state (packed) of the game after `frame`; the bundles from frame + 1 follow
+void net_snapshot_in(uint32_t frame, const uint8_t *data, int len) {
+    snap_in.assign(data, data + len);
+    snap_frame = frame;
+    snap_have = true;
+    queue.clear(), qpos = 0, nqueued = 0; // (none came before it)
+}
 // guest: bundles from the host, in order (several back to back)
 void net_push_bundles(const uint8_t *data, int len) {
     if (len <= 0) return;
@@ -180,12 +198,13 @@ bool frame(const Local &local, rt::Inputs &out, uint32_t (*state_crc)()) {
                           local.skip ? kDikSkip : 0);
         Bundle b{};
         std::unique_lock<std::mutex> lock(mu);
+        if (snap_have) return false;
         while (qpos + kHead > queue.size()) {
             if (!net_bundle_wait) return false;
             lock.unlock();
             const int again = net_bundle_wait();
             lock.lock();
-            if (!again) return false;
+            if (!again || snap_have) return false;
         }
         std::memcpy(&b, queue.data() + qpos, kHead);
         const size_t len = kHead + size_t(b.nev) * sizeof(NetEvent);
@@ -247,6 +266,63 @@ bool frame(const Local &local, rt::Inputs &out, uint32_t (*state_crc)()) {
     if (mode_ == Host && net_bundle_out) net_bundle_out(reinterpret_cast<const uint8_t *>(&b), len);
     if (record) std::fwrite(&b, 1, size_t(len), record);
     out = in;
+    return true;
+}
+
+bool snapshot_wanted() {
+    std::lock_guard<std::mutex> lock(mu);
+    return snap_wanted && mode_ == Host;
+}
+
+void host_save(rt::GameLoop &game) {
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        snap_wanted = false;
+    }
+    const auto t0 = std::chrono::steady_clock::now();
+    auto state = std::make_shared<std::vector<uint8_t>>();
+    game.save_state(*state);
+    const uint32_t at = tact;
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    host_log("arcade online: saved the game at frame %u for the guest (%zu bytes, %.1f ms)\n", at, state->size(), ms);
+    // packed beside the game (the ROM images it refers to live as long as the game)
+    std::thread([state, at, dicts = game.state_dicts()] {
+        try {
+            const auto t1 = std::chrono::steady_clock::now();
+            const std::vector<uint8_t> packed = rt::pack_state(*state, dicts);
+            host_log("arcade online: packed to %zu bytes in %.0f ms\n", packed.size(),
+                     std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count());
+            if (net_snapshot_out) net_snapshot_out(at, packed.data(), int(packed.size()));
+        } catch (const std::exception &e) {
+            host_log("arcade online: the save state for the guest failed: %s\n", e.what());
+        }
+    }).detach();
+}
+
+bool snapshot_waiting() {
+    std::lock_guard<std::mutex> lock(mu);
+    return snap_have;
+}
+
+bool guest_load(rt::GameLoop &game) {
+    std::vector<uint8_t> packed;
+    uint32_t at;
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        if (!snap_have) return false;
+        packed.swap(snap_in);
+        at = snap_frame;
+        snap_have = false;
+    }
+    const auto t0 = std::chrono::steady_clock::now();
+    const std::vector<uint8_t> state = rt::unpack_state(packed.data(), packed.size(), game.state_dicts());
+    game.load_state(state.data(), state.size());
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        tact = at;
+    }
+    host_log("arcade online: loaded the host's game at frame %u (%zu bytes packed, %.1f ms)\n", at, packed.size(),
+             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
     return true;
 }
 
