@@ -30,7 +30,15 @@ SDL_mutex *SDL_CreateMutex(void) { return (SDL_mutex *)plat_rmutex_new(); }
 int SDL_LockMutex(SDL_mutex *m) { if (!m) return -1; plat_rmutex_lock((plat_rmutex *)m); return 0; }
 int SDL_UnlockMutex(SDL_mutex *m) { if (!m) return -1; plat_rmutex_unlock((plat_rmutex *)m); return 0; }
 // threads (src/net/online.c)
+// (on Windows SDL2's header makes SDL_CreateThread a macro passing the C runtime's thread functions: unused here)
+#ifdef SDL_PASSED_BEGINTHREAD_ENDTHREAD
+#undef SDL_CreateThread
+SDL_Thread *SDL_CreateThread(SDL_ThreadFunction fn, const char *name, void *data, pfnSDL_CurrentBeginThread begin,
+                             pfnSDL_CurrentEndThread end) {
+    (void)begin; (void)end;
+#else
 SDL_Thread *SDL_CreateThread(SDL_ThreadFunction fn, const char *name, void *data) {
+#endif
     (void)name;
     return (SDL_Thread *)plat_thread_start(fn, data);
 }

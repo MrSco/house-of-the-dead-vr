@@ -20,7 +20,7 @@
 #define LOGI(...) plat_log(PLAT_LOG_INFO, __VA_ARGS__)
 
 static const char *VS =
-    "#version 300 es\n"
+    PLAT_GLSL_VERSION
     "uniform mat4 mvp;\n"
     "layout(location = 0) in vec3 pos;\n"
     "layout(location = 1) in vec2 uv;\n"
@@ -43,7 +43,7 @@ static const char *VS =
     "}\n";
 
 static const char *FS =
-    "#version 300 es\n"
+    PLAT_GLSL_VERSION
     "precision highp float;\n"
     "precision highp int;\n"
     "precision highp usampler2D;\n"
@@ -173,14 +173,14 @@ static const char *FS =
     "}\n";
 
 static const char *VS_FACE =
-    "#version 300 es\n"
+    PLAT_GLSL_VERSION
     "uniform mat4 mvp;\n"
     "layout(location = 0) in vec3 pos;\n"
     "layout(location = 1) in vec2 uv;\n"
     "out vec2 v_uv;\n"
     "void main() { gl_Position = mvp * vec4(pos, 1.0); v_uv = uv; }\n";
 static const char *FS_FACE =
-    "#version 300 es\n"
+    PLAT_GLSL_VERSION
     "precision mediump float;\n"
     "uniform sampler2D tex;\n"
     "in vec2 v_uv;\n"

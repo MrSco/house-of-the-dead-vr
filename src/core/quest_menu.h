@@ -16,6 +16,7 @@ typedef struct QMenuHost {
     unsigned active_w, active_h;         // the running per-eye size
     bool saved;                          // the settings file was written
     int hz_now;                          // the display's refresh rate now (0: unknown)
+    bool flat;                           // the flat apps (src/flat): a PICTURE tab, SYSTEM and ONLINE; mouse and keys
 } QMenuHost;
 
 typedef struct QMenuInput {
@@ -35,3 +36,4 @@ void qmenu_update(const QMenuHost *host, const QMenuInput *in);
 // box it changed in dirty (x, y, w, h).
 bool qmenu_render(const QMenuHost *host, uint8_t *pixels, double now, int dirty[4]);
 bool qmenu_pointer(float *px, float *py);   // the steadied laser point on the panel (menu pixels); false: none
+bool qmenu_modal(void);                     // a dialog or the ONLINE browser is up (back closes it, not the menu)

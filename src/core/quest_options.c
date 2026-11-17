@@ -38,6 +38,8 @@ const QOptDef qopt_defs[QOPT_COUNT] = {
     [QOPT_MUSIC] = { "music_volume", 0, 100, 100 },
     [QOPT_SFX] = { "effects_volume", 0, 100, 100 },
     [QOPT_VOICE] = { "voice_chat_volume", 0, 200, 100 },
+    [QOPT_PICTURE] = { "flat_picture", 0, 1, QPICTURE_HD },
+    [QOPT_FULLSCREEN] = { "flat_fullscreen", 0, 1, 0 },
 };
 
 void qoptions_defaults(int *v) {

@@ -11,6 +11,7 @@ enum {
     QOPT_HORIZON, QOPT_VIGNETTE,                                        // COMFORT
     QOPT_RESOLUTION, QOPT_HZ,                                           // GRAPHICS
     QOPT_VOLUME, QOPT_CRASH_REPORTS, QOPT_MUSIC, QOPT_SFX, QOPT_VOICE,  // SYSTEM
+    QOPT_PICTURE, QOPT_FULLSCREEN,                                      // PICTURE (the flat apps')
     QOPT_COUNT
 };
 enum { QAIM_LASER, QAIM_TRACER, QAIM_DOT, QAIM_OFF };   // TRACER: a streak on each shot (as Time Crisis 2 VR)
@@ -23,6 +24,7 @@ enum { QVIEW_IMMERSIVE, QVIEW_CABINET };
 enum { QROOM_DARK, QROOM_PASSTHROUGH, QROOM_COURTYARD };
 enum { QHORIZON_GAME, QHORIZON_NOROLL, QHORIZON_LEVEL };
 enum { QVIGNETTE_OFF, QVIGNETTE_LOW, QVIGNETTE_HIGH };
+enum { QPICTURE_HD, QPICTURE_ORIGINAL };   // flat: the 3D at the screen's resolution, or at the arcade's own
 // the resolution presets: eye buffers this much of the headset's recommended size
 #define QRES_COUNT 4
 static const float qres_scale[QRES_COUNT] = { 0.8f, 1.0f, 1.25f, 1.5f };

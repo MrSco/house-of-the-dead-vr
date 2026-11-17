@@ -359,10 +359,21 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     # The game in the apps (docs/platforms.md): the bridge (src/core/arcade.cpp, the game thread), online play
     # (arcade_net.cpp) and the generated code, linked with each app's shell (Quest: scripts/build_quest.py, with
     # src/quest, src/core's C, src/platform and OpenXR). M2_QUEST_SDL2: the SDL2 headers the bridge compiles against.
-    if(ANDROID AND M2_QUEST_SDL2)
+    # On Windows the flat app (HOTDVR.exe, cmake/flat_windows.cmake) links it too, with the SDL2 headers
+    # build_quest.py / build_windows.py fetch.
+    if(WIN32 AND NOT M2_QUEST_SDL2 AND EXISTS ${M2_NET_SDL2}/SDL.h)
+        set(M2_QUEST_SDL2 ${M2_NET_SDL2})
+    endif()
+    if((ANDROID OR WIN32) AND M2_QUEST_SDL2)
         add_library(arcade_core STATIC src/core/arcade.cpp src/core/arcade_net.cpp $<TARGET_OBJECTS:game_gen>)
         target_link_libraries(arcade_core PRIVATE runtime)
         target_include_directories(arcade_core PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${M2_QUEST_SDL2})
+        if(MSVC)
+            target_compile_definitions(arcade_core PRIVATE _CRT_SECURE_NO_WARNINGS)
+        endif()
+        if(WIN32)
+            include(cmake/flat_windows.cmake)
+        endif()
     endif()
     target_link_libraries(m2run PRIVATE runtime)
     if(WIN32)

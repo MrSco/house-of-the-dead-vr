@@ -108,6 +108,17 @@ static const RowDef GRAPHICS_ROWS[] = {
     { QOPT_HZ, "Refresh rate", "120 Hz shows each game frame twice", "How often the headset redraws. The game runs at the arcade's 57.5 frames a second; 120 Hz is the smoothest.",
       T_SEG, { "72 HZ", "90 HZ", "120 HZ" }, 3, 1, "", false },
 };
+// the flat apps' PICTURE tab (in place of GRAPHICS)
+static const RowDef PICTURE_ROWS[] = {
+    { QOPT_PICTURE, "Picture", "How the game is drawn",
+      "HD: the game's 3D drawn sharp at your screen's resolution. ORIGINAL: at the arcade's own 496 x 384, its pixels scaled up.",
+      T_SEG, { "HD", "ORIGINAL" }, 2, 1, "", false },
+    { QOPT_CROSSHAIR, "Crosshair", "The game's sight where you aim",
+      "ON: the game shows where you aim, as its two-player sights do. OFF: none, as on the real cabinet (a light gun needs none).",
+      T_SEG, { "ON", "OFF" }, 2, 1, "", false },
+    { QOPT_FULLSCREEN, "Display", "A window, or the whole screen", "Alt+Enter or F11 switches too.",
+      T_SEG, { "WINDOW", "FULL SCREEN" }, 2, 1, "", false },
+};
 static const RowDef SYSTEM_ROWS[] = {
     { QOPT_VOLUME, "Game volume", "Everything the game plays", "All of the game's sound: music, voices and guns. Voice chat isn't in it.",
       T_SLIDER, { 0 }, 0, 5, "%", false },
@@ -152,6 +163,7 @@ void qmenu_open(int t) {
     modal = M_NONE; pressed = 0; focus = ID(K_FOOT, 0);
 }
 bool qmenu_pointer(float *px, float *py) { if (!have_pointer) return false; *px = ptr_x; *py = ptr_y; return true; }
+bool qmenu_modal(void) { return modal != M_NONE || screen != S_MAIN; }
 
 // ---- layout primitives ----
 static bool drawing(void) { return pass == PASS_DRAW; }
@@ -275,16 +287,25 @@ static float kbd_width(const char *const *k, int n) { float x = 0; const int kee
 // ---- the header, tabs and footer ----
 static const char *const KEYS_LASER[] = { "TRIGGER", "select", "B", "back", "GRIPS", "tabs" };
 static const char *const KEYS_STICK[] = { "STICK", "move", "A", "select", "B", "back", "GRIPS", "tabs" };
+static const char *const KEYS_MOUSE[] = { "CLICK", "select", "ESC", "back", "TAB", "tabs" };
+static const char *const KEYS_ARROWS[] = { "ARROWS", "move", "ENTER", "select", "ESC", "back", "TAB", "tabs" };
+// the tabs a build shows: the flat apps have no VR settings
+static bool tab_shown(int t) { return !H || !H->flat || t == QMENU_TAB_GRAPHICS || t == QMENU_TAB_SYSTEM || t == QMENU_TAB_ONLINE; }
+static int next_tab(int t, int d) {
+    for (int i = 0; i < QMENU_TAB_COUNT; i++) { t = (t + d + QMENU_TAB_COUNT) % QMENU_TAB_COUNT; if (tab_shown(t)) break; }
+    return t;
+}
 static bool online_now(void);
 static void header(void) {
     text_track(UI_B27, 30, 46, online_now() ? "MENU \xC2\xB7 ONLINE, THE GAME GOES ON" : "PAUSED", TEXT, 2);
-    text_track(UI_M15, 30, 66, "THE HOUSE OF THE DEAD \xC2\xB7 VR", MUTED, 3);
+    text_track(UI_M15, 30, 66, H->flat ? "THE HOUSE OF THE DEAD" : "THE HOUSE OF THE DEAD \xC2\xB7 VR", MUTED, 3);
     const float right = 1092;
     if (!H->saved) {
         const char *t = "SAVING FAILED - settings not kept"; const int w = width(UI_B16, t) + 28;
         rrect(right - w, 26, w, 30, 15, WARN); text(UI_B16, right - w + 14, 47, t, WARNINK);
     } else {
-        const char *const *k = stick_mode ? KEYS_STICK : KEYS_LASER; const int n = stick_mode ? 4 : 3;
+        const char *const *k = H->flat ? (stick_mode ? KEYS_ARROWS : KEYS_MOUSE) : stick_mode ? KEYS_STICK : KEYS_LASER;
+        const int n = stick_mode ? 4 : 3;
         float x = right - kbd_width(k, n); for (int i = 0; i < n; i++) kbd(&x, 47, k[i * 2], k[i * 2 + 1]);
     }
 }
@@ -295,18 +316,20 @@ static void tabs(void) {
     float x = 27;
     focusable(ID(K_TABS, 0), F_TABS, QMENU_W / 2);
     for (int i = 0; i < QMENU_TAB_COUNT; i++) {
-        const int id = ID(K_TAB, i), w = width(UI_B24, names[i]) + 4 + 40;
+        if (!tab_shown(i)) continue;
+        const char *name = H->flat && i == QMENU_TAB_GRAPHICS ? "PICTURE" : names[i];
+        const int id = ID(K_TAB, i), w = width(UI_B24, name) + 4 + 40;
         hit(id, (int)x, 78, w, 55);
         const bool active = tab == i, hot = is_hover(id) || (is_focus(ID(K_TABS, 0)) && active);
         if (active) { rrect(x, 78, w, 80, 14, BODY); rline(x, 78, w, 80, 14, 2, LINE); rrect(x + 2, BODY_Y - 2, w - 4, 2, 0, BODY); }
         else if (hot) rrect(x, 78, w, 80, 14, HOVER);
         if (is_focus(ID(K_TABS, 0)) && active) rline(x + 1, 79, w - 2, 80, 13, 3, ACCENT);
-        text_track(UI_B24, x + 20, mid(UI_B24, 78, 55), names[i], active ? ACCENT : hot ? TEXT : MUTED, 1);
+        text_track(UI_B24, x + 20, mid(UI_B24, 78, 55), name, active ? ACCENT : hot ? TEXT : MUTED, 1);
         // a dot: a change on that tab waits for the next start; online: playing together (green) or not yet
-        if (i == QMENU_TAB_GRAPHICS && H->get(QOPT_RESOLUTION) != H->boot_resolution && drawing())
+        if (i == QMENU_TAB_GRAPHICS && !H->flat && H->get(QOPT_RESOLUTION) != H->boot_resolution && drawing())
             qc_circle(&cv, x + 20 + qc_text_width(UI_B24, names[i], 1) + 9, mid(UI_B24, 78, 55) - 9, 5, ACCENT);
         if (i == QMENU_TAB_ONLINE && online_now() && drawing())
-            qc_circle(&cv, x + 20 + qc_text_width(UI_B24, names[i], 1) + 9, mid(UI_B24, 78, 55) - 9, 5, V.state == OV_LINKED ? GOOD : ACCENT);
+            qc_circle(&cv, x + 20 + qc_text_width(UI_B24, name, 1) + 9, mid(UI_B24, 78, 55) - 9, 5, V.state == OV_LINKED ? GOOD : ACCENT);
         if (clicked(id)) tab = i;
         x += w + 8;
     }
@@ -317,15 +340,18 @@ static void footer(void) {
     rrect(3, FOOT_Y, QMENU_W - 6, 2, 0, LINE);
     if (drawing()) qc_text_fit(&cv, UI_M17, 27, FOOT_Y + 30, CW, help, MUTED, 0);
     const char *labels[5] = { "RESUME", "RECENTER", "CONTROLS", "GAME MENU", "QUIT" };
-    const char *tips[5] = { "Back to the game. The menu button does the same.",
+    const char *tips[5] = { H->flat ? "Back to the game. Esc does the same." : "Back to the game. The menu button does the same.",
                             "Puts the game where you are now, facing the way you look.",
                             "Every button and gesture: the controllers, your hands and this menu.",
                             "The game's own pause screen (Esc): Continue, or Exit to its title screen.",
                             "Closes the app. Your settings and the game's saves are kept." };
     const int icons[5] = { I_PLAY, I_RECENTER, I_KEYS, I_LIST, I_CROSS };
-    const float y = FOOT_Y + 46, h = QMENU_H - 3 - 16 - y, unit = (CW + 4 - 48) / 5.1f;
+    tips[2] = H->flat ? "The mouse, the keys and this menu." : tips[2];
+    const int nb = H->flat ? 4 : 5;
+    const float y = FOOT_Y + 46, h = QMENU_H - 3 - 16 - y, unit = (CW + 4 - 12 * (nb - 1)) / (nb + 0.1f);
     float x = 27;
     for (int i = 0; i < 5; i++) {
+        if (H->flat && i == 1) continue;   // (RECENTER: nothing to recenter on a screen)
         const int id = ID(K_FOOT, i); const float w = i == 0 ? unit * 1.1f : unit;
         hit(id, (int)x, (int)y, (int)w, (int)h); focusable(id, F_BUTTON, (int)(x + w / 2)); say_help(id, tips[i]);
         const bool hot = is_hover(id) || is_focus(id), gold = i == 0, danger = i == 4;
@@ -771,7 +797,30 @@ static void controls_row(float x, float *y, float w, const char *what, const cha
     para(UI_M17, x, *y + 42, w, 21, does, MUTED, 1);
     *y += 50;
 }
+static void controls_page_flat(void) {
+    const float w = 1060, h = 560; float x, y; modal_frame(w, h, &x, &y);
+    text(UI_B32, x + 32, y + 26 + 30, "CONTROLS", ACCENT);
+    const float lx = x + 32, rx = x + 600, lw = 530, rw = w - 600 - 32;
+    float ly = y + 96, ry = y + 96;
+    text(UI_B20, lx, ly, "MOUSE AND KEYS", ACCENT); ly += 12;
+    controls_row(lx, &ly, lw, "Mouse", "Aim (a light gun that is a mouse to Windows works the same)");
+    controls_row(lx, &ly, lw, "Left button", "Shoot. Off the picture: reload");
+    controls_row(lx, &ly, lw, "Right button", "Reload");
+    controls_row(lx, &ly, lw, "Space / Enter", "Coins and Start; skip a scene");
+    controls_row(lx, &ly, lw, "Esc", "This menu (the game pauses, not online)");
+    controls_row(lx, &ly, lw, "Alt+Enter / F11", "Full screen, or a window");
+    controls_row(lx, &ly, lw, "T", "Online, PUSH TO TALK: talk while held");
+    text(UI_B20, rx, ry, "IN THIS MENU", ACCENT); ry += 12;
+    controls_row(rx, &ry, rw, "Click", "Choose what the pointer is on");
+    controls_row(rx, &ry, rw, "Arrows, Enter, Esc", "Move, choose, back");
+    controls_row(rx, &ry, rw, "Tab", "The next tab (Shift: the one before)");
+    const float bw = 180;
+    if (button(ID(K_MBTN, 1), x + w - 32 - bw, y + h - 26 - 52, bw, 52, "CLOSE", UI_B22, 1, NULL)) modal = M_NONE;
+    focusable(ID(K_MBTN, 1), F_BUTTON, (int)(x + w - 32 - bw / 2));
+    next_row();
+}
 static void controls_page(void) {
+    if (H->flat) { controls_page_flat(); return; }
     const float w = 1060, h = 690; float x, y; modal_frame(w, h, &x, &y);
     text(UI_B32, x + 32, y + 26 + 30, "CONTROLS", ACCENT);
     const int gun = H->get(QOPT_HAND), gest = H->get(QOPT_GESTURE);
@@ -895,7 +944,10 @@ static void restore_base(void) {
 }
 static void layout(int which) {
     pass = which; nhits = 0; nfoci = 0; frow = 0;
-    snprintf(help, sizeof help, "%s", stick_mode ? "Stick: move and change \xC2\xB7 A: select \xC2\xB7 B: back \xC2\xB7 grips: tabs" : "Point at anything and pull the trigger.");
+    if (H->flat)
+        snprintf(help, sizeof help, "%s", stick_mode ? "Arrows: move and change \xC2\xB7 Enter: select \xC2\xB7 Esc: back \xC2\xB7 Tab: tabs" : "Point at anything and click.");
+    else
+        snprintf(help, sizeof help, "%s", stick_mode ? "Stick: move and change \xC2\xB7 A: select \xC2\xB7 B: back \xC2\xB7 grips: tabs" : "Point at anything and pull the trigger.");
     if (drawing()) restore_base();
     const bool m = modal != M_NONE;
     const int saved_click = ev_click, saved_adjust = ev_adjust, saved_drag = ev_drag;
@@ -909,9 +961,11 @@ static void layout(int which) {
         else settings(VIEW_ROWS, sizeof VIEW_ROWS / sizeof *VIEW_ROWS);
     }
     else if (tab == QMENU_TAB_COMFORT) settings(COMFORT_ROWS, sizeof COMFORT_ROWS / sizeof *COMFORT_ROWS);
+    else if (tab == QMENU_TAB_GRAPHICS && H->flat) settings(PICTURE_ROWS, sizeof PICTURE_ROWS / sizeof *PICTURE_ROWS);
     else if (tab == QMENU_TAB_GRAPHICS) settings(GRAPHICS_ROWS, sizeof GRAPHICS_ROWS / sizeof *GRAPHICS_ROWS);
     else if (tab == QMENU_TAB_SYSTEM) {
-        const int n = sizeof SYSTEM_ROWS / sizeof *SYSTEM_ROWS;
+        // (crash reports: the Quest's only, its last row)
+        const int n = sizeof SYSTEM_ROWS / sizeof *SYSTEM_ROWS - (H->flat ? 1 : 0);
         settings_in(SYSTEM_ROWS, n, n + 1);   // (its ROM button below them: a sixth slot)
         const float by = CY0 + row_step(n + 1) * n + 6;
         // the game's own ROM set: another one (a different revision, a fresh copy)
@@ -947,7 +1001,7 @@ static void move_focus(int dx, int dy) {
         if (best >= 0) focus = foci[best].id;
         return;
     }
-    if (f->kind == F_TABS) { tab = (tab + dx + QMENU_TAB_COUNT) % QMENU_TAB_COUNT; return; }
+    if (f->kind == F_TABS) { tab = next_tab(tab, dx); return; }
     if (f->kind == F_SEG || f->kind == F_SLIDER) { ev_adjust = focus; ev_adjust_dir = dx; return; }
     int best = -1;   // a button: its neighbour in the same row
     for (int i = 0; i < nfoci; i++) {
@@ -1024,7 +1078,8 @@ void qmenu_update(const QMenuHost *host, const QMenuInput *in) {
     int dx = axis_step(in->stick_x, in->stick_y, &stick_dx, in->now, &stick_next);
     int dy = axis_step(in->stick_y, in->stick_x, &stick_dy, in->now, &stick_next);
     if (dx || dy || in->select || in->tab) { if (!stick_mode && !find_focus(focus)) focus = modal ? ID(K_MBTN, 1) : ID(K_FOOT, 0); stick_mode = true; hover = 0; }
-    if (in->tab && !modal) { tab = (tab + in->tab + QMENU_TAB_COUNT) % QMENU_TAB_COUNT; if (KIND(focus) != K_FOOT) focus = ID(K_TABS, 0); }
+    if (!tab_shown(tab)) tab = next_tab(tab, 1);
+    if (in->tab && !modal) { tab = next_tab(tab, in->tab); if (KIND(focus) != K_FOOT) focus = ID(K_TABS, 0); }
     if (dy) move_focus(0, -dy);   // stick up = the row above
     else if (dx) move_focus(dx, 0);
     if (in->select && stick_mode) ev_click = focus;

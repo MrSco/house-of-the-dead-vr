@@ -3,6 +3,7 @@
 // iOS, macOS) share posix.c; the log is each OS's own (android/log.c). Windows comes with the flat build.
 #pragma once
 #include <stdarg.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -26,6 +27,8 @@ void plat_sleep_until_ns(uint64_t t);
 void plat_thread_background(void);
 typedef struct plat_thread plat_thread;
 plat_thread *plat_thread_start(int (*fn)(void *), void *data);   // NULL when it could not start
+// with a stack of its own size (the game thread: recompiled code nests deeply on the host stack)
+plat_thread *plat_thread_start_stack(int (*fn)(void *), void *data, size_t stack_bytes);
 int plat_thread_join(plat_thread *t);                             // fn's result; t is gone after
 
 // Locks and condition variables that can be defined statically (= PLAT_LOCK_INIT / PLAT_COND_INIT); not recursive.
@@ -72,6 +75,12 @@ int plat_mic_failed(void);         // 1 once the stream has failed: close it, op
 int plat_exists(const char *path);                                  // 1 when the path names a file or a folder
 int plat_file_info(const char *path, uint64_t *size, int64_t *mtime); // 0, or -1 when there is none
 int plat_mkdir(const char *path);                                   // 0, or -1 (also when it is there already)
+int plat_rmtree(const char *path);                                  // a folder and all in it; 0, or -1
+int plat_chdir(const char *path);                                   // 0, or -1
+int plat_writable(const char *path);                                // 1 when the file can be written
+
+// ---- the environment (the apps' env.txt switches)
+int plat_setenv(const char *name, const char *value);
 
 #ifdef __cplusplus
 }

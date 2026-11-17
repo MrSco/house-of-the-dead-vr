@@ -3,7 +3,12 @@
 #include <errno.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <dirent.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 void plat_log(int level, const char *fmt, ...) {
     va_list a;
@@ -49,17 +54,40 @@ int plat_file_info(const char *path, uint64_t *size, int64_t *mtime) {
 
 int plat_mkdir(const char *path) { return mkdir(path, 0775) ? -1 : 0; }
 
+int plat_rmtree(const char *path) {
+    DIR *d = opendir(path);
+    struct dirent *e;
+    while (d && (e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char q[1024];
+        snprintf(q, sizeof q, "%s/%s", path, e->d_name);
+        struct stat st;
+        if (!lstat(q, &st) && S_ISDIR(st.st_mode)) plat_rmtree(q); else unlink(q);
+    }
+    if (d) closedir(d);
+    return rmdir(path) ? -1 : 0;
+}
+int plat_chdir(const char *path) { return chdir(path) ? -1 : 0; }
+int plat_writable(const char *path) { return access(path, W_OK) == 0; }
+int plat_setenv(const char *name, const char *value) { return setenv(name, value, 1) ? -1 : 0; }
+
 // ---- threads and locks (pthreads)
 #include <stdlib.h>
 struct plat_thread { pthread_t t; int (*fn)(void *); void *data; int ret; };
 static void *thread_main(void *p) { plat_thread *t = p; t->ret = t->fn(t->data); return NULL; }
-plat_thread *plat_thread_start(int (*fn)(void *), void *data) {
+plat_thread *plat_thread_start_stack(int (*fn)(void *), void *data, size_t stack_bytes) {
     plat_thread *t = calloc(1, sizeof *t);
     if (!t) return NULL;
     t->fn = fn; t->data = data;
-    if (pthread_create(&t->t, NULL, thread_main, t)) { free(t); return NULL; }
+    pthread_attr_t at;
+    pthread_attr_init(&at);
+    if (stack_bytes) pthread_attr_setstacksize(&at, stack_bytes);
+    const int bad = pthread_create(&t->t, &at, thread_main, t);
+    pthread_attr_destroy(&at);
+    if (bad) { free(t); return NULL; }
     return t;
 }
+plat_thread *plat_thread_start(int (*fn)(void *), void *data) { return plat_thread_start_stack(fn, data, 0); }
 int plat_thread_join(plat_thread *t) {
     pthread_join(t->t, NULL);
     const int ret = t->ret;
