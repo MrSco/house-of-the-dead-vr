@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <utility>
+#include <vector>
 
 namespace snd {
 
@@ -31,10 +33,22 @@ public:
     bool finished() const { return count >= end_count; }
 
     // Run fn once `at` instructions have completed (at >= count).
-    void at(uint64_t when, std::function<void()> fn) {
-        events_.emplace(std::max(when, count), std::move(fn));
+    // tag: what the event is, for save states (its owner makes it again from the tag); 0: none
+    void at(uint64_t when, std::function<void()> fn, uint64_t tag = 0) {
+        events_.emplace(std::max(when, count), Event{std::move(fn), tag});
         next_count = std::min(next_count, events_.begin()->first);
     }
+    // Save states: the events waiting, as (count, tag) in the order they run (an untagged one: false). clear()
+    // before adding them back.
+    bool saved(std::vector<std::pair<uint64_t, uint64_t>> &out) const {
+        out.clear();
+        for (const auto &[when, e] : events_) {
+            if (!e.tag) return false;
+            out.emplace_back(when, e.tag);
+        }
+        return true;
+    }
+    void clear() { events_.clear(); next_count = UINT64_MAX; }
     // The interrupt line or mask changed: re-check at the next boundary.
     void poke() { next_count = std::min(next_count, count + 1); }
 
@@ -42,7 +56,7 @@ private:
     bool apply() {
         const uint32_t pc = c_.pc;
         while (!events_.empty() && events_.begin()->first <= count) {
-            auto fn = std::move(events_.begin()->second);
+            auto fn = std::move(events_.begin()->second.fn);
             events_.erase(events_.begin());
             fn();
         }
@@ -52,7 +66,11 @@ private:
     }
 
     Cpu68k &c_;
-    std::multimap<uint64_t, std::function<void()>> events_;
+    struct Event {
+        std::function<void()> fn;
+        uint64_t tag;
+    };
+    std::multimap<uint64_t, Event> events_;
 };
 
 } // namespace snd

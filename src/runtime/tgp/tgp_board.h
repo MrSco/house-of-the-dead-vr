@@ -20,6 +20,7 @@
 
 namespace rt {
 
+class State; // save states (runtime/board/state.h)
 namespace sharc { class adsp21062_device; }
 class SharcCopro;
 class TgpX4Copro;
@@ -30,6 +31,7 @@ public:
     // tables: copro_tgp_tables (0x40000 bytes); copro_data: 0x800000 bytes.
     TgpBoard(const std::vector<uint8_t> &tables, const std::vector<uint8_t> &copro_data);
     ~TgpBoard();
+    void state(State &s); // save states (Model 2C: the TGPx4's board only)
 #ifdef M2_FAST_TGP
     // The TGP holds pointers to in_ and out_: a copy would read the original's.
     TgpBoard(const TgpBoard &) = delete;

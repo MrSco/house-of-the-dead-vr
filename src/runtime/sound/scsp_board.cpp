@@ -31,13 +31,24 @@ void ScspBoard::send(const uint8_t *bytes, size_t n) {
     for (size_t i = 0; i < n; ++i) {
         const uint64_t at = std::max(line_free_, sched_.count) + kByteTime;
         line_free_ = at;
-        const uint8_t b = bytes[i];
-        sched_.at(at, [this, b] {
-            render_to(sched_.count);
-            scsp_.midi_in(b);
-            ++received_;
-        });
+        add_midi(at, bytes[i]);
     }
+}
+
+void ScspBoard::add_midi(uint64_t at, uint8_t b) {
+    sched_.at(at, [this, b] {
+        render_to(sched_.count);
+        scsp_.midi_in(b);
+        ++received_;
+    }, kEvMidi | b);
+}
+
+void ScspBoard::add_timer(uint64_t at, int n, uint32_t gen) {
+    sched_.at(at, [this, n, gen] {
+        if (timer_gen_[n] != gen) return; // restarted since
+        render_to(sched_.count);
+        scsp_.timer_expired(n);
+    }, kEvTimer | uint64_t(n) << 32 | gen);
 }
 
 void ScspBoard::advance(double seconds) {
@@ -150,11 +161,7 @@ void ScspBoard::scsp_irq(int level, bool assert) {
 void ScspBoard::scsp_timer(int n, double seconds) {
     const uint32_t gen = ++timer_gen_[n];
     const uint64_t at = sched_.count + std::max<uint64_t>(1, uint64_t(seconds * double(kIps) + 0.5));
-    sched_.at(at, [this, n, gen] {
-        if (timer_gen_[n] != gen) return; // restarted since
-        render_to(sched_.count);
-        scsp_.timer_expired(n);
-    });
+    add_timer(at, n, gen);
 }
 
 } // namespace snd

@@ -15,6 +15,8 @@
 #include <cstring>
 #include <stdexcept>
 
+namespace rt { class State; }
+
 namespace rt::tgpx4 {
 
 struct Fatal : std::runtime_error { using std::runtime_error::runtime_error; };
@@ -45,6 +47,7 @@ public:
     uint32_t pc() const { return m_core->pc; }
 
     void stall() { m_core->cur_fifo_state.has_stalled = true; }
+    void state(rt::State &s); // save states: the program, the RAMs, MAME's state
 
 private:
     // ---- MAME's device framework, shimmed

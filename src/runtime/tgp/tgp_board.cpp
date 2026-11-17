@@ -14,6 +14,7 @@
 #include <chrono>
 
 #include "games/game.h"
+#include "runtime/board/state.h"
 #include "runtime/sharc/sharc.h"
 #include "runtime/tgpx4/mb86235.h"
 
@@ -213,6 +214,29 @@ TgpBoard::TgpBoard(const std::vector<uint8_t> &tables, const std::vector<uint8_t
     for (auto &w : buffer_) w = 0x07800f0f;
 }
 
+
+namespace {
+[[maybe_unused]] std::vector<uint32_t> fifo_words(const std::deque<uint32_t> &f) { return {f.begin(), f.end()}; }
+#ifdef M2_FAST_TGP
+std::vector<uint32_t> fifo_words(const WordFifo &f) { return f.words(); }
+#endif
+} // namespace
+
+// Save states: Model 2C's (the TGPx4's FIFOs, buffer RAM and core); the TGP's and the SHARC's boards have none.
+void TgpBoard::state(State &s) {
+    if (!tgpx4_ || sharc_) throw State::Bad("save states: Model 2C boards only");
+    s.tag("TGPB");
+    std::vector<uint32_t> in, out;
+    if (!s.loading()) in = fifo_words(in_), out = fifo_words(out_);
+    s(in)(out)(upload_)(coproctl_)(geoctl_)(geo_write_start_)(geo_read_start_)(booted_)(upload_count_);
+    s(stop_on_output_)(sharc_starved_)(buffer_);
+    if (s.loading()) {
+        in_.clear(), out_.clear();
+        for (uint32_t v : in) in_.push_back(v);
+        for (uint32_t v : out) out_.push_back(v);
+    }
+    tgpx4_->core().state(s);
+}
 
 void TgpBoard::coproctl_w(uint32_t data, uint32_t mask) {
     if (tgpx4_ && (data ^ coproctl_) == 0x80000000) {

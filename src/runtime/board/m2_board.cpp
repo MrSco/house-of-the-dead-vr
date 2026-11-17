@@ -452,10 +452,7 @@ void M2Board::timer_schedule(unsigned n) {
     if (!t.run) return;
     const uint64_t due = t.start + t.orig, skip = std::min(due, tick_skip_);
     const uint64_t count = ((due - skip) * kInstrPerFrame + kTicksPerFrame - 1) / kTicksPerFrame;
-    t.expiry = ls_->add_callback(std::max(count, io_now() + 1), [this, n] {
-        timers_[n].expiry = kNoExpiry; // (its slot is free from here)
-        timer_expire(n);
-    });
+    add_call(std::max(count, io_now() + 1), kCallTimer + n);
 }
 
 void M2Board::timer_expire(unsigned n) { // model2_timer_cb
@@ -511,9 +508,9 @@ void M2Board::uart_write_data(uint8_t v) {
     if (!uart_shift_busy_) {
         uart_shift_busy_ = true;
 #ifdef M2_FAST_GEN
-        ls_->add_callback(ls_->now() + 1, [this] { uart_shift_done(); }); // (now(): Lockstep::pending)
+        add_call(ls_->now() + 1, kCallUart); // (now(): Lockstep::pending)
 #else
-        ls_->add_callback(ls_->count + 1, [this] { uart_shift_done(); });
+        add_call(ls_->count + 1, kCallUart);
 #endif
     }
 }

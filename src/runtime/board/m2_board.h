@@ -71,6 +71,7 @@ public:
     std::vector<uint8_t> drive_commands; // written to byte 0x11 (2A: port E) since last taken (at most kMaxDrive kept)
     static constexpr size_t kMaxDrive = 256;
     IoBoard() { ram_.fill(0); eeprom.fill(0xff); }
+    void state(State &s); // save states
 
 private:
     std::array<uint8_t, 0x800> ram_;
@@ -117,6 +118,13 @@ public:
 
     // The CPU and scheduler (free-run Lockstep) the board raises interrupts on.
     void attach(Cpu &cpu, Lockstep &ls);
+
+    // Save states (GameLoop::save_state): the board's memories and devices. Its Lockstep callbacks are tagged
+    // (kCall*): add_call schedules the one for a tag (as the board does; a load adds them back).
+    void state(State &s);
+    static constexpr uint32_t kCallProbe = 1, kCallTimer = 2 /* + n */, kCallUart = 6; // (kCallProbe: GameLoop's)
+    void add_call(uint64_t at, uint32_t tag);
+    const Images &images() const { return img_; }
 
     // Bus
     uint32_t fetch(uint32_t addr) override;

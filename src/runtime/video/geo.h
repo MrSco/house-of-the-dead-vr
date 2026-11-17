@@ -20,6 +20,8 @@
 
 namespace rt {
 
+class State; // save states (runtime/board/state.h)
+
 struct GeoFatal : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
@@ -130,6 +132,7 @@ public:
     // MAME screen_vblank -> geo_parse: walk this frame's display list from
     // read_start (the geometrizer's read-start register).
     void parse(uint32_t read_start);
+    void state(State &s); // save states: the geometrizer's state and this frame's polygons
 
     // This frame's output.
     std::vector<GeoPoly> polys;       // kept polygons, in the order added

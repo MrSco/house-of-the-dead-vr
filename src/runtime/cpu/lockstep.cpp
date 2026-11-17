@@ -1,5 +1,6 @@
 #include "runtime/cpu/lockstep.h"
 #include "runtime/cpu/i960_profile.h"
+#include "runtime/board/state.h"
 
 #include <cinttypes>
 #include <cstdio>
@@ -124,10 +125,11 @@ bool Lockstep::apply() {
     return core_.m_IP != ip_before;
 }
 
-size_t Lockstep::add_callback(uint64_t at, std::function<void()> fn) {
+size_t Lockstep::add_callback(uint64_t at, std::function<void()> fn, uint32_t tag) {
     Event e{};
     e.kind = Event::Call;
     e.count = at;
+    e.tag = tag;
     if (!free_calls_.empty()) {
         e.fn = free_calls_.back();
         free_calls_.pop_back();
@@ -157,6 +159,43 @@ void Lockstep::cancel_callback(size_t handle) {
         }
         return;
     }
+}
+
+void Lockstep::state(State &s, std::vector<Saved> &calls) {
+    if (!free_run_) throw State::Bad("save states: free run only");
+    s.tag("LSTP");
+    uint32_t pend = 0, ep = 0;
+#ifdef M2_FAST_GEN
+    pend = pending, ep = epoch;
+#endif
+    s(count)(pend)(ep)(poked_)(taken_)(deferred_);
+#ifdef M2_FAST_GEN
+    pending = pend, epoch = ep;
+#endif
+    uint64_t n = 0;
+    if (!s.loading()) {
+        calls.clear();
+        for (size_t i = next_; i < log_.size(); i++) {
+            const Event &e = log_[i];
+            if (e.kind != Event::Call || !e.tag) throw State::Bad("save states: a scheduled event without a tag");
+            calls.push_back({e.count, e.tag});
+        }
+        n = calls.size();
+    }
+    s(n);
+    if (s.loading()) {
+        if (n > 4096) throw State::Bad("save states: too many scheduled events");
+        calls.resize(size_t(n));
+        log_.clear(), calls_.clear(), free_calls_.clear();
+        next_ = 0;
+    }
+    for (Saved &c : calls) s(c.count)(c.tag);
+}
+
+void Lockstep::settle() {
+    end_count = count; // (as a frame ends: the next run_frame moves it on)
+    refresh_next();
+    if (poked_) next_count = std::min(next_count, count);
 }
 
 void Lockstep::on_take(void *ctx, int vector, uint32_t ip, bool pending) {

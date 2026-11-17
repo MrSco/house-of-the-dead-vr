@@ -22,6 +22,8 @@
 
 namespace rt {
 
+class State; // save states (runtime/board/state.h)
+
 // Memory as the i960 sees it. Byte addresses, little-endian.
 class Bus {
 public:
@@ -74,6 +76,7 @@ public:
     void reset();                               // MAME device_reset
     void execute_set_input(int irqline, int state);
     void check_immediate_irqs();                // take an immediate interrupt if one is waiting
+    void state(State &s);                       // save states: the architectural state below
 
     // Architectural state (MAME's names, so the transplanted code is unchanged).
     Bus *bus;

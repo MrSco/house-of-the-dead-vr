@@ -48,6 +48,7 @@ public:
     uint64_t instructions() const override { return sched_.count; }
     size_t bytes_received() const override { return received_; }
     // The music and effects volumes: only with the driver's voice table.
+    void state(rt::State &s) override;
     void set_volumes(float music, float effects) override {
         if (voices_) scsp_.set_volumes(music, effects);
     }
@@ -64,6 +65,10 @@ public:
 
 private:
     void run_to(uint64_t count);
+    // The 68000 schedule's two events (tagged for save states): a byte off the serial line, an SCSP timer's expiry.
+    void add_midi(uint64_t at, uint8_t b);
+    void add_timer(uint64_t at, int n, uint32_t gen);
+    static constexpr uint64_t kEvMidi = uint64_t(1) << 40, kEvTimer = uint64_t(2) << 40;
     void render_to(uint64_t count);
 
     std::vector<uint8_t> program_, samples_;

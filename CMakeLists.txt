@@ -106,6 +106,8 @@ add_library(runtime STATIC
     src/runtime/video/video.cpp
     src/runtime/board/m2_board.cpp
     src/runtime/board/game_loop.cpp
+    src/runtime/board/save_state.cpp
+    src/runtime/board/state_pack.cpp
     src/runtime/romset/zip.cpp
     src/runtime/romset/rom_import.cpp
     src/runtime/romset/archive.cpp
@@ -181,9 +183,11 @@ if(EXISTS ${LZMA_DIR}/7zArcIn.c)
         ${LZMA_DIR}/7zArcIn.c ${LZMA_DIR}/7zDec.c ${LZMA_DIR}/7zBuf.c ${LZMA_DIR}/7zCrc.c ${LZMA_DIR}/7zCrcOpt.c
         ${LZMA_DIR}/7zStream.c ${LZMA_DIR}/7zAlloc.c ${LZMA_DIR}/Alloc.c ${LZMA_DIR}/LzmaDec.c ${LZMA_DIR}/Lzma2Dec.c
         ${LZMA_DIR}/Bra.c ${LZMA_DIR}/Bra86.c ${LZMA_DIR}/BraIA64.c ${LZMA_DIR}/Bcj2.c ${LZMA_DIR}/Delta.c
-        ${LZMA_DIR}/CpuArch.c ${LZMA_DIR}/Ppmd7.c ${LZMA_DIR}/Ppmd7Dec.c)
+        ${LZMA_DIR}/CpuArch.c ${LZMA_DIR}/Ppmd7.c ${LZMA_DIR}/Ppmd7Dec.c
+        # and the LZMA encoder (single-threaded): online play's save states (runtime/board/state_pack.cpp)
+        ${LZMA_DIR}/LzmaEnc.c ${LZMA_DIR}/LzFind.c ${LZMA_DIR}/LzFindOpt.c)
     target_include_directories(lzma7z SYSTEM PUBLIC ${LZMA_DIR})
-    target_compile_definitions(lzma7z PRIVATE Z7_PPMD_SUPPORT) # 7z's PPMd method too, not only LZMA/LZMA2
+    target_compile_definitions(lzma7z PRIVATE Z7_PPMD_SUPPORT Z7_ST) # 7z's PPMd method too, not only LZMA/LZMA2
     if(NOT MSVC)
         target_compile_options(lzma7z PRIVATE -w)
     endif()
@@ -341,6 +345,9 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     # The apps' online play (src/core/arcade_net.cpp) without a network: host and guest runs, checksums.
     add_executable(m2nettest tools/m2nettest/main.cpp src/core/arcade_net.cpp $<TARGET_OBJECTS:game_gen>)
     target_link_libraries(m2nettest PRIVATE runtime)
+    # save states (online play's drop-in) checked: a loaded game against the one that saved
+    add_executable(m2statetest tools/m2statetest/main.cpp $<TARGET_OBJECTS:game_gen>)
+    target_link_libraries(m2statetest PRIVATE runtime)
     # A desktop player 2 joining the Quest app's online game over the network: src/net (online.c and the NMN2
     # client / built-in host) with arcade_net, as in the app. Windows (ws2_32); the SDL2 headers build_quest.py fetches.
     set(M2_NET_SRC ${CMAKE_SOURCE_DIR}/src/net)

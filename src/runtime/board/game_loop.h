@@ -14,6 +14,7 @@
 #include "runtime/cpu/i960_gen_support.h"
 #include "runtime/cpu/lockstep.h"
 #include "runtime/board/m2_board.h"
+#include "runtime/board/state_pack.h"
 #include "runtime/sound/sound_board.h"
 
 #include <mutex>
@@ -133,6 +134,18 @@ public:
         return width > kWidth ? (width - kWidth) / 2 : 0;
     }
     M2Board &board() { return *board_; }
+    // Save states (online play's drop-in: the joiner loads the host's game instead of running every frame since its
+    // start). Between frames, with no sound frame pending (run_frame, or a packet executed). The bytes are the same
+    // on every platform. A state of another game or build is refused (State::Bad) before anything is loaded, as far
+    // as its header and checksum tell; a load that fails past them leaves this game unusable.
+    void save_state(std::vector<uint8_t> &out);
+    void load_state(const uint8_t *data, size_t n);
+    // The ROM images a packed state refers to (state_pack.h): those its memories are copied from.
+    std::vector<PackDict> state_dicts() const {
+        const M2Board::Images &i = board_->images();
+        return {{i.main_data.data(), i.main_data.size()}, {i.samples.data(), i.samples.size()},
+                {i.program.data(), i.program.size()}, {i.sound_program.data(), i.sound_program.size()}};
+    }
     snd::Board *sound() { return sound_.get(); } // null without the sound ROMs
     static constexpr double kFrameHz = 16000000.0 / (656.0 * 424.0); // the board's video timing
     uint64_t frames() const { return frames_; }
@@ -141,6 +154,7 @@ public:
 
 private:
     void probe();
+    void state(State &s); // save_state / load_state: the parts
     void run_generated(); // gen::run (timed with M2_I960_PROFILE)
     FrameProfiler profiler_;
     std::unique_ptr<M2Board> board_;

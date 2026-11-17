@@ -22,8 +22,12 @@
 
 namespace rt {
 
+class State; // save states (runtime/board/state.h)
+
 class Video {
 public:
+    // Save states: the registers and pens; loading has every cache made again (the tiles, the GPU's copies).
+    void state(State &s);
     // tile_ram: 0x01000000 (0x10000 bytes, u16 entries); char_ram: 0x01080000
     // (0x80000 bytes, u16 entries); both as the i960 wrote them.
     Video(const uint8_t *tile_ram, const uint8_t *char_ram);

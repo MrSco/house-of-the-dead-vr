@@ -20,6 +20,12 @@ public:
         if (tail_ - head_ == buf_.size()) grow();
         buf_[tail_++ & mask_] = v;
     }
+    // (save states) the words, first to last
+    std::vector<uint32_t> words() const {
+        std::vector<uint32_t> w;
+        for (uint32_t i = head_; i != tail_; ++i) w.push_back(buf_[i & mask_]);
+        return w;
+    }
 
 private:
     void grow() {

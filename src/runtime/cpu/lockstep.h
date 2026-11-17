@@ -15,6 +15,8 @@
 
 namespace rt {
 
+class State; // save states (runtime/board/state.h)
+
 class Lockstep {
 public:
     // Loads MAME's IRQ log (M2TRACE_IRQLOG) and hooks the core's take callback.
@@ -56,8 +58,17 @@ public:
     // before it raises the vblank line). Lockstep: call before the run
     // starts. Free run: callbacks may add further callbacks. Returns a
     // handle for cancel_callback, valid until the callback runs (its slot is
-    // then reused).
-    size_t add_callback(uint64_t at, std::function<void()> fn);
+    // then reused). tag: what the callback is, for save states (the owner
+    // makes it again from the tag); 0: none (no state is saved while one waits).
+    size_t add_callback(uint64_t at, std::function<void()> fn, uint32_t tag = 0);
+    // Save states (free run, between frames): the counts and the callbacks
+    // waiting, as (count, tag) in the order they run. Loading clears every
+    // callback: the owner adds them back from `calls` (add_callback, last
+    // first: one added at a count goes before those already there), then
+    // calls settle().
+    struct Saved { uint64_t count; uint32_t tag; };
+    void state(State &s, std::vector<Saved> &calls);
+    void settle();
     // Take out a callback that has not run yet. A rescheduled event must
     // cancel its old callback: one left behind stays in the log until the
     // count reaches it, and every add_callback scans and shifts past it.
@@ -91,6 +102,7 @@ private:
         int a = 0, b = 0;
         uint32_t ip = 0;
         size_t fn = 0; // Call: index into calls_
+        uint32_t tag = 0; // Call: add_callback's tag
     };
     std::vector<std::function<void()>> calls_;
     bool apply();

@@ -17,6 +17,8 @@
 #include <bit>
 #include <cstdint>
 
+namespace rt { class State; }
+
 namespace snd {
 
 class ScspHost {
@@ -172,6 +174,7 @@ public:
     // stream's values as MAME puts them (-1..1), times the master volume
     // (MAME's output gain MVOL / 15).
     void render(float *stereo, int n);
+    void state(rt::State &s); // save states (the volumes stay this player's)
 
 private:
     enum SCSP_STATE { SCSP_ATTACK, SCSP_DECAY1, SCSP_DECAY2, SCSP_RELEASE };

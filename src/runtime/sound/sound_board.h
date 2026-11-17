@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <vector>
 
+namespace rt { class State; }
+
 namespace snd {
 
 class Board {
@@ -33,6 +35,8 @@ public:
     virtual size_t bytes_received() const = 0;
     // The launcher's music and effects volumes (0..1; both 1: unchanged).
     virtual void set_volumes(float, float) {}
+    // Save states (between frames); a board without them throws.
+    virtual void state(rt::State &s);
 };
 
 // The two output rates of the board the game this build is for has (the

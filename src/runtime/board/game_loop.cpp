@@ -68,7 +68,7 @@ GameLoop::GameLoop(M2Board::Images img, bool sound_enabled) {
     board_->attach(*cpu_, *ls_);
     cpu_->reset();
     env_ = std::make_unique<gen::Env>(gen::Env{*cpu_, *ls_});
-    ls_->add_callback(kProbe, [this] { probe(); });
+    ls_->add_callback(kProbe, [this] { probe(); }, M2Board::kCallProbe);
 }
 
 namespace {
@@ -123,7 +123,7 @@ void GameLoop::probe() {
             vblank_start_ = ls_->count;
         }
     }
-    ls_->add_callback(ls_->count + kProbe, [this] { probe(); });
+    ls_->add_callback(ls_->count + kProbe, [this] { probe(); }, M2Board::kCallProbe);
 }
 
 void GameLoop::run_frame(const Inputs &inputs) {
