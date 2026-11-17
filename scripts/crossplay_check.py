@@ -7,11 +7,11 @@ flag or runtime change.
 
   python scripts/crossplay_check.py [--frames 1800] [--skip-build]
 
-Both ways between this PC (Windows x64) and the Quest over adb (arm64): the PC hosts and the Quest replays, then the
+Both ways between this PC (Windows x64, MSVC as HOTDVR.exe) and the Quest over adb (arm64): the PC hosts and the Quest replays, then the
 Quest hosts and the PC replays. Needs:
   - the Quest build configured: python scripts/build_quest.py --apk-only (its CMake folder builds m2nettest too);
-  - the PC build configured in build_houseofthedead/pc/hotd (python scripts/setup.py, or CMake with -DM2_GAME=houseofthedead
-    -DM2_ROMSET=hotd -DM2_GEN_ROOT=<the generated code>);
+  - the Windows app's build configured: python scripts/build_windows.py (its folder builds m2nettest with the same
+    compiler and flags as HOTDVR.exe);
   - the ROM set's images: the PC's from the recompile (--pc-images), the headset's where the app keeps them.
 ANDROID_SERIAL picks the headset when more than one device is attached.
 """
@@ -24,10 +24,11 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_quest  # noqa: E402
+import build_windows  # noqa: E402
 import quest_tools as port  # noqa: E402
 
 ANDROID_BUILD = os.path.join(ROOT, 'build_houseofthedead', 'android', build_quest.SET)
-PC_BUILD = os.path.join(ROOT, 'build_houseofthedead', 'pc', build_quest.SET)
+PC_BUILD = build_windows.BDIR
 PC_IMAGES = os.path.join(ROOT, 'build_houseofthedead', 'recomp', build_quest.SET, 'rom_cache')
 QUEST_IMAGES = '/sdcard/Android/data/%s/files/arcade/images' % build_quest.PKG
 QUEST_DIR = '/data/local/tmp/m2det'
@@ -67,10 +68,10 @@ def main():
     adb = port.find_android()['adb'] or shutil.which('adb')
     if not adb: sys.exit('crossplay_check: no adb')
     if not os.path.isdir(ANDROID_BUILD): sys.exit('crossplay_check: run python scripts/build_quest.py --apk-only first')
-    if not os.path.isdir(PC_BUILD): sys.exit('crossplay_check: no PC build in %s' % PC_BUILD)
+    if not os.path.isdir(PC_BUILD): sys.exit('crossplay_check: run python scripts/build_windows.py first')
     if not a.skip_build:
         cmake_build(ANDROID_BUILD)
-        cmake_build(PC_BUILD, ['--config', 'Release'])
+        subprocess.check_call(['cmake', '--build', PC_BUILD, '--target', 'm2nettest'], env=build_windows.vs_env())
     exe = pc_exe()
     os.makedirs(OUT, exist_ok=True)
     env = dict(os.environ, MSYS_NO_PATHCONV='1')
