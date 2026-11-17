@@ -180,9 +180,33 @@ atomics) and `HOTDVR-<version>-windows.zip`.
   Khronos OpenXR loader (not Meta's), OpenXR 1.0, the graphics requirements asked before the session, every Meta
   extension optional, Touch controllers bound. Built, untested: no Frame at hand.
 
+**P3, iPhone / iPad and the Mac (2026-11-16): done but for devices.** Built on the Mac (`rjuliano-mac`, Xcode 27.2,
+ANGLE in `~/angle` as GoldenEye VR's): `python scripts/apple_sync.py [--images]` on the PC sends the checkout, the
+generated code and the fetched libraries over ssh; `python3 scripts/build_apple.py simulator|device|mac [--app]
+[--ipa]` builds there.
+- `src/platform/apple/apple.m`: platform.h's log (the unified log and stderr), sound out and the microphone through
+  CoreAudio (RemoteIO; the Mac's microphone is not done yet: the Mac app hears voice chat but sends none), the iOS
+  microphone permission. `posix.c` does the rest. GL ES 3 is ANGLE's on Metal.
+- **iOS** (`src/flat/ios`): a UIKit app (a scene, a CAMetalLayer view, EGL from ANGLE), touch as on Android
+  (`flat_touch.c`), pads through GameController, Documents as the files folder (the Files app shows it), the ROM set
+  from the document picker. It cannot restart itself: online play's restart and a new ROM set say "open the app
+  again" and close. `cmake/flat_apple.cmake` makes static libraries, merged into one; `src/flat/ios/project.yml`
+  (xcodegen) is the app around them; `--ipa` packs an unsigned IPA for SideStore.
+  Checked in the iOS 27 Simulator (iPhone 17): the game at 2622 x 1206, START taps give coins and start a game, the
+  menu opens and closes; it hosted a LAN game after its "open the app again" restart and HOTDVR.exe joined and
+  played: 100 of 100 checksums over 6,000 frames (and later joined it late, at frame 55,200: 920 of 920).
+- **Mac** (`src/flat/mac`, `House of the Dead VR.app`): an AppKit window on a CAMetalLayer, ANGLE's dylibs in the
+  bundle, the mouse as the gun, keys as on Windows, pads, Application Support as the files folder, an Open panel for
+  the ROM set; online play's restart opens a new copy of the app. Checked on the M4 Pro Mac: the game draws (a
+  timer drives the frames: a view's display link stops while the screen sleeps), and it hosted a LAN game that
+  HOTDVR.exe joined and played: 60 of 60.
+- Apple clang computes the same game: `m2nettest` built on the Mac replayed the PC's and the Quest's runs (30 of 30
+  each), and the PC the Mac's (30 of 30).
+
 **Left for a player (the end check):** on the headset, a stage and an online game with this build; on Windows, the
 mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM dialog, and voice with real speech;
-a real phone (touch, a pad, the ROM picker, voice); a Steam Frame.
+a real phone (touch, a pad, the ROM picker, voice); a Steam Frame; an iPhone or iPad (a signed build, touch, voice);
+the Mac app by hand.
 
 **Left, later:**
 - Crash reports on Windows (WinHTTP; the SYSTEM tab hides the row on flat builds until then).
@@ -193,6 +217,8 @@ a real phone (touch, a pad, the ROM picker, voice); a Steam Frame.
 - Phones: gyro aim; the navigation bar (the theme hides the status bar; immersive mode needs the UI thread); a
   32-bit (armeabi-v7a) build for phones without a 64-bit userspace, if wanted; LAN discovery (the Quest takes a
   Wi-Fi multicast lock through JNI; the phone does not yet: joining by IP and by room code work).
+- Apple: the Mac's microphone (AVAudioEngine's input or the HAL unit); an app icon for both; CI for the IPA (as
+  GoldenEye VR's plan: a macOS runner with ANGLE's xcframeworks from a release asset); gyro aim on iOS.
 
 ## Risks
 

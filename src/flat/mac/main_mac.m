@@ -1,5 +1,5 @@
 // The flat app's macOS front end (House of the Dead VR.app): a window whose view is a CAMetalLayer, drawn through
-// ANGLE's OpenGL ES 3 on Metal a frame each display refresh. The mouse is the gun (light guns are mice), Space or
+// ANGLE's OpenGL ES 3 on Metal, a frame each display refresh. The mouse is the gun (light guns are mice), Space or
 // Return give coins and Start, Esc opens the menu, Ctrl+Cmd+F or F11 full screen, T talks (push to talk); game pads
 // through GameController as on iOS. The files folder is ~/Library/Application Support/House of the Dead VR (arcade/
 // holds the ROM set, chosen in an Open panel at the first start). Online play's restart opens the app again.
@@ -44,7 +44,7 @@ static struct {
 @interface HotdMacApp : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @property (nonatomic, strong) NSWindow *window;
 @property (nonatomic, strong) HotdMacView *view;
-@property (nonatomic, strong) CADisplayLink *link;
+@property (nonatomic, strong) NSTimer *timer;
 @end
 static HotdMacApp *the_app;
 
@@ -271,8 +271,11 @@ static void pad_frame(double dt) {
     layer.drawableSize = CGSizeMake(self.view.bounds.size.width * layer.contentsScale, self.view.bounds.size.height * layer.contentsScale);
     if (!egl_init(layer) || !flat_gl_init()) { [NSApp terminate:nil]; return; }
     if (flat_opt_get(QOPT_FULLSCREEN)) [self.window toggleFullScreen:nil];
-    self.link = [self.view displayLinkWithTarget:self selector:@selector(frame)];
-    [self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    // a frame each display refresh (the swap waits for it); a timer, not the view's display link, which stops while
+    // the screen sleeps or is locked (and with it the game's own clockwork: quitting, the menu's timers)
+    const double hz = self.window.screen.maximumFramesPerSecond > 0 ? (double)self.window.screen.maximumFramesPerSecond : 60.0;
+    self.timer = [NSTimer timerWithTimeInterval:1.0 / hz target:self selector:@selector(frame) userInfo:nil repeats:YES];
+    [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
 }
 - (void)frame {
     if (A.quit || A.restart || flat_app_restart_requested()) { [self finish]; return; }
@@ -290,12 +293,13 @@ static void pad_frame(double dt) {
     eglSwapBuffers(A.dpy, A.surf);
 }
 - (void)finish {
-    [self.link invalidate];
+    [self.timer invalidate];
     const int again = A.restart || flat_app_restart_requested();
     flat_app_quit();
     if (again) {   // online play begins (or ends), a new ROM set: the app again, a new copy of it
         NSWorkspaceOpenConfiguration *c = [NSWorkspaceOpenConfiguration configuration];
         c.createsNewApplicationInstance = YES;
+        c.environment = NSProcessInfo.processInfo.environment;   // (HOTD_FILES, tests)
         [NSWorkspace.sharedWorkspace openApplicationAtURL:NSBundle.mainBundle.bundleURL configuration:c
                                         completionHandler:^(NSRunningApplication *r, NSError *e) { (void)r; (void)e; exit(0); }];
         return;

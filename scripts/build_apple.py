@@ -2,6 +2,7 @@
 """The game on iPhone and iPad, flat (docs/platforms.md, P3), built on the Mac.
 
   python3 scripts/build_apple.py simulator|device [--app] [--ipa]
+  python3 scripts/build_apple.py mac              (House of the Dead VR.app, in build_houseofthedead/mac/hotd/)
 
 From the PC: python scripts/apple_sync.py first (the sources, the generated code and the libraries this needs), then
 this over ssh. CMake builds every part into static libraries (cmake/flat_apple.cmake: the game, the flat shell with
@@ -30,16 +31,24 @@ def run(cmd, **kw):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('slice', choices=('simulator', 'device'))
+    ap.add_argument('slice', choices=('simulator', 'device', 'mac'))
     ap.add_argument('--app', action='store_true', help='make the Xcode project and build the app')
     ap.add_argument('--ipa', action='store_true', help='an unsigned IPA of the device app')
     a = ap.parse_args()
     env = dict(os.environ)
     env['PATH'] = '/opt/homebrew/bin:/usr/local/bin:' + env.get('PATH', '')
     angle = env.setdefault('ANGLE_DIR', os.path.expanduser('~/angle'))
-    if not os.path.isdir(os.path.join(angle, 'xcframeworks')): sys.exit('build_apple: no ANGLE in %s' % angle)
+    if not os.path.isdir(os.path.join(angle, 'xcframeworks' if a.slice != 'mac' else 'out/mac')): sys.exit('build_apple: no ANGLE in %s' % angle)
     gen = os.path.join(ROOT, 'build_houseofthedead', 'recomp', SET, 'gen')
     if not os.path.isdir(gen): sys.exit('build_apple: no generated code (python scripts/apple_sync.py, from the PC)')
+    if a.slice == 'mac':   # the Mac app: CMake makes the bundle itself
+        bdir = os.path.join(ROOT, 'build_houseofthedead', 'mac', SET)   # (m2nettest's too: the game compiled once)
+        run(['cmake', '-S', ROOT, '-B', bdir, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_OSX_ARCHITECTURES=arm64',
+             '-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0', '-DM2_ROMSET=' + SET, '-DM2_GAME=houseofthedead', '-DM2_SPIN_SKIP=ON',
+             '-DM2_GEN_ROOT=' + gen, '-DANGLE_DIR=' + angle], env=env)
+        run(['cmake', '--build', bdir, '--target', 'hotdvr_mac'], env=env)
+        print('[apple] app: %s' % os.path.join(bdir, 'House of the Dead VR.app'))
+        return
     libs = os.path.join(ROOT, 'build_ios')
     bdir = os.path.join(libs, a.slice)
     sysroot = 'iphonesimulator' if a.slice == 'simulator' else 'iphoneos'
