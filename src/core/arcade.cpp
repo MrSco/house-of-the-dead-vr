@@ -117,7 +117,21 @@ void publish_face(const std::vector<uint32_t> &face, bool any) {
 
 inline uint16_t le16(const uint8_t *base, uint32_t index) { return uint16_t(base[index * 2] | base[index * 2 + 1] << 8); }
 
+// The rasterizer's gamma (MAME video_start: (i - 64) * 255 / 191, everything under 64 black) with the black level
+// Brightness raises, as a cabinet's monitor was turned up (0%: MAME's; 100%: nothing crushed). Only the picture
+// (the scenes the shells draw), never the game's state: crossplay is the same. The shells set arcade_brightness
+// (m2_gl_brightness); the game thread rebuilds the table when it changes.
 uint8_t gamma_lut[256];
+extern "C" { volatile int arcade_brightness = 50; }
+int gamma_for = -1;
+void update_gamma() {
+    const int p = std::clamp(int(arcade_brightness), 0, 100);
+    if (p == gamma_for) return;
+    gamma_for = p;
+    const double black = 64.0 * (1.0 - p / 100.0);
+    for (int i = 0; i < 256; i++)
+        gamma_lut[i] = uint8_t(std::lround(std::max((double(i) - black) * 255.0 / (255.0 - black), 0.0)));
+}
 
 // The draw order's step out along the view ray (build), and the screen's effects: the shots' bursts, sparks and
 // blood sprays are translucent polygons the arcade puts within kEffectZ (game units) of its camera, where it means
@@ -964,8 +978,7 @@ extern "C" const M2Scene *m2_vr_scene(void) {
 // argv: hotdvr GAME_DIR SAVE_DIR (quest_xr.c game_main)
 extern "C" int SDL_main(int argc, char **argv) {
     const std::string game_dir = argc > 1 ? argv[1] : ".", save_dir = argc > 2 ? argv[2] : ".";
-    for (int i = 0; i < 256; i++) // the rasterizer's gamma (MAME video_start)
-        gamma_lut[i] = uint8_t(std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0));
+    update_gamma();
     std::unique_ptr<rt::GameLoop> game;
     // a message in place of the game until the app is closed (returning would end the app at once)
     auto stay_on = [](const std::string &msg) {
@@ -1085,6 +1098,7 @@ extern "C" int SDL_main(int argc, char **argv) {
         const uint64_t t_scene = now_ns();
         const int behind = arcade_net::catching_up(); // a guest with frames to catch up on: 2 many (don't draw)
         const rt::Video &video = game->board().video();
+        update_gamma();   // (Brightness changed in the menu)
         if (behind < 2) {
             publish(video);
             bool face_any = false;

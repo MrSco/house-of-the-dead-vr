@@ -42,7 +42,7 @@ const QOptDef qopt_defs[QOPT_COUNT] = {
     [QOPT_FULLSCREEN] = { "flat_fullscreen", 0, 1, 0 },
     [QOPT_GYRO] = { "flat_gyro", 0, 1, 0 },
     [QOPT_GYRO_SPEED] = { "flat_gyro_speed_pct", 25, 300, 100 },
-    [QOPT_BRIGHTNESS] = { "brightness_pct", 0, 100, 30 },   // (0: as the arcade drew it)
+    [QOPT_BRIGHTNESS] = { "brightness_pct", 0, 100, 50 },   // (0: as the arcade drew it)
 };
 
 void qoptions_defaults(int *v) {

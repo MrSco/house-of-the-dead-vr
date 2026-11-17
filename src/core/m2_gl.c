@@ -517,11 +517,14 @@ void m2_gl_draw_backdrop(const float *mvp) {
 
 // The projection's near plane (game units) for the next draws: a 24-bit depth buffer's step at distance d is about
 // d * d / (near * 2^24); the draw order's step (arcade_quest.cpp kRankStep, 2.5e-5 of d) is kept at 3 of them.
-// Brightness: 0% as drawn (a power of 1), 100% a power of 1/1.8 (a shadow at 10% shows at 28%)
+// Brightness: the arcade's black level raised (arcade.cpp's gamma table: 0% MAME's, everything under a quarter
+// black; 100% nothing crushed), and a gentle power on top (100%: 1/1.4)
 void m2_gl_brightness(int percent) {
+    extern volatile int arcade_brightness;
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
-    M.lift = 1.0f / (1.0f + 0.8f * (float)percent / 100.0f);
+    arcade_brightness = percent;
+    M.lift = 1.0f / (1.0f + 0.4f * (float)percent / 100.0f);
 }
 void m2_gl_near(float near_game_units) {
     if (near_game_units < 1e-4f) near_game_units = 1e-4f;
