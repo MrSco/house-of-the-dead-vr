@@ -89,7 +89,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             POINT p;
             GetCursorPos(&p);
             ScreenToClient(h, &p);
-            SetCursor(flat_pointer_in_view(p.x, p.y) && !flat_menu_is_open() ? NULL : LoadCursorW(NULL, (LPCWSTR)IDC_ARROW));
+            // (hidden over the picture where the game's own sight shows instead: Crosshair ON)
+            const int hide = flat_pointer_in_view(p.x, p.y) && !flat_menu_is_open() && flat_opt_get(QOPT_CROSSHAIR);
+            SetCursor(hide ? NULL : LoadCursorW(NULL, (LPCWSTR)IDC_ARROW));
             return TRUE;
         }
         break;

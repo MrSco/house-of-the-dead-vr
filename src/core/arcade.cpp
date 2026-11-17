@@ -58,7 +58,9 @@ extern "C" {
 
 // ---- what the VR side (quest_xr.c, host_sdl.c) shares with its game
 extern "C" {
-int port_draw_crosshairs = 0;          // the game's own crosshairs on its 2D layer (the cabinet, or online: the partner's)
+// the game's own crosshairs on its 2D layer: 0 none; 1 the cabinet's (alone: your own; online: the partner's, your own
+// gun has a laser); 2 your own and, online, the partner's too (the flat apps: a mouse has nothing else to show it)
+int port_draw_crosshairs = 0;
 volatile int arcade_view_cabinet = 0; // quest_xr.c: the cabinet view (its picture is the arcade's: no face layer)
 volatile int arcade_screen_scene = 0; // a scene to show on a screen, not round you (build: the game-over scene)
 float port_music_gain = 1.0f, port_sfx_gain = 1.0f;
@@ -812,9 +814,18 @@ void draw_crosshairs(std::vector<uint16_t> &px, const rt::Inputs &in) {
     if (!port_draw_crosshairs) return;
     const int me = online ? arcade_net::local_slot() : 0;
     for (int p = 0; p < 2; p++) {
-        if (online ? p == me : p != me) continue; // online: the partner's; alone (the cabinet): your own
+        if (p == me && online && port_draw_crosshairs < 2) continue;   // online, the cabinet's: only the partner's
+        if (p != me && !online) continue;                               // alone: your own
+        const uint16_t colour = p ? 0x237f : 0xf8a3;
+        if (p == me && online) {   // your own, online: where you aim now (the inputs come back a round trip late)
+            if (ctl.mx < 0 || ctl.my < 0 || ctl.mx >= rt::Video::W || ctl.my >= rt::Video::H) continue;
+            const rt::GunRange &gun = rt::game().gun;
+            draw_crosshair(px, uint16_t(gun.x_min + 1 + ctl.mx * (gun.x_max - gun.x_min - 2) / rt::Video::W),
+                           uint16_t(gun.y_min + 1 + ctl.my * (gun.y_max - gun.y_min - 2) / rt::Video::H), colour);
+            continue;
+        }
         if (p == 1 && !in.gun2_x) continue;       // no player 2's gun
-        draw_crosshair(px, p ? in.gun2_x : in.gun_x, p ? in.gun2_y : in.gun_y, p ? 0x237f : 0xf8a3);
+        draw_crosshair(px, p ? in.gun2_x : in.gun_x, p ? in.gun2_y : in.gun_y, colour);
     }
 }
 

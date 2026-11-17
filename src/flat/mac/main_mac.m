@@ -136,7 +136,7 @@ static int egl_init(CAMetalLayer *layer) {
         owner:self userInfo:nil]];
 }
 - (void)cursorAt:(NSPoint)p {   // the system pointer hidden over the picture (the game's sight shows)
-    const int hide = flat_pointer_in_view((int)p.x, (int)p.y) && !flat_menu_is_open();
+    const int hide = flat_pointer_in_view((int)p.x, (int)p.y) && !flat_menu_is_open() && flat_opt_get(QOPT_CROSSHAIR);
     if (hide != A.cursor_hidden) { if (hide) [NSCursor hide]; else [NSCursor unhide]; A.cursor_hidden = hide; }
 }
 - (void)mouseExited:(NSEvent *)e { if (A.cursor_hidden) { [NSCursor unhide]; A.cursor_hidden = 0; } }

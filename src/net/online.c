@@ -434,7 +434,7 @@ static void frame_in(int slot, const uint8_t *buf, uint32_t seq) {
     }
     if (role == 2 && buf[0] == 'H') {
         uint32_t id = rd32(buf + 2);
-        if (!host_id) { host_id = id; partner_name(); toast("CONNECTED TO %s", partner[0] ? partner : "THE HOST"); voice_set_active(1); }
+        if (!host_id) { host_id = id; partner_name(); toast("CONNECTED TO %s: PRESS START (A / X, SPACE) TO PLAY", partner[0] ? partner : "THE HOST"); voice_set_active(1); }
         if (id != host_id) {                           // the host's game started again: this one can't follow it
             if (!host_gone) { host_gone = 1; toast("THE HOST RESTARTED - LEAVE AND JOIN AGAIN"); }
             return;

@@ -232,8 +232,8 @@ void flat_app_frame(int minimized) {
     test_hooks();
     extern int port_draw_crosshairs;
     extern volatile int arcade_view_cabinet;
-    // the game's own sight where you aim (Crosshair); online the partner's shows regardless
-    port_draw_crosshairs = A.opt[QOPT_CROSSHAIR] || online_session();
+    // the game's own sights: yours where you aim (Crosshair ON) and, online, the partner's regardless
+    port_draw_crosshairs = A.opt[QOPT_CROSSHAIR] ? 2 : online_session() ? 1 : 0;
     arcade_view_cabinet = 1;                // the arcade's picture: a zombie's hit is in it, as on the cabinet
     // the game pauses while the menu is open or nothing shows; not online (a partner's game would stall)
     quest_set_paused((minimized || flat_menu_is_open()) && !online_session());

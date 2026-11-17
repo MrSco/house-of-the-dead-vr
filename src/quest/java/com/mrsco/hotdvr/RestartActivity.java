@@ -1,10 +1,10 @@
 package com.mrsco.hotdvr;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
-import java.io.File;
 
 /** Online play begins and ends with a restart of the app (src/net/online.c): the game's process starts this, in a
  *  process of its own (":restart"), and ends; this waits until it has, then opens the game again as the launcher does.
@@ -14,11 +14,21 @@ public final class RestartActivity extends Activity {
         super.onCreate(state);
         final int pid = getIntent().getIntExtra("pid", -1);
         new Thread(() -> {
-            File proc = new File("/proc/" + pid);
-            for (int i = 0; i < 80 && pid > 0 && proc.exists(); i++) {
+            // (the app's own processes, as the system lists them: another process's /proc entry is hidden here on
+            // Horizon OS, so it always looked gone, and the game could open again inside the old process, whose
+            // OpenXR instance still held the headset: a black screen)
+            // (1.5 s: the game's process may stay on after its activity closed; it is ended then)
+            for (int i = 0; i < 15 && alive(pid); i++) {
                 try { Thread.sleep(100); } catch (InterruptedException e) { break; }
             }
-            if (pid > 0 && proc.exists()) { Log.w("hotdvr", "restart: the game is still running after 8 s, ending it"); android.os.Process.killProcess(pid); }
+            if (alive(pid)) {
+                Log.i("hotdvr", "restart: the game's process is still there, ending it");
+                android.os.Process.killProcess(pid);
+                for (int i = 0; i < 20 && alive(pid); i++) {
+                    try { Thread.sleep(100); } catch (InterruptedException e) { break; }
+                }
+            }
+            Log.i("hotdvr", "restart: the game has closed, opening it again");
             runOnUiThread(() -> {
                 Intent in = new Intent(Intent.ACTION_MAIN)
                     .setClassName(getPackageName(), "android.app.NativeActivity")
@@ -30,5 +40,15 @@ public final class RestartActivity extends Activity {
                 System.exit(0);
             });
         }, "restart").start();
+    }
+
+    /** pid is one of this app's running processes */
+    private boolean alive(int pid) {
+        if (pid <= 0) return false;
+        ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        java.util.List<ActivityManager.RunningAppProcessInfo> ps = am != null ? am.getRunningAppProcesses() : null;
+        if (ps == null) return false;
+        for (ActivityManager.RunningAppProcessInfo p : ps) if (p.pid == pid) return true;
+        return false;
     }
 }
