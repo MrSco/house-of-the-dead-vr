@@ -137,6 +137,11 @@ static const char *FS =
     "  return lerp8(t0x, t1x, vfrac);\n"
     "}\n"
     "uint table(usampler2D t, uint i) { return texelFetch(t, ivec2(int(i & 255u), int(i >> 8)), 0).r; }\n"
+    // the arcade's colours (what its monitor got) into linear light for the sRGB framebuffer, exactly: the
+    // framebuffer encodes them back with the sRGB curve, so they reach the screen as they were (a plain 2.2 power
+    // here crushed the shadows: 5% came out under 2%)
+    "uniform float lift;\n"   // Brightness: 1 as drawn; under 1 lifts the shadows (m2_gl_brightness)
+    "vec3 to_linear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }\n"
     "void main() {\n"
     "  uint flags = v_info.x;\n"
     "  if (((flags >> 2) & 1u) != 0u) {\n"
@@ -144,7 +149,7 @@ static const char *FS =
     "    if (((p.x ^ p.y) & 1u) == 0u) discard;\n"
     "  }\n"
     "  uint renderer = flags & 3u;\n"
-    "  if (renderer < 2u) { o = vec4(pow(v_col, vec3(2.2)), 1.0); return; }\n"
+    "  if (renderer < 2u) { o = vec4(to_linear(pow(v_col, vec3(lift))), 1.0); return; }\n"
     "  bool translucent = renderer == 3u;\n"
     "  int max_level = int((flags >> 12) & 31u);\n"
     "  int mml = -int(v_more.x) + fast_log2(v_z);\n"
@@ -169,7 +174,7 @@ static const char *FS =
     "  uint c = v_more.y;\n"
     "  uint cr = ((c >> 0) & 0x1fu) << 8, cg = 0x2000u + (((c >> 5) & 0x1fu) << 8), cb = 0x4000u + (((c >> 10) & 0x1fu) << 8);\n"
     "  vec3 x = vec3(float(table(xlat, cr + luma)), float(table(xlat, cg + luma)), float(table(xlat, cb + luma))) / 255.0;\n"
-    "  o = vec4(pow(x, vec3(2.2)), 1.0);\n"
+    "  o = vec4(to_linear(pow(x, vec3(lift))), 1.0);\n"
     "}\n";
 
 static const char *VS_FACE =
@@ -203,8 +208,8 @@ static struct {
     int face_any;
     uint32_t face_serial;
     GLuint prog, vao, vbo, tex, luma, xlat;
-    GLint u_mvp, u_prio_k;
-    float prio_k;
+    GLint u_mvp, u_prio_k, u_lift;
+    float prio_k, lift;
     GLsizei nv, nv_world;
     int ready;
 } M;
@@ -270,6 +275,8 @@ void m2_gl_init(void) {
     glUseProgram(M.prog);
     M.u_mvp = glGetUniformLocation(M.prog, "mvp");
     M.u_prio_k = glGetUniformLocation(M.prog, "prio_k");
+    M.u_lift = glGetUniformLocation(M.prog, "lift");
+    if (M.lift <= 0) M.lift = 1;
     glUniform1i(glGetUniformLocation(M.prog, "texram"), 2);
     glUniform1i(glGetUniformLocation(M.prog, "lumaram"), 3);
     glUniform1i(glGetUniformLocation(M.prog, "xlat"), 4);
@@ -389,6 +396,7 @@ void m2_gl_draw(const float *mvp) {
     glUseProgram(M.prog);
     glUniformMatrix4fv(M.u_mvp, 1, GL_FALSE, mvp);
     glUniform1f(M.u_prio_k, M.prio_k);
+    glUniform1f(M.u_lift, M.lift);
     glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, M.tex);
     glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, M.luma);
     glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, M.xlat);
@@ -488,6 +496,7 @@ void m2_gl_draw_backdrop(const float *mvp) {
     glUseProgram(M.prog);
     glUniformMatrix4fv(M.u_mvp, 1, GL_FALSE, m);
     glUniform1f(M.u_prio_k, M.prio_k);
+    glUniform1f(M.u_lift, M.lift);
     glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, B.tex);
     glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, B.luma);
     glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, B.xlat);
@@ -508,6 +517,12 @@ void m2_gl_draw_backdrop(const float *mvp) {
 
 // The projection's near plane (game units) for the next draws: a 24-bit depth buffer's step at distance d is about
 // d * d / (near * 2^24); the draw order's step (arcade_quest.cpp kRankStep, 2.5e-5 of d) is kept at 3 of them.
+// Brightness: 0% as drawn (a power of 1), 100% a power of 1/1.8 (a shadow at 10% shows at 28%)
+void m2_gl_brightness(int percent) {
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    M.lift = 1.0f / (1.0f + 0.8f * (float)percent / 100.0f);
+}
 void m2_gl_near(float near_game_units) {
     if (near_game_units < 1e-4f) near_game_units = 1e-4f;
     M.prio_k = 3.0f / 16777216.0f / near_game_units / 2.5e-5f;

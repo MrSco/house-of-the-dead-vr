@@ -95,7 +95,10 @@ static GLuint program(const char *vs, const char *fs) {
 static const float identity[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 unsigned flat_gl_program(const char *vs, const char *fs) { return program(vs, fs); }
 // a colour byte (sRGB-ish) in linear light (as the VR app's)
-static float lin(uint32_t c8) { return powf((float)(c8 & 255) / 255.0f, 2.2f); }
+static float lin(uint32_t c8) {   // (the exact sRGB curve, as the framebuffer's: m2_gl.c to_linear)
+    const float c = (float)(c8 & 255) / 255.0f;
+    return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
+}
 
 // six vertices of `stride` floats from memory, through our own buffer (core profiles have no client-side arrays)
 static void stream(const float *v, int n, int stride) {
@@ -174,6 +177,7 @@ int flat_gl_init(void) {
     return F.frame != NULL;
 }
 
+void flat_redraw(void) { F.dirty = 1; }   // (a setting changed while the game is paused)
 void flat_set_picture(int mode) {
     if (mode == F.picture) return;
     F.picture = mode;

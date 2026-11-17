@@ -14,6 +14,7 @@
 #include "quest_options.h"
 #include "quest_menu.h"
 #include "voice.h"
+#include "m2_vr.h"
 #include "online.h"
 #include <SDL.h>
 #include <stdio.h>
@@ -45,6 +46,8 @@ static void apply_options(void) {
     port_sfx_gain = (float)A.opt[QOPT_SFX] / 100.0f;
     online_set_volume(A.opt[QOPT_VOICE]);   // the partner's voice (online.c keeps it for voice.c)
     flat_set_picture(A.opt[QOPT_PICTURE] == QPICTURE_ORIGINAL ? FLAT_PICTURE_ORIGINAL : FLAT_PICTURE_HD);
+    m2_gl_brightness(A.opt[QOPT_BRIGHTNESS]);
+    flat_redraw();
 }
 int flat_opt_get(int o) { return o >= 0 && o < QOPT_COUNT ? A.opt[o] : 0; }
 

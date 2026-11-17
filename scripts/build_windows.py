@@ -12,7 +12,7 @@ Needs the generated code first (python scripts/recompile.py --game houseofthedea
 files/arcade/hotd.zip (or hotd.7z) beside the exe.
 
   --run   start it afterwards (with the files folder beside it)
-  --zip   build_windows/HOTDVR-<version>.zip: HOTDVR.exe and a README, no ROM
+  --zip   build_windows/HOTDVR-<version>-windows.zip: HOTDVR.exe, SDL3.dll (game pads), no ROM
 """
 import argparse
 import json
@@ -107,9 +107,22 @@ def main():
                            '-DM2_ROMSET=' + SET, '-DM2_GAME=houseofthedead', '-DM2_SPIN_SKIP=ON',
                            '-DM2_GEN_ROOT=' + gen.replace('\\', '/')], env=env)
     subprocess.check_call(['cmake', '--build', BDIR, '--target', 'hotdvr'], env=env)
+    # SDL3.dll for the game pads (pad_win.c loads it at run time: HOTDVR.exe's own host_sdl.c is the SDL the game
+    # sees, so it cannot link SDL itself): the gamepad, joystick and sensor parts only
+    sdl_dir = os.path.join(ROOT, 'build_houseofthedead', 'win', 'sdl3dll')
+    if os.path.exists(os.path.join(ROOT, 'extern', 'sdl3', 'CMakeLists.txt')):
+        off = ['SDL_STATIC', 'SDL_TEST_LIBRARY', 'SDL_TESTS', 'SDL_EXAMPLES', 'SDL_AUDIO', 'SDL_VIDEO', 'SDL_RENDER', 'SDL_GPU',
+               'SDL_CAMERA', 'SDL_DIALOG', 'SDL_POWER', 'SDL_TRAY', 'SDL_INSTALL']
+        subprocess.check_call(['cmake', '-S', os.path.join(ROOT, 'extern', 'sdl3'), '-B', sdl_dir, '-G', 'Ninja',
+                               '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_C_COMPILER=cl', '-DSDL_SHARED=ON']
+                              + ['-D%s=OFF' % o for o in off], env=env)
+        subprocess.check_call(['cmake', '--build', sdl_dir], env=env)
+    else:
+        port.log('no extern/sdl3 (python scripts/setup.py fetches it): pads through XInput only')
     os.makedirs(OUT, exist_ok=True)
     exe = os.path.join(OUT, 'HOTDVR.exe')
     shutil.copy2(os.path.join(BDIR, 'HOTDVR.exe'), exe)
+    if os.path.exists(os.path.join(sdl_dir, 'SDL3.dll')): shutil.copy2(os.path.join(sdl_dir, 'SDL3.dll'), os.path.join(OUT, 'SDL3.dll'))
     port.log('built %s' % exe)
     # its PDB, kept by build id (crash_win.c's: the PDB's GUID and age) for the crash reports' frames
     bid = pdb_id(exe)
@@ -122,6 +135,7 @@ def main():
         z = os.path.join(OUT, 'HOTDVR-%s-windows.zip' % version())
         with zipfile.ZipFile(z, 'w', zipfile.ZIP_DEFLATED) as f:
             f.write(exe, 'HOTDVR/HOTDVR.exe')
+            if os.path.exists(os.path.join(OUT, 'SDL3.dll')): f.write(os.path.join(OUT, 'SDL3.dll'), 'HOTDVR/SDL3.dll')
             f.writestr('HOTDVR/files/arcade/PUT hotd.zip HERE.txt',
                        'Your own MAME ROM set of The House of the Dead (hotd, Revision A), as hotd.zip or hotd.7z, goes in this folder.\r\n')
         port.log('zip %s' % z)

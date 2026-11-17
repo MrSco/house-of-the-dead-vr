@@ -105,6 +105,9 @@ static const RowDef COMFORT_ROWS[] = {
 static const RowDef GRAPHICS_ROWS[] = {
     { QOPT_RESOLUTION, "Resolution", "", "Pixels per eye, from the headset's recommended size. Higher is sharper and costs GPU time. Applies the next time the app starts.",
       T_SEG, { "80%", "100%", "125%", "150%" }, 4, 1, "", false },
+    { QOPT_BRIGHTNESS, "Brightness", "Lift the game's dark shadows",
+      "0%: the 3D as the arcade drew it (a cabinet's monitor was turned up to light it). More lifts the shadows; whites stay white. The HUD is not changed.",
+      T_SLIDER, { 0 }, 0, 10, "%", false },
     { QOPT_HZ, "Refresh rate", "120 Hz shows each game frame twice", "How often the headset redraws. The game runs at the arcade's 57.5 frames a second; 120 Hz is the smoothest.",
       T_SEG, { "72 HZ", "90 HZ", "120 HZ" }, 3, 1, "", false },
 };
@@ -116,8 +119,16 @@ static const RowDef PICTURE_ROWS[] = {
     { QOPT_CROSSHAIR, "Crosshair", "The game's sight where you aim",
       "ON: the game shows where you aim, as its two-player sights do. OFF: none, as on the real cabinet (a light gun needs none).",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
+    { QOPT_BRIGHTNESS, "Brightness", "Lift the game's dark shadows",
+      "0%: the 3D as the arcade drew it (a cabinet's monitor was turned up to light it). More lifts the shadows; whites stay white. The HUD is not changed.",
+      T_SLIDER, { 0 }, 0, 10, "%", false },
     { QOPT_FULLSCREEN, "Display", "A window, or the whole screen", "Alt+Enter or F11 switches too.",
       T_SEG, { "WINDOW", "FULL SCREEN" }, 2, 1, "", false },
+    { QOPT_GYRO, "Pad gyro aim", "Aim by turning the game pad",
+      "ON: a pad with a gyroscope (DualSense, DualShock 4, Switch Pro) moves the sight as you turn it; its sticks still do. OFF: the sticks only.",
+      T_SEG, { "OFF", "ON" }, 2, 1, "", false },
+    { QOPT_GYRO_SPEED, "Gyro speed", "How far the sight goes for a turn", "100%: a turn of about 40 degrees crosses the picture.",
+      T_SLIDER, { 0 }, 0, 25, "%", false },
 };
 // ...on a touch screen: no window; the gyro aims if you like
 static const RowDef TOUCH_ROWS[] = {
@@ -127,6 +138,9 @@ static const RowDef TOUCH_ROWS[] = {
     { QOPT_CROSSHAIR, "Crosshair", "The game's sight where you aim",
       "ON: the game shows where you aim, as its two-player sights do. OFF: none, as on the real cabinet.",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
+    { QOPT_BRIGHTNESS, "Brightness", "Lift the game's dark shadows",
+      "0%: the 3D as the arcade drew it (a cabinet's monitor was turned up to light it). More lifts the shadows; whites stay white. The HUD is not changed.",
+      T_SLIDER, { 0 }, 0, 10, "%", false },
     { QOPT_GYRO, "Gyro aim", "Aim by turning the screen",
       "ON: turn and tilt the phone or tablet to move the sight; a tap anywhere on the picture shoots at it. Off the picture: reload. OFF: a tap shoots where you tap.",
       T_SEG, { "OFF", "ON" }, 2, 1, "", false },

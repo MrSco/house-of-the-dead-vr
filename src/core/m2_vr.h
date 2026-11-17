@@ -55,6 +55,9 @@ const M2Scene *m2_vr_scene(void);
 void m2_gl_init(void);
 void m2_gl_sync(void);
 void m2_gl_draw(const float *mvp);
+// Brightness (quest_options.h QOPT_BRIGHTNESS, 0-100): the arcade's colours raised to a power under 1, lifting its
+// shadows (0: as drawn; whites stay white)
+void m2_gl_brightness(int percent);
 // the projection's near plane in game units, for the next draws (how far the draw order's steps must reach)
 void m2_gl_near(float near_game_units);
 // The face layer, for one eye: proj is the eye's projection; eye_x the eye's offset from the middle of the head

@@ -22,6 +22,7 @@ void flat_app_quit(void);               // the window is closing: the partner he
 enum { FLAT_PICTURE_HD, FLAT_PICTURE_ORIGINAL };
 int flat_gl_init(void);                 // 0 when the GL is not enough (logged)
 void flat_set_picture(int mode);        // HD: the 3D at the window's resolution; ORIGINAL: at the arcade's own
+void flat_redraw(void);                 // draw the picture again (a setting changed while the game is paused)
 // draw a frame into the current framebuffer (w x h pixels; 0 is the window's)
 void flat_draw(int w, int h, unsigned framebuffer);
 

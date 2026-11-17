@@ -876,7 +876,10 @@ static void draw_col(const float *mvp, const Vtx *v, int n, GLenum mode);
 #define CAB_W 1280
 #define CAB_H 960
 // a colour byte (sRGB-ish) in linear light
-static float lin(uint32_t c8) { float c = (float)(c8 & 255) / 255.0f; return powf(c, 2.2f); }
+static float lin(uint32_t c8) {   // (the exact sRGB curve, as the eye buffers': m2_gl.c to_linear)
+    float c = (float)(c8 & 255) / 255.0f;
+    return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
+}
 
 // The gun model (Gun model): the arcade cabinet's own in the player's colour (player 1's red on the left, player 2's
 // blue on the right, as the operator's manual has it; the cabinet's model, CC-BY: arcade-gun.json), or the pistol. Again when the setting or your player (online) changes.
@@ -1941,6 +1944,7 @@ static void apply_options(void) {
     }
     if (S.opt[QOPT_HAND] != QHAND_BOTH) S.active = S.opt[QOPT_HAND] == QHAND_LEFT ? 0 : 1;   // the one gun aims
     quest_volume = S.opt[QOPT_VOLUME];
+    m2_gl_brightness(S.opt[QOPT_BRIGHTNESS]);   // (the 3D's shadows lifted: GRAPHICS tab)
     {
         extern float port_music_gain, port_sfx_gain;
         port_music_gain = (float)S.opt[QOPT_MUSIC] / 100.0f;
