@@ -69,6 +69,17 @@ float port_music_gain = 1.0f, port_sfx_gain = 1.0f;
 // locked slide and silent laser, the magazine, the reload hints). The game thread keeps these (update_ammo).
 static std::atomic<int> g_ammo[2] = {-1, -1};
 int host_player_ammo(int p) { return p >= 0 && p < 2 ? g_ammo[p].load() : -1; }
+// Where in the picture (rt::Video's pixels, the last inclusive) the game takes a shot as on the screen: short of its
+// edges, where it reloads (rt::GunRange live_*). 0: the whole picture.
+int host_gun_live_rect(int *x0, int *y0, int *x1, int *y1) {
+    const rt::GunRange &g = rt::game().gun;
+    if (!g.present() || !g.live_x_max) return 0;
+    const float W = float(rt::Video::W), H = float(rt::Video::H);
+    const float sx = W / float(g.x_max - g.x_min), sy = H / float(g.y_max - g.y_min);
+    *x0 = int(std::ceil(float(g.live_x_min - g.x_min) * sx)), *x1 = int(std::floor(float(g.live_x_max - g.x_min) * sx)) - 1;
+    *y0 = int(std::ceil(float(g.live_y_min - g.y_min) * sy)), *y1 = int(std::floor(float(g.live_y_max - g.y_min) * sy)) - 1;
+    return 1;
+}
 static std::atomic<int> g_playing[2] = {0, 0};
 int host_player_playing(int p) { return p >= 0 && p < 2 ? g_playing[p].load() : 0; }
 void host_log(const char *fmt, ...) {

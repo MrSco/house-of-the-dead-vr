@@ -111,7 +111,9 @@ extern const Game hotd_game = {
     .control_list = kControls,
     // MAME hotd P1_X/P1_Y PORT_MINMAX: the screen's edges in the gun's units;
     // player 2: MAME's P2_X/P2_Y defaults.
-    .gun = {173, 596, 87, 380, 0x17b, 0x0e9},
+    // (live: the game reloads at x 192 and below, 575 and up, y 100 and below, 370 and up; between, measured with
+    // m2probe --watch on the bullets (0x51f2c1), x 196..573 and y 102..362 shoot: the box a step inside those)
+    .gun = {173, 596, 87, 380, 0x17b, 0x0e9, 197, 572, 103, 361},
 };
 
 } // namespace rt

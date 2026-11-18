@@ -61,9 +61,12 @@ struct Inputs {
 // A light gun's range (MAME's PORT_MINMAX for P1_X/P1_Y): the values at the
 // screen's edges, and player 2's gun (MAME's P2_X/P2_Y defaults: one player,
 // player 2's never moves). All zero: no light gun.
+// live_*: where the game itself takes a shot as on the screen (inside the range, short of its edges: beyond, a shot
+// reloads, as at the cabinet's bezel); all zero: the whole range.
 struct GunRange {
     uint16_t x_min, x_max, y_min, y_max;
     uint16_t p2_x, p2_y;
+    uint16_t live_x_min, live_x_max, live_y_min, live_y_max;
     bool present() const { return x_max != 0; }
 };
 

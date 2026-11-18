@@ -2424,6 +2424,18 @@ static void update_input(XrTime t) {
         S.on_screen[h] = screen_hit(h, &u, &v);
         px[h] = (int)(u * fw); py[h] = (int)(v * fh);
     }
+    {   // With a reload gesture on, only the gesture reloads: the game itself takes a shot near its picture's edges
+        // as off the screen and reloads (host_gun_live_rect), edges you can't see in the immersive view, so the aim
+        // stays inside that box (a shot at the edge lands a step in)
+        int x0, y0, x1, y1;
+        if (gesture() != QGESTURE_OFF && host_gun_live_rect(&x0, &y0, &x1, &y1))
+            for (int h = 0; h < 2; h++) {
+                if (!S.on_screen[h]) continue;
+                const int ax = x0 * fw / 496, bx = x1 * fw / 496, ay = y0 * fh / 384, by = y1 * fh / 384;
+                px[h] = px[h] < ax ? ax : px[h] > bx ? bx : px[h];
+                py[h] = py[h] < ay ? ay : py[h] > by ? by : py[h];
+            }
+    }
     reload_release(0);
     // the menu button opens and closes the VR menu (with the game's files missing: quits)
     if (S.need_files) {                     // the setup page: the trigger chooses your game's folder

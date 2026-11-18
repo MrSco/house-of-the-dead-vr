@@ -15,6 +15,7 @@ void quest_pointer(int x, int y);               // the active gun's aim, in fram
 void quest_mouse_button(int button, int down);  // SDL_BUTTON_LEFT / SDL_BUTTON_RIGHT
 void quest_key(int sdl_scancode, int sdl_keycode, int down);
 void quest_quit(void);
+int host_gun_live_rect(int *x0, int *y0, int *x1, int *y1);   // where the game takes a shot (picture pixels)
 int host_player_ammo(int p);                    // the game's bullets for player p, -1 out of play (gun_input.c)
 int host_player_playing(int p);                 // 1 while the game takes player p's shots (not menus, cut scenes)
 // While paused (system menu open, headset off) the game thread waits in its next present and audio is silent.
