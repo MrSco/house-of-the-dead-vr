@@ -31,6 +31,8 @@ static const char *VS =
     "layout(location = 3) in float prio;\n"
     "uniform float prio_k;\n"
     "uniform float order;\n"   // > 0: the depth is the draw order's alone (prio x order: 0 near, 1 far)
+    "uniform vec4 eye;\n"      // the eye in the polygons' space (xyz) and its clip z (w): m2_gl_draw
+    "uniform float key_max;\n" // the farthest key plane ahead of the eye (game units) the far plane keeps
     "layout(location = 4) in vec3 col;\n"
     "layout(location = 5) in uvec4 info;\n"
     "layout(location = 6) in uvec2 more;\n"
@@ -47,14 +49,28 @@ static const char *VS =
     "  if (order > 0.0) {\n"
     "    gl_Position.z = (min(prio * order, 1.0) * 2.0 - 1.0) * gl_Position.w;\n"
     "  } else {\n"
-    // the depth alone of the point moved out along its ray to the arcade's sort depth (key) and a step further for its
-    // place in the draw order: figures the arcade sorts in front of a floor or wall their meshes dip into stay in
-    // front, as it draws them; the point itself stays where it is (no parallax from the move)
-    "    vec3 q = key < 0.0 ? vec3(pos.xy, -key) : pos * key;\n"
-    "    q *= 1.0 + prio * clamp(length(q) * prio_k, 1.0, 16.0);\n"
-    "    vec4 d = mvp * vec4(q, 1.0);\n"
-    // (behind the eye too: the clipper then cuts the polygon where it crosses the eye's plane, its depth unchanged)
-    "    if (d.w > 0.0) gl_Position.z = clamp(d.z / d.w, -1.0, 0.99999) * gl_Position.w;\n"
+    // the depth alone is where the point's ray from the eye meets the plane z = key (the z the arcade sorted its
+    // polygon by), a step further for its place in the draw order: figures the arcade sorts in front of a floor or
+    // wall their meshes dip into stay in front, as it draws them; the point itself stays where it is (no parallax).
+    // Along the ray Q = E + t (P - E) clip space is (1 - t) E' + t P' with E' = (0, 0, eye.w, 0): Q's depth on P's
+    // own w is z' = P'.z - eye.w + eye.w / t, t = (key - eye.z) / (pos.z - eye.z): linear in pos, so the clipper and
+    // the rasterizer carry it across a polygon exactly (one reaching behind you, as the floor at your feet does)
+    // A polygon too near the arcade's camera for its plane (key < 0: the floor at your feet, the sky's dome; rays from
+    // the eye meet the plane behind you) goes out by a fixed step along the rays instead, t = 1.03 and the draw
+    // order's step: z' = P'.z - eye.w + eye.w / t (a figure's feet dipping into the floor stay over it)
+    "    float s = key - eye.z;\n"
+    "    if (key > 0.0 && s > 1e-3) {\n"
+    "      s = min(s, key_max) * (1.0 + prio * clamp(s * prio_k, 1.0, 16.0));\n"
+    "      gl_Position.z += eye.w * ((pos.z - eye.z) / s - 1.0);\n"
+    // (a ray at a grazing angle to the plane, as the sky's high up are, meets it past the far plane: kept inside)
+    "      if (gl_Position.w > 0.0) gl_Position.z = min(gl_Position.z, 0.99999 * gl_Position.w);\n"
+    "    } else if (key < 0.0) {\n"
+    "      gl_Position.z += eye.w * (1.0 / (1.03 * (1.0 + prio)) - 1.0);\n"
+    "    } else {\n"
+    "      vec3 q = pos * (1.0 + prio * clamp(length(pos) * prio_k, 1.0, 16.0));\n"
+    "      vec4 d = mvp * vec4(q, 1.0);\n"
+    "      if (d.w > 0.0 && gl_Position.w > 0.0) gl_Position.z = clamp(d.z / d.w, -1.0, 0.99999) * gl_Position.w;\n"
+    "    }\n"
     "  }\n"
     "  v_uv = uv; v_z = depth; v_col = col; v_info = info; v_more = more;\n"
     "}\n";
@@ -225,7 +241,7 @@ static struct {
     int face_any;
     uint32_t face_serial;
     GLuint prog, vao, vbo, tex, luma, xlat;
-    GLint u_mvp, u_prio_k, u_lift, u_order;
+    GLint u_mvp, u_prio_k, u_lift, u_order, u_eye, u_key_max;
     float prio_k, lift, order;   // (order: m2_gl_arcade_order)
     GLsizei nv, nv_world;
     int ready;
@@ -294,6 +310,8 @@ void m2_gl_init(void) {
     M.u_mvp = glGetUniformLocation(M.prog, "mvp");
     M.u_prio_k = glGetUniformLocation(M.prog, "prio_k");
     M.u_order = glGetUniformLocation(M.prog, "order");
+    M.u_eye = glGetUniformLocation(M.prog, "eye");
+    M.u_key_max = glGetUniformLocation(M.prog, "key_max");
     M.u_lift = glGetUniformLocation(M.prog, "lift");
     if (M.lift <= 0) M.lift = 1;
     glUniform1i(glGetUniformLocation(M.prog, "texram"), 2);
@@ -410,10 +428,39 @@ void m2_gl_draw_face(const float *proj, float eye_x) {
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+// The key depth's uniforms from mvp (column-major, clip <- the polygons' space; a perspective projection): the eye
+// is the point clip x, y and w are 0 at, its clip z eye.w; key_max keeps the key planes inside the far plane
+static void key_uniforms(const float *m) {
+    // rows 0, 1, 3: r . (e, 1) = 0
+    const float a[3][4] = { { m[0], m[4], m[8], m[12] }, { m[1], m[5], m[9], m[13] }, { m[3], m[7], m[11], m[15] } };
+    const float det = a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
+                      a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+    float e[4] = { 0, 0, 0, 0 }, kmax = 1e30f;
+    if (det > 1e-20f || det < -1e-20f) {
+        for (int c = 0; c < 3; c++) {   // Cramer: column c replaced by -r[3]
+            float b[3][3];
+            for (int r = 0; r < 3; r++)
+                for (int k = 0; k < 3; k++) b[r][k] = k == c ? -a[r][3] : a[r][k];
+            e[c] = (b[0][0] * (b[1][1] * b[2][2] - b[1][2] * b[2][1]) - b[0][1] * (b[1][0] * b[2][2] - b[1][2] * b[2][0]) +
+                    b[0][2] * (b[1][0] * b[2][1] - b[1][1] * b[2][0])) / det;
+        }
+        e[3] = m[2] * e[0] + m[6] * e[1] + m[10] * e[2] + m[14];
+        // the far plane (clip z = w) along the view axis: w's row is k x the view axis (k: units to the eye's), z's row
+        // p10 x it (and the eye's z): far = e.w / (p10 + 1) in the eye's units, / k in ours
+        const float k2 = m[3] * m[3] + m[7] * m[7] + m[11] * m[11];
+        const float p10 = k2 > 0 ? -(m[2] * m[3] + m[6] * m[7] + m[10] * m[11]) / k2 : 0;
+        const float far_d = p10 + 1.0f != 0 ? e[3] / (p10 + 1.0f) : -1;
+        if (k2 > 0 && far_d > 0) kmax = 0.9f * far_d / sqrtf(k2);
+    }
+    glUniform4f(M.u_eye, e[0], e[1], e[2], e[3]);
+    glUniform1f(M.u_key_max, kmax);
+}
+
 void m2_gl_draw(const float *mvp) {
     if (!M.ready || !M.nv) return;
     glUseProgram(M.prog);
     glUniformMatrix4fv(M.u_mvp, 1, GL_FALSE, mvp);
+    key_uniforms(mvp);
     glUniform1f(M.u_prio_k, M.prio_k);
     glUniform1f(M.u_order, M.order);
     glUniform1f(M.u_lift, M.lift);
@@ -515,6 +562,7 @@ void m2_gl_draw_backdrop(const float *mvp) {
         }
     glUseProgram(M.prog);
     glUniformMatrix4fv(M.u_mvp, 1, GL_FALSE, m);
+    key_uniforms(m);
     glUniform1f(M.u_prio_k, M.prio_k);
     glUniform1f(M.u_order, 0.0f);
     glUniform1f(M.u_lift, M.lift);

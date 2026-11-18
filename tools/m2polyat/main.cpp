@@ -64,6 +64,21 @@ int main(int argc, char **argv) {
         }
         return 0;
     }
+    if (const char *path = std::getenv("M2_POLYAT_DUMP")) {   // every polygon in camera space (x right, y up, z ahead)
+        if (FILE *f = std::fopen(path, "w")) {
+            for (size_t rank = 0; rank < order.size(); rank++) {
+                const rt::GeoPoly &p = polys[order[rank]];
+                std::fprintf(f, "%zu %d %04x %04x %d", rank, p.window, p.texheader[0], p.texheader[2], p.num_vertices);
+                for (int i = 0; i < p.num_vertices; i++) {
+                    const float z = p.v[i].p[0];
+                    std::fprintf(f, " %g %g %g", double(p.v[i].x / p.focus[0]), double(p.v[i].y / p.focus[1]), double(z));
+                }
+                std::fprintf(f, "\n");
+            }
+            std::fclose(f);
+        }
+        return 0;
+    }
     if (std::getenv("M2_POLYAT_KINDS")) {   // the frame's polygons by renderer (texheader[0] bits 13-14) and checker
         int count[4][2] = {};
         for (const rt::GeoPoly &p : polys) count[(p.texheader[0] >> 13) & 3][(p.texheader[0] >> 15) & 1]++;

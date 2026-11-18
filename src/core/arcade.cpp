@@ -145,6 +145,9 @@ constexpr float kRankStep = 2.5e-5f;
 constexpr float kEffectZ = 1.05f;
 constexpr float kEffectDistance = 13.6f;
 constexpr float kEffectInFront = 0.96f; // of the surface's distance
+// The headset's key depth (m2_vr.h M2Vert::key): the arcade camera's z (game units: a third of a metre, about as far
+// as a head leans from it) nearer than which key_split gives a polygon m2_gl.c's fixed step instead of its sort plane
+constexpr float kKeyNear = 3.0f;
 
 // The nearest world surface along each 8 x 8 pixel cell of the arcade's picture (1/z, 0: none), from the frame's
 // camera-space triangles.
@@ -301,6 +304,38 @@ void choose_projection(const std::vector<rt::GeoPoly> &polys, int windows, int c
     pj.fy = -std::get<3>(best);
 }
 
+// The headset's key depth needs each ray from your eye to meet the polygon's sort plane (z = key) ahead of you
+// (m2_gl.c). One reaching nearer the arcade's camera than kKeyNear, or behind it, as the floor at your feet and the
+// sky's dome do, is cut at z = kKeyNear: the part ahead keeps its key, the nearer part (where the arcade's picture
+// never shows it: no order of its to keep) goes out by m2_gl.c's fixed step, key -1. Each part as a fan of
+// triangles to out(a, b, c).
+template <class Out> void key_split(const M2Vert *pv, int n, Out out) {
+    auto fan = [&](const M2Vert *v, int m) {
+        for (int k = 1; k + 1 < m; k++) out(v[0], v[k], v[k + 1]);
+    };
+    float zmin = 1e30f;
+    for (int k = 0; k < n; k++) zmin = std::min(zmin, pv[k].z);
+    if (!(pv[0].key > 0.f) || zmin >= kKeyNear) return fan(pv, n);
+    M2Vert front[9], back[9];
+    int nf = 0, nb = 0;
+    for (int i = 0; i < n; i++) {
+        const M2Vert &p = pv[i], &q = pv[(i + 1) % n];
+        const bool pin = p.z >= kKeyNear, qin = q.z >= kKeyNear;
+        if (pin) front[nf++] = p;
+        else back[nb++] = p;
+        if (pin != qin) {
+            const float t = (kKeyNear - p.z) / (q.z - p.z);
+            M2Vert c = p;
+            c.x = p.x + t * (q.x - p.x), c.y = p.y + t * (q.y - p.y), c.z = kKeyNear;
+            c.u = p.u + t * (q.u - p.u), c.v = p.v + t * (q.v - p.v), c.depth = p.depth + t * (q.depth - p.depth);
+            front[nf++] = c, back[nb++] = c;
+        }
+    }
+    for (int k = 0; k < nb; k++) back[k].key = -1.f;
+    fan(front, nf);
+    fan(back, nb);
+}
+
 // One polygon as camera-space vertices for the main camera (c0m, c1m: its centre; fxm, fym: its focus), with its
 // Model 2 state; effect: one of the shots' effects (build places those). 0: nothing to draw.
 int poly_vertices(const rt::GeoPoly &poly, const rt::VideoMem &mem, uint32_t rank, int c0m, int c1m, float fxm, float fym,
@@ -360,15 +395,12 @@ int poly_vertices(const rt::GeoPoly &poly, const rt::VideoMem &mem, uint32_t ran
         // the headset's depth: at the z the arcade sorted the polygon by (m2_vr.h key), so that what it draws in
         // front (a figure over the floor or the wall its mesh dips into: the first zombie's feet, the dead lying on
         // the ground, the girl at the mansion's door) stays in front
-        // (a polygon reaching behind the camera, as the VR scenery's ground does, can't go out along its rays: its
-        // depth is the plane z = sortz's at each vertex: key < 0)
-        pv[k].key = !(poly.sortz > 0.f && poly.sortz < 1e9f) ? 1.f
-                    : zmin > 1e-3f                          ? std::clamp(poly.sortz / z, 1.f / 64, 64.f)
-                                                            : -poly.sortz;
+        // (key_split cuts a polygon coming nearer the arcade's camera than its plane can serve)
+        pv[k].key = poly.sortz > 0.f && poly.sortz < 1e9f ? poly.sortz : 0.f;
         if (effect) { // placed on the world behind it once the world is known (below); its texture level as the arcade's
             pv[k].depth = z;
             pv[k].prio = 0;
-            pv[k].key = 1;
+            pv[k].key = 0;
         }
     }
     return poly.num_vertices;
@@ -406,8 +438,8 @@ void build(Slot &s, const rt::Video &video, uint32_t serial) {
             bool effect = false;
             M2Vert pv[8];
             if (!poly_vertices(poly, mem, rank, c0m, c1m, fxm, fym, pv, effect)) continue;
-            for (int k = 1; k + 1 < poly.num_vertices; k++) {
-                for (const M2Vert *q : {&pv[0], &pv[k], &pv[k + 1]}) {
+            key_split(pv, poly.num_vertices, [&](const M2Vert &a, const M2Vert &b, const M2Vert &c) {
+                for (const M2Vert *q : {&a, &b, &c}) {
                     if (effect) {
                         fx.push_back(*q);
                         continue; // (not in the guns' scene: a shot goes through the blood to what is behind)
@@ -415,7 +447,7 @@ void build(Slot &s, const rt::Video &video, uint32_t serial) {
                     s.mv.push_back(*q);
                     s.vv.push_back(VrVert{q->x, q->y, q->z, 0xffffffffu, 0, 0, 0});
                 }
-            }
+            });
         }
         // The effects onto the surfaces behind them in the picture, then after the world (depth tested, not
         // written), in reverse order so the arcade's first wins among them.
@@ -484,7 +516,7 @@ void build(Slot &s, const rt::Video &video, uint32_t serial) {
 // carry it), on a thread of its own while the game is played: a second game, without sound, played to kCourtyardFrame (two coins and Start, player 1 kept alive, a
 // shot every 15 frames, every 7th off the screen: scripts/inputs/hotd_courtyard.txt, the same frame on every
 // machine), its world (everything round the camera, as
-// VR mode keeps it), texture RAM, luma and colour tables and the sky's up saved in courtyard4.m2w:
+// VR mode keeps it), texture RAM, luma and colour tables and the sky's up saved in courtyard5.m2w:
 //   "M2WORLD1", uint32 vertices, float up[3], M2Vert[vertices], texture RAM (M2_TEX_WORDS dwords), luma
 //   (M2_LUMA_ENTRIES bytes), colour translation (M2_XLAT_ENTRIES bytes).
 // Frame 4080: in front of the fountain, the mansion behind it, Sophie fallen by the fountain (the gargoyle takes her
@@ -534,8 +566,9 @@ void make_courtyard(const std::string &images, const std::string &out) {
         bool effect = false;
         M2Vert pv[8];
         if (!poly_vertices(poly, mem, rank, c0m, c1m, pj.fx, -pj.fy, pv, effect) || effect) continue;
-        for (int k = 1; k + 1 < poly.num_vertices; k++)
-            for (const M2Vert *q : {&pv[0], &pv[k], &pv[k + 1]}) world.push_back(*q);
+        key_split(pv, poly.num_vertices, [&](const M2Vert &a, const M2Vert &b, const M2Vert &c) {
+            world.push_back(a), world.push_back(b), world.push_back(c);
+        });
     }
     float up[3] = {0, 1, 0}, ref[3];
     if (!sky_frame(polys, up, ref)) up[0] = 0, up[1] = 1, up[2] = 0;
@@ -1070,10 +1103,11 @@ extern "C" int SDL_main(int argc, char **argv) {
                        "epr-19697a.16), as hotd.zip or hotd.7z in\n" + game_dir + "\n\nPress the menu button to quit.");
     }
     {   // the cabinet room's courtyard, once (the images just kept: a new set's images make it again)
-        // (courtyard4 (3 before M2Vert::key): the fountain, with the whole scenery sent (hook_hotd_scenery_cull); the earlier ones, the road
-        // outside the gate, are dropped)
-        const std::string cy = game_dir + "/courtyard4.m2w", images = game_dir + "/images";
-        std::remove((game_dir + "/courtyard3.m2w").c_str()); // (4: M2Vert::key)
+        // (courtyard5 (4: M2Vert::key a ratio, 3 before it): the fountain, with the whole scenery sent
+        // (hook_hotd_scenery_cull); the earlier ones, the road outside the gate, are dropped)
+        const std::string cy = game_dir + "/courtyard5.m2w", images = game_dir + "/images";
+        std::remove((game_dir + "/courtyard4.m2w").c_str()); // (5: M2Vert::key the sort z itself)
+        std::remove((game_dir + "/courtyard3.m2w").c_str());
         std::remove((game_dir + "/courtyard2.m2w").c_str());
         std::remove((game_dir + "/courtyard.m2w").c_str());
         if (made_images) std::remove(cy.c_str());

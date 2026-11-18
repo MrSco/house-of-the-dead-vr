@@ -23,9 +23,10 @@ typedef struct {
     float r, g, b;          // a solid polygon's colour (gamma applied)
     uint32_t info[4];       // m2.hlsl PolyIn.info
     uint32_t more[2];       // m2.hlsl PolyIn.more
-    float key;              // depth only (the headset's): the point out along its view ray x key is at the z the
-                            // arcade sorted its polygon by (rt::GeoPoly::sortz); 1: where it is; negative: the
-                            // polygon reaches behind the camera, its depth is the plane z = -key's (at x, y)
+    float key;              // depth only (the headset's): the z the arcade sorted its polygon by (rt::GeoPoly::
+                            // sortz): each point's depth is where its ray from the eye meets the plane z = key
+                            // (m2_gl.c); negative: the part of a polygon too near the arcade's camera for that
+                            // (arcade.cpp key_split), a fixed step out along the rays; 0: where it is
 } M2Vert;
 
 #define M2_TEX_WORDS 0x100000u   // texture RAM: sheet 0 then sheet 1, 0x80000 dwords each (1024 x 1024 R32UI)

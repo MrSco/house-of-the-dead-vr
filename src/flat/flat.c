@@ -293,6 +293,26 @@ static void render_picture(void) {
     glEnable(GL_DEPTH_TEST);
     float p[16];
     game_proj(p, sc);
+    {   // FLAT_TEST_LOOK=pitch,yaw,fov (degrees; tests): the camera turned (pitch + looks down) with that field of
+        // view, as a headset looks round the game's world (the VR scenery hook sends all of it)
+        static int on = -1; static float pitch, yaw, fov;
+        if (on < 0) { const char *e = getenv("FLAT_TEST_LOOK"); on = e && sscanf(e, "%f,%f,%f", &pitch, &yaw, &fov) == 3; }
+        if (on) {
+            const float a = pitch * 3.14159265f / 180, b = yaw * 3.14159265f / 180, t = 1.0f / tanf(fov * 3.14159265f / 360);
+            const float ca = cosf(a), sa = sinf(a), cb = cosf(b), sb = sinf(b);
+            // R = pitch (about x) after yaw (about y), column-major; then the projection's x and y scales set to t
+            const float r[16] = { cb, -sa * sb, ca * sb, 0,   0, ca, sa, 0,   -sb, -sa * cb, ca * cb, 0,   0, 0, 0, 1 };
+            float q[16];
+            q[0] = t * (p[0] > 0 ? 1.f : -1.f); q[5] = t * (float)F.pic_w / (float)F.pic_h * (p[5] > 0 ? 1.f : -1.f);
+            for (int i = 0; i < 16; i++) if (i != 0 && i != 5) q[i] = p[i];
+            for (int c = 0; c < 4; c++)
+                for (int rr = 0; rr < 4; rr++) {
+                    float s = 0;
+                    for (int k = 0; k < 4; k++) s += q[k * 4 + rr] * r[c * 4 + k];
+                    p[c * 4 + rr] = s;
+                }
+        }
+    }
     m2_gl_near(1.0f);
     m2_gl_draw(p);
     if (F.tex_w) {

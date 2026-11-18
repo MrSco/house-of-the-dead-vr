@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 
 namespace snd {
 
@@ -119,6 +120,17 @@ uint16_t ScspBoard::read16(uint32_t addr) {
     }
     if (addr >= 0x800000) { // samples: 0x800000 on, the banks at their reset bases (an 8 MiB set is not banked)
         const uint32_t o = addr - 0x800000;
+        {   // M2_SND_ROMLOG=1 (tests: finding a sound in the sample ROM): the runs of it the program copies, to stderr
+            static int on = -1;
+            static uint32_t run0 = 0, next = 0;
+            if (on < 0) on = std::getenv("M2_SND_ROMLOG") && std::atoi(std::getenv("M2_SND_ROMLOG")) != 0;
+            if (on) {
+                if (o != next && next != run0)
+                    std::fprintf(stderr, "romrun t=%.3f start=%06x len=%x\n", double(done_) / snd::Scsp::kRate, run0, next - run0);
+                if (o != next) run0 = o;
+                next = o + 2;
+            }
+        }
         return o + 1 < samples_.size() ? uint16_t(samples_[o] << 8 | samples_[o + 1]) : 0;
     }
     return 0;
