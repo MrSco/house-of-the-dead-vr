@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A release's downloads, every platform from the same commit (as GoldenEye VR's releases), and their table.
 
-  python scripts/release.py [--apple] [--only quest,frame,phone,windows,mac,ios] [--publish]
+  python scripts/release.py [--apple] [--only quest,frame,phone,windows,mac,ios] [--publish] [--no-build]
 
 From a clean checkout (no uncommitted changes to tracked files: the builds stamp the commit), the version being
 src/quest/AndroidManifest.xml's versionName. Builds into build_release/<version>/, with the names the in-app updater
@@ -17,7 +17,8 @@ looks for (src/quest/java/.../UpdateVersion.java: the Quest's APK any name, the 
 Then their SHA-256 into docs/releases/v<version>.md's "## Downloads" (the notes, written by hand above it), and the
 Quest's crash symbols to the private repo. --publish: the GitHub release (tag v<version>, the notes as its text; a
 pre-release for a version with a suffix, 0.4.1-test.1), created, or its assets replaced when it exists. Publishing a
-release also announces it on Discord (.github/workflows/discord-release.yml).
+release also announces it on Discord (.github/workflows/discord-release.yml). --no-build: what build_release/<version>
+already holds (build, check the downloads, then publish them).
 """
 import argparse
 import hashlib
@@ -107,6 +108,7 @@ def main():
     ap.add_argument('--apple', action='store_true', help='the Mac app and the iOS IPA too, on the Mac (%s)' % MAC)
     ap.add_argument('--only', help='these platforms only (comma-separated keys)')
     ap.add_argument('--publish', action='store_true', help='create or update the GitHub release')
+    ap.add_argument('--no-build', action='store_true', help='the downloads already in build_release/<version>')
     a = ap.parse_args()
     if git('status', '--porcelain', '--untracked-files=no'):
         sys.exit('release: uncommitted changes (the builds stamp the commit): commit them first')
@@ -116,10 +118,11 @@ def main():
     out = os.path.join(ROOT, 'build_release', v)
     os.makedirs(out, exist_ok=True)
     log('v%s at %s: %s' % (v, commit, ', '.join(keys)))
-    if 'mac' in keys or 'ios' in keys: run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py')])
-    for key, suffix, _ in PLATFORMS:
-        if key in keys: build(key, out, 'house-of-the-dead-vr-%s%s' % (v, suffix))
-    if 'quest' in keys: run([sys.executable, os.path.join(ROOT, 'scripts', 'quest_tools.py'), 'symbols'])
+    if not a.no_build:
+        if 'mac' in keys or 'ios' in keys: run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py')])
+        for key, suffix, _ in PLATFORMS:
+            if key in keys: build(key, out, 'house-of-the-dead-vr-%s%s' % (v, suffix))
+        if 'quest' in keys: run([sys.executable, os.path.join(ROOT, 'scripts', 'quest_tools.py'), 'symbols'])
     # the notes' downloads table (written over the old one)
     notes = os.path.join(ROOT, 'docs', 'releases', 'v%s.md' % v)
     os.makedirs(os.path.dirname(notes), exist_ok=True)
