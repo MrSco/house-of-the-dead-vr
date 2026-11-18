@@ -57,6 +57,10 @@
 	<string>Voice chat with the player you team up with online.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Playing with someone on your network.</string>
+	<!-- App Store Connect's export question answered in the build: no encryption of its own (online play is plain UDP,
+	     the lobby plain TCP; nothing but the system's own) -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIBackgroundModes</key>
 	<array/>
 </dict>

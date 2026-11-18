@@ -38,6 +38,8 @@ targets:
       - path: stub.c
       # its icon (scripts/make_icons.py)
       - path: Assets.xcassets
+      # the privacy manifest App Store Connect asks for
+      - path: PrivacyInfo.xcprivacy
     settings:
       base:
         SDKROOT: iphoneos
