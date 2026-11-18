@@ -696,74 +696,48 @@ void SDLCALL audio_cb(void *ud, Uint8 *stream, int len) {
 
 // ---- the reload gesture's own lines for the game's "Shoot outside of the screen!" (said when you pull the trigger
 // on an empty gun): "Drop the mag!", "Load mag!", "Rack slide!" by the step you're at (quest_xr.c sets
-// arcade_reload_step; the others: the game's line). The game and its sound board run as ever (online the same for both
-// players): this player's board reads the line's samples as silence (snd::Board::mute_samples) and the app mixes
-// its clip in. Found with the sound log (M2_SCSP_LOG): the command, the driver's voice 5, and its samples.
+// arcade_reload_step; the others: the game's line). Baked in: the line's place in this player's sample ROM holds the
+// clip for the step (the rest silence), so the game's own sound program says it, as it says the line. The game and
+// its board run as ever (the sample bytes only reach the speakers: the game's RAM is the same, m2probe
+// M2_SND_PATCH); online each player bakes their own. Found with the sound log (M2_SCSP_LOG): the command, the
+// driver's voice 5, and its samples.
 constexpr uint8_t kShootOutside[3] = {0xa0, 0x14, 0x05};
-constexpr uint32_t kShootOutsideFrom = 0x4b868, kShootOutsideTo = 0x548a8; // 8-bit, 22050 Hz, 1.67 s
-constexpr float kLineGain = 0.055f; // the line in the board's output: the ROM's samples x 0.055, centred (measured)
-constexpr long kLineDelay = 4410;   // it starts about 0.1 s after the command (the driver streams it)
+constexpr uint32_t kLineFrom = 0x4b868, kLineTo = 0x548a8; // signed 8-bit, 22050 Hz, 1.67 s
+constexpr int kLineFrames = 110;                           // its 1.67 s and the driver's start, in frames
 std::mutex clip_mu;
-std::vector<float> reload_clips[3];  // 44.1 kHz, -1..1 (arcade_reload_clip)
+std::vector<uint8_t> reload_clips[3]; // the line's length, 8-bit (arcade_reload_clip)
+std::vector<uint8_t> original_line;   // the game's own bytes there
+int baked = -1;                       // which is there: -1 the game's, 0..2 a clip
+int line_busy = 0;                    // frames the line still plays (not rewritten under it)
 // the clip for the gesture's step (arcade_reload_step), -1 the game's own line
 int clip_for_step(int step) { return step == 1 || step == 2 ? 0 : step == 3 ? 1 : step == 4 ? 2 : -1; }
-std::vector<float> original_line;    // the game's own (a partner's empty gun, online)
-const std::vector<float> *line_now = nullptr;
-long line_pos = 0;
 uint8_t cmd_seen[3];
 int cmd_have = 0;
 
-// the frame's command bytes for the sound board (in order across frames): the line's command starts a clip
+// the frame's command bytes for the sound board (in order across frames): the line said, it isn't rewritten for a while
 void watch_sound_commands(const std::vector<uint8_t> &bytes) {
     for (uint8_t b : bytes) {
         if (b & 0x80) cmd_have = 0;
         if (cmd_have < 3) cmd_seen[cmd_have++] = b;
-        if (cmd_have != 3 || std::memcmp(cmd_seen, kShootOutside, 3) != 0) continue;
-        cmd_have = 0;
-        const int step = clip_for_step(arcade_reload_step);
-        std::lock_guard<std::mutex> lock(clip_mu);
-        if (step < 0 || reload_clips[step].empty()) continue; // (the game's line plays: not muted)
-        // your gun empty: your step; else it was your partner's gun: the game's own line, which yours mutes
-        line_now = host_player_ammo(net_local) == 0 ? &reload_clips[step] : &original_line;
-        line_pos = -kLineDelay;
+        if (cmd_have == 3 && std::memcmp(cmd_seen, kShootOutside, 3) == 0) cmd_have = 0, line_busy = kLineFrames;
     }
 }
-// this player's board: the line's samples silent while a reload gesture is on (and its clips are loaded)
-void mute_line(snd::Board &sb) {
-    static int muted = -1;
-    bool want;
-    {
-        std::lock_guard<std::mutex> lock(clip_mu);
-        const int step = clip_for_step(arcade_reload_step);
-        want = step >= 0 && !reload_clips[step].empty();
-        if (want && original_line.empty()) {   // the game's own line (22050 Hz to 44.1 kHz)
-            const std::vector<uint8_t> b = sb.sample_bytes(kShootOutsideFrom, kShootOutsideTo);
-            original_line.resize(b.size() * 2);
-            for (size_t i = 0; i < original_line.size(); i++) {
-                const float a = float(int8_t(b[i / 2])), c = i / 2 + 1 < b.size() ? float(int8_t(b[i / 2 + 1])) : a;
-                original_line[i] = (i & 1 ? (a + c) * 0.5f : a) / 128.0f;
-            }
-        }
-    }
-    if (int(want) == muted) return;
-    muted = int(want);
-    sb.mute_samples(want ? kShootOutsideFrom : 0, want ? kShootOutsideTo : 0);
+// before the board runs (the sound thread idle: the bytes are this thread's): the clip for the step in the line's
+// place, or the game's own back
+void bake_line(snd::Board &sb) {
+    if (line_busy > 0) { line_busy--; return; }
+    std::lock_guard<std::mutex> lock(clip_mu);
+    int want = clip_for_step(arcade_reload_step);
+    if (want >= 0 && reload_clips[want].empty()) want = -1;
+    if (want == baked) return;
+    if (original_line.empty()) original_line = sb.sample_bytes(kLineFrom, kLineTo);
+    if (original_line.size() != kLineTo - kLineFrom) return; // (a board without the sample ROM)
+    sb.patch_samples(kLineFrom, want >= 0 ? reload_clips[want] : original_line);
+    baked = want;
 }
 
 void push_audio(snd::Board &sb) {
     std::vector<float> pcm = sb.take_pcm();
-    {   // the reload line in place of the game's (watch_sound_commands), at its level and in the effects volume
-        std::lock_guard<std::mutex> lock(clip_mu);
-        if (line_now) {
-            const float g = kLineGain * port_sfx_gain;
-            for (size_t i = 0; i + 1 < pcm.size(); i += 2, line_pos++) {
-                if (line_pos < 0) continue;
-                if (size_t(line_pos) >= line_now->size()) { line_now = nullptr; break; }
-                const float v = (*line_now)[size_t(line_pos)] * g;
-                pcm[i] += v, pcm[i + 1] += v;
-            }
-        }
-    }
     for (float f : pcm) sound_peak = std::max(sound_peak, std::fabs(f));
     const float gain = volume.load() * (float(quest_volume) / 100.0f) * rt::game().output_gain;
     std::lock_guard<std::mutex> lock(ring.mu);
@@ -784,11 +758,14 @@ void push_audio(snd::Board &sb) {
 }
 
 } // namespace
-extern "C" void arcade_reload_clip(int step, const int16_t *pcm, int n) {
+extern "C" void arcade_reload_clip(int step, const int16_t *pcm, int n) {   // 22050 Hz mono
     if (step < 0 || step > 2) return;
     std::lock_guard<std::mutex> lock(clip_mu);
-    reload_clips[step].assign(size_t(n > 0 ? n : 0), 0.f);
-    for (int i = 0; i < n; i++) reload_clips[step][size_t(i)] = float(pcm[i]) / 32768.0f;
+    std::vector<uint8_t> &c = reload_clips[step];
+    c.assign(kLineTo - kLineFrom, 0);  // (silence after it)
+    for (int i = 0; i < n && size_t(i) < c.size(); i++) c[size_t(i)] = uint8_t(int8_t(std::clamp((pcm[i] + 128) >> 8, -128, 127)));
+    if (n > int(c.size())) LOGE("reload line %d: %d samples, the line has room for %zu", step, n, c.size());
+    baked = -2; // (written again)
 }
 namespace {
 
@@ -1321,7 +1298,7 @@ extern "C" int SDL_main(int argc, char **argv) {
             }
         }
         watch_sound_commands(packet.bytes());
-        if (game->sound()) mute_line(*game->sound()); // (before the board runs: the sound thread reads it)
+        if (game->sound()) bake_line(*game->sound()); // (the sound thread idle till run: its bytes are ours)
         sound_thread.run(std::move(packet));
         prof.scene += now_ns() - t_scene;
         if (++prof.frames == 600) {

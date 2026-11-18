@@ -67,9 +67,16 @@ int main(int argc, char **argv) {
     game.board().video().set_external_3d(true, false); // as the Quest app: the 2D layers composed on the CPU
     game.board().video().set_cpu_layers(true);
     if (vr) game.board().set_vr(true);
-    if (const char *e = std::getenv("M2_SND_MUTE"); e && game.sound()) { // tests: FROM,TO (hex) of the sample ROM silent
-        unsigned from = 0, to = 0;
-        if (std::sscanf(e, "%x,%x", &from, &to) == 2) game.sound()->mute_samples(from, to);
+    if (const char *e = std::getenv("M2_SND_PATCH"); e && game.sound()) { // tests: HEXADDR,FILE written over the sample ROM
+        unsigned at = 0;
+        char path[512] = "";
+        if (std::sscanf(e, "%x,%511s", &at, path) == 2)
+            if (FILE *f = std::fopen(path, "rb")) {
+                std::vector<uint8_t> b;
+                for (int c; (c = std::fgetc(f)) != EOF;) b.push_back(uint8_t(c));
+                std::fclose(f);
+                game.sound()->patch_samples(at, b);
+            }
     }
     for (uint64_t f = 0; f < frames; f++) {
         const uint64_t at = board_frames ? game.board().frame() : f;

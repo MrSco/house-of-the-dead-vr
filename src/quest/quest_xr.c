@@ -1948,8 +1948,9 @@ static void release_all(void) {
     if (S.menu) { quest_key(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, 0); S.menu = 0; }
 }
 // The reload gesture's lines for the game's "Shoot outside of the screen!" (said when the trigger is pulled on an
-// empty gun): assets voice-drop-mag.wav, voice-load-mag.wav, voice-rack-slide.wav (16-bit mono 44.1 kHz WAVs) to the
-// arcade bridge (arcade_reload_clip), which says the one for your step (arcade_reload_step)
+// empty gun): assets voice-drop-mag.wav, voice-load-mag.wav, voice-rack-slide.wav (16-bit mono 22050 Hz WAVs, the
+// line's rate) to the arcade bridge (arcade_reload_clip), which bakes the one for your step (arcade_reload_step) into
+// the line's place
 void arcade_reload_clip(int step, const int16_t *pcm, int n);
 static void load_reload_lines(struct AAssetManager *am) {
     static const char *const names[3] = { "voice-drop-mag.wav", "voice-load-mag.wav", "voice-rack-slide.wav" };
@@ -1966,7 +1967,7 @@ static void load_reload_lines(struct AAssetManager *am) {
                 if (o + 8 + len > n) break;
                 const uint8_t *c = b + o + 8;
                 if (!memcmp(b + o, "fmt ", 4) && len >= 16)
-                    fmt_ok = (c[0] | c[1] << 8) == 1 && (c[2] | c[3] << 8) == 1 && (c[4] | c[5] << 8 | c[6] << 16) == 44100 &&
+                    fmt_ok = (c[0] | c[1] << 8) == 1 && (c[2] | c[3] << 8) == 1 && (c[4] | c[5] << 8 | c[6] << 16) == 22050 &&
                              (c[14] | c[15] << 8) == 16;
                 if (!memcmp(b + o, "data", 4) && fmt_ok) {
                     int16_t *pcm = malloc(len);
@@ -1982,7 +1983,7 @@ static void load_reload_lines(struct AAssetManager *am) {
             }
         }
         AAsset_close(a);
-        LOGI("reload line %s: %s", names[i], ok ? "loaded" : "not a 16-bit mono 44.1 kHz WAV");
+        LOGI("reload line %s: %s", names[i], ok ? "loaded" : "not a 16-bit mono 22050 Hz WAV");
     }
 }
 // ---------------------------------------------------------------- the settings and the VR menu
