@@ -130,6 +130,8 @@ uint16_t ScspBoard::read16(uint32_t addr) {
                 next = o + 2;
             }
         }
+        const uint64_t mute = mute_.load(std::memory_order_relaxed);
+        if (o >= uint32_t(mute >> 32) && o < uint32_t(mute)) return 0; // (mute_samples)
         return o + 1 < samples_.size() ? uint16_t(samples_[o] << 8 | samples_[o + 1]) : 0;
     }
     return 0;

@@ -73,6 +73,7 @@ public:
         }
         uint64_t execute();
         snd::Board *sound() const { return sound_; }
+        const std::vector<uint8_t> &bytes() const { return bytes_; } // the frame's command bytes for the board
 
     private:
         friend class GameLoop;

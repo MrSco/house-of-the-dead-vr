@@ -27,6 +27,7 @@
 // port.log, vr-options.cfg (the menu's settings) and env.txt (KEY=VALUE lines, the PORT_* switches of the other
 // builds plus QUEST_HZ, QUEST_RES_SCALE, QUEST_SCALE, which override the settings).
 #include <android_native_app_glue.h>
+#include <android/asset_manager.h>
 #include <android/log.h>
 #include <jni.h>
 #include <EGL/egl.h>
@@ -637,6 +638,7 @@ static int cabinet_room(void) {
     return r;
 }
 static int gun_cabinet;   // (load_gun: the cabinet's gun is in your hand)
+static void load_reload_lines(struct AAssetManager *am);   // (the reload gesture's lines: below)
 // The gun's tilt in your hand at Gun angle 0 (degrees, + raises the barrel): the angle that feels right held as a
 // pistol is (players set -15 on the old 0)
 #define GUN_PITCH_BASE (-15.0f)
@@ -844,6 +846,7 @@ static int gl_init(void) {
     load_gun();
     S.cab_model = qcab_load(S.app->activity->assetManager, "cabinet.tccab");
     S.hands_model = qhand_load(S.app->activity->assetManager, "hands.tchand");
+    load_reload_lines(S.app->activity->assetManager);
     S.prog_vig = program(VS_VIG, FS_VIG);
     S.u_vig = glGetUniformLocation(S.prog_vig, "vig");
     S.prog_menu = program(VS_TEX, FS_MENU);
@@ -1944,6 +1947,44 @@ static void release_all(void) {
     if (S.skip) { quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, 0); S.skip = 0; }
     if (S.menu) { quest_key(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, 0); S.menu = 0; }
 }
+// The reload gesture's lines for the game's "Shoot outside of the screen!" (said when the trigger is pulled on an
+// empty gun): assets voice-drop-mag.wav, voice-load-mag.wav, voice-rack-slide.wav (16-bit mono 44.1 kHz WAVs) to the
+// arcade bridge (arcade_reload_clip), which says the one for your step (arcade_reload_step)
+void arcade_reload_clip(int step, const int16_t *pcm, int n);
+static void load_reload_lines(struct AAssetManager *am) {
+    static const char *const names[3] = { "voice-drop-mag.wav", "voice-load-mag.wav", "voice-rack-slide.wav" };
+    for (int i = 0; i < 3; i++) {
+        AAsset *a = am ? AAssetManager_open(am, names[i], AASSET_MODE_BUFFER) : NULL;
+        if (!a) { LOGE("reload line: no asset %s", names[i]); continue; }
+        const uint8_t *b = AAsset_getBuffer(a);
+        const size_t n = (size_t)AAsset_getLength(a);
+        int ok = 0;
+        if (b && n > 12 && !memcmp(b, "RIFF", 4) && !memcmp(b + 8, "WAVE", 4)) {
+            int fmt_ok = 0;
+            for (size_t o = 12; o + 8 <= n;) {   // the chunks: fmt (PCM, mono, 16-bit, 44.1 kHz), then data
+                const uint32_t len = (uint32_t)b[o + 4] | (uint32_t)b[o + 5] << 8 | (uint32_t)b[o + 6] << 16 | (uint32_t)b[o + 7] << 24;
+                if (o + 8 + len > n) break;
+                const uint8_t *c = b + o + 8;
+                if (!memcmp(b + o, "fmt ", 4) && len >= 16)
+                    fmt_ok = (c[0] | c[1] << 8) == 1 && (c[2] | c[3] << 8) == 1 && (c[4] | c[5] << 8 | c[6] << 16) == 44100 &&
+                             (c[14] | c[15] << 8) == 16;
+                if (!memcmp(b + o, "data", 4) && fmt_ok) {
+                    int16_t *pcm = malloc(len);
+                    if (pcm) {
+                        for (uint32_t k = 0; k + 1 < len; k += 2) pcm[k / 2] = (int16_t)(c[k] | c[k + 1] << 8);
+                        arcade_reload_clip(i, pcm, (int)(len / 2));
+                        free(pcm);
+                        ok = 1;
+                    }
+                    break;
+                }
+                o += 8 + len + (len & 1);
+            }
+        }
+        AAsset_close(a);
+        LOGI("reload line %s: %s", names[i], ok ? "loaded" : "not a 16-bit mono 44.1 kHz WAV");
+    }
+}
 // ---------------------------------------------------------------- the settings and the VR menu
 static void apply_options(void) {
     S.scale = S.base_scale * (float)S.opt[QOPT_WORLD] / 100.0f;
@@ -2322,8 +2363,9 @@ static void cabinet_grab(XrTime t) {
         goto rebase;
     }
 }
-// The reload gesture's step, for the game's RELOAD sign (the arcade bridge writes it there instead): 0 none (the
-// sign stays), 1 / 2 drop the magazine with B / Y, 3 put a new one in, 4 rack the slide, 5 aim at the floor
+// The reload gesture's step, for the game's RELOAD sign (the arcade bridge writes it there instead) and its "Shoot
+// outside of the screen!" line (said instead: load_reload_lines): 0 none (the sign stays), 1 / 2 drop the magazine
+// with B / Y, 3 put a new one in, 4 rack the slide, 5 aim at the floor
 volatile int arcade_reload_step;
 static void reload_step(void) {
     int st = 0, a = host_player_ammo(net_local);

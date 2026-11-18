@@ -69,6 +69,12 @@ float port_music_gain = 1.0f, port_sfx_gain = 1.0f;
 // locked slide and silent laser, the magazine, the reload hints). The game thread keeps these (update_ammo).
 static std::atomic<int> g_ammo[2] = {-1, -1};
 int host_player_ammo(int p) { return p >= 0 && p < 2 ? g_ammo[p].load() : -1; }
+// The reload gesture's step (quest_xr.c, each frame: 0 none, 1 / 2 drop the magazine, 3 put one in, 4 rack the
+// slide, 5 aim at the floor): the RELOAD sign's words and the line said for it (arcade_reload_clip: 0 drop the mag,
+// 1 load one, 2 rack the slide, 44.1 kHz mono)
+extern volatile int arcade_reload_step;
+extern int net_local; // (arcade_net.cpp: this player's slot)
+void arcade_reload_clip(int step, const int16_t *pcm, int n);
 // Where in the picture (rt::Video's pixels, the last inclusive) the game takes a shot as on the screen: short of its
 // edges, where it reloads (rt::GunRange live_*). 0: the whole picture.
 int host_gun_live_rect(int *x0, int *y0, int *x1, int *y1) {
@@ -688,8 +694,76 @@ void SDLCALL audio_cb(void *ud, Uint8 *stream, int len) {
     for (; i < want; i++) out[i] = 0;
 }
 
+// ---- the reload gesture's own lines for the game's "Shoot outside of the screen!" (said when you pull the trigger
+// on an empty gun): "Drop the mag!", "Load mag!", "Rack slide!" by the step you're at (quest_xr.c sets
+// arcade_reload_step; the others: the game's line). The game and its sound board run as ever (online the same for both
+// players): this player's board reads the line's samples as silence (snd::Board::mute_samples) and the app mixes
+// its clip in. Found with the sound log (M2_SCSP_LOG): the command, the driver's voice 5, and its samples.
+constexpr uint8_t kShootOutside[3] = {0xa0, 0x14, 0x05};
+constexpr uint32_t kShootOutsideFrom = 0x4b868, kShootOutsideTo = 0x548a8; // 8-bit, 22050 Hz, 1.67 s
+constexpr float kLineGain = 0.055f; // the line in the board's output: the ROM's samples x 0.055, centred (measured)
+constexpr long kLineDelay = 4410;   // it starts about 0.1 s after the command (the driver streams it)
+std::mutex clip_mu;
+std::vector<float> reload_clips[3];  // 44.1 kHz, -1..1 (arcade_reload_clip)
+// the clip for the gesture's step (arcade_reload_step), -1 the game's own line
+int clip_for_step(int step) { return step == 1 || step == 2 ? 0 : step == 3 ? 1 : step == 4 ? 2 : -1; }
+std::vector<float> original_line;    // the game's own (a partner's empty gun, online)
+const std::vector<float> *line_now = nullptr;
+long line_pos = 0;
+uint8_t cmd_seen[3];
+int cmd_have = 0;
+
+// the frame's command bytes for the sound board (in order across frames): the line's command starts a clip
+void watch_sound_commands(const std::vector<uint8_t> &bytes) {
+    for (uint8_t b : bytes) {
+        if (b & 0x80) cmd_have = 0;
+        if (cmd_have < 3) cmd_seen[cmd_have++] = b;
+        if (cmd_have != 3 || std::memcmp(cmd_seen, kShootOutside, 3) != 0) continue;
+        cmd_have = 0;
+        const int step = clip_for_step(arcade_reload_step);
+        std::lock_guard<std::mutex> lock(clip_mu);
+        if (step < 0 || reload_clips[step].empty()) continue; // (the game's line plays: not muted)
+        // your gun empty: your step; else it was your partner's gun: the game's own line, which yours mutes
+        line_now = host_player_ammo(net_local) == 0 ? &reload_clips[step] : &original_line;
+        line_pos = -kLineDelay;
+    }
+}
+// this player's board: the line's samples silent while a reload gesture is on (and its clips are loaded)
+void mute_line(snd::Board &sb) {
+    static int muted = -1;
+    bool want;
+    {
+        std::lock_guard<std::mutex> lock(clip_mu);
+        const int step = clip_for_step(arcade_reload_step);
+        want = step >= 0 && !reload_clips[step].empty();
+        if (want && original_line.empty()) {   // the game's own line (22050 Hz to 44.1 kHz)
+            const std::vector<uint8_t> b = sb.sample_bytes(kShootOutsideFrom, kShootOutsideTo);
+            original_line.resize(b.size() * 2);
+            for (size_t i = 0; i < original_line.size(); i++) {
+                const float a = float(int8_t(b[i / 2])), c = i / 2 + 1 < b.size() ? float(int8_t(b[i / 2 + 1])) : a;
+                original_line[i] = (i & 1 ? (a + c) * 0.5f : a) / 128.0f;
+            }
+        }
+    }
+    if (int(want) == muted) return;
+    muted = int(want);
+    sb.mute_samples(want ? kShootOutsideFrom : 0, want ? kShootOutsideTo : 0);
+}
+
 void push_audio(snd::Board &sb) {
     std::vector<float> pcm = sb.take_pcm();
+    {   // the reload line in place of the game's (watch_sound_commands), at its level and in the effects volume
+        std::lock_guard<std::mutex> lock(clip_mu);
+        if (line_now) {
+            const float g = kLineGain * port_sfx_gain;
+            for (size_t i = 0; i + 1 < pcm.size(); i += 2, line_pos++) {
+                if (line_pos < 0) continue;
+                if (size_t(line_pos) >= line_now->size()) { line_now = nullptr; break; }
+                const float v = (*line_now)[size_t(line_pos)] * g;
+                pcm[i] += v, pcm[i + 1] += v;
+            }
+        }
+    }
     for (float f : pcm) sound_peak = std::max(sound_peak, std::fabs(f));
     const float gain = volume.load() * (float(quest_volume) / 100.0f) * rt::game().output_gain;
     std::lock_guard<std::mutex> lock(ring.mu);
@@ -708,6 +782,15 @@ void push_audio(snd::Board &sb) {
         ring.n -= drop;
     }
 }
+
+} // namespace
+extern "C" void arcade_reload_clip(int step, const int16_t *pcm, int n) {
+    if (step < 0 || step > 2) return;
+    std::lock_guard<std::mutex> lock(clip_mu);
+    reload_clips[step].assign(size_t(n > 0 ? n : 0), 0.f);
+    for (int i = 0; i < n; i++) reload_clips[step][size_t(i)] = float(pcm[i]) / 32768.0f;
+}
+namespace {
 
 // ---- 2D: the tilemap layers into the overlay (RGB565, D3D_VR_KEY where nothing is drawn)
 inline uint16_t to565(uint32_t c) {
@@ -1237,6 +1320,8 @@ extern "C" int SDL_main(int argc, char **argv) {
                 LOGE("the save state for the guest: %s", e.what());
             }
         }
+        watch_sound_commands(packet.bytes());
+        if (game->sound()) mute_line(*game->sound()); // (before the board runs: the sound thread reads it)
         sound_thread.run(std::move(packet));
         prof.scene += now_ns() - t_scene;
         if (++prof.frames == 600) {

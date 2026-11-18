@@ -35,6 +35,11 @@ public:
     virtual size_t bytes_received() const = 0;
     // The launcher's music and effects volumes (0..1; both 1: unchanged).
     virtual void set_volumes(float, float) {}
+    // This player's ear only (never the game's state, so online play stays the same): the sample ROM's bytes
+    // [from, to) read as silence from now on (from == to: none), and those bytes as they are. Boards without a
+    // sample ROM the program reads do nothing.
+    virtual void mute_samples(uint32_t, uint32_t) {}
+    virtual std::vector<uint8_t> sample_bytes(uint32_t, uint32_t) const { return {}; }
     // Save states (between frames); a board without them throws.
     virtual void state(rt::State &s);
 };

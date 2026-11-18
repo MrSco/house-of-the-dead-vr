@@ -1,0 +1,6 @@
+{
+  "files": ["voice-drop-mag.wav", "voice-load-mag.wav", "voice-rack-slide.wav"],
+  "what": "The reload gesture's lines said in place of the game's \"Shoot outside of the screen!\" (sound command a0 14 05) when the trigger is pulled on an empty gun: drop the magazine, load one, rack the slide (arcade.cpp watch_sound_commands, quest_xr.c load_reload_lines).",
+  "source": "Made for this project by its author with a ComfyUI Chatterbox voice clone of the game's announcer; trimmed and converted to 16-bit mono 44.1 kHz WAV.",
+  "format": "16-bit PCM, mono, 44100 Hz"
+}

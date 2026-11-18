@@ -18,6 +18,9 @@
 #include "runtime/sound/sound_board.h"
 #include "runtime/sound/snd_gen_support.h"
 
+#include <algorithm>
+
+#include <atomic>
 #include <utility>
 #include <vector>
 
@@ -52,6 +55,11 @@ public:
     void set_volumes(float music, float effects) override {
         if (voices_) scsp_.set_volumes(music, effects);
     }
+    void mute_samples(uint32_t from, uint32_t to) override { mute_.store(uint64_t(from) << 32 | to, std::memory_order_relaxed); }
+    std::vector<uint8_t> sample_bytes(uint32_t from, uint32_t to) const override {
+        to = std::min<uint32_t>(to, uint32_t(samples_.size()));
+        return from < to ? std::vector<uint8_t>(samples_.begin() + from, samples_.begin() + to) : std::vector<uint8_t>{};
+    }
 
     // Devices (the 68000's view, outside RAM and program ROM)
     uint16_t read16(uint32_t addr) override;
@@ -72,6 +80,7 @@ private:
     void render_to(uint64_t count);
 
     std::vector<uint8_t> program_, samples_;
+    std::atomic<uint64_t> mute_{0}; // mute_samples: from << 32 | to (the sound thread reads it, the game's sets it)
     const rt::ScspVoices *voices_;
     uint16_t music_channels_;
     Cpu68k cpu_;

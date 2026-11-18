@@ -127,6 +127,10 @@ int main(int argc, char **argv) {
     try {
         rt::GameLoop game(dir, !native_check);
         if (game.sound()) game.sound()->set_volumes(music_volume, effects_volume);
+        if (const char *e = std::getenv("M2_SND_MUTE"); e && game.sound()) { // tests: FROM,TO (hex) of the sample ROM silent
+            unsigned from = 0, to = 0;
+            if (std::sscanf(e, "%x,%x", &from, &to) == 2) game.sound()->mute_samples(from, to);
+        }
         std::unique_ptr<snd::NativeSoundEngine> native;
         if (native_check) {
             if (!rt::game().native_sound) throw std::runtime_error(std::string(rt::game().set) + " has no native audio (src/games/)");
