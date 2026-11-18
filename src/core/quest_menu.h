@@ -20,6 +20,10 @@ typedef struct QMenuHost {
     bool flat;                           // the flat apps (src/flat): a PICTURE tab, SYSTEM and ONLINE; mouse and keys
     bool touch;                          // ...on a touch screen (no window to size; taps, Back)
     bool reports;                        // ...that sends crash reports (the SYSTEM tab's row)
+    // the app's updates from the project's GitHub releases (the SYSTEM tab; quest_xr.c: Updater.java's status line,
+    // "state \t offered \t - \t message \t test builds 0/1 \t installed"; NULL: no updater in this app)
+    const char *update;
+    void (*update_cmd)(const char *cmd); // "check", "update", "testbuilds:0" / "testbuilds:1"
 } QMenuHost;
 
 typedef struct QMenuInput {

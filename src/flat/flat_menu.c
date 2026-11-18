@@ -32,6 +32,7 @@ static const char *FS_DIM =
     "precision mediump float;\nin vec2 v_uv;\nout vec4 o;\nvoid main() { o = vec4(0.0, 0.0, 0.0, 0.55); }\n";
 
 static void menu_action(int a);
+static void test_update_cmd(const char *cmd) { plat_log(PLAT_LOG_INFO, "FLAT_TEST_UPDATE: %s", cmd); }
 static QMenuHost host(void) {
     QMenuHost h;
     memset(&h, 0, sizeof h);
@@ -42,6 +43,16 @@ static QMenuHost host(void) {
     h.flat = true;
     h.touch = flat_os_touch() != 0;
     h.reports = flat_os_has_reports() != 0;
+    {   // FLAT_TEST_UPDATE=state|offered|-|message|tests|installed (tests): the SYSTEM tab's update line with that
+        // status (the Quest's updater's, '|' for its tabs), its buttons logged
+        static int on = -1; static char line[512];
+        if (on < 0) {
+            const char *e = getenv("FLAT_TEST_UPDATE");
+            on = e && *e;
+            if (on) { snprintf(line, sizeof line, "%s", e); for (char *p = line; *p; p++) if (*p == '|') *p = '\t'; }
+        }
+        if (on) { h.update = line; h.update_cmd = test_update_cmd; }
+    }
     return h;
 }
 

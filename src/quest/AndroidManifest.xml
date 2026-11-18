@@ -19,6 +19,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- updates from the project's GitHub releases (src/quest/java/.../Updater.java, UpdateActivity.java): the system
+         installer, after you confirm -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- lets the Khronos loader find the headset's OpenXR runtime -->
     <queries>
@@ -61,6 +64,14 @@
         <activity
             android:name="com.mrsco.hotdvr.ImportActivity"
             android:process=":import"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+        <!-- installing an update (src/quest/java/.../UpdateActivity.java): a 2D panel, the download and the installer -->
+        <activity
+            android:name="com.mrsco.hotdvr.UpdateActivity"
+            android:process=":update"
             android:exported="false"
             android:excludeFromRecents="true"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"

@@ -158,6 +158,24 @@ Revision A. A zip's program ROM is checked (the original revision, hotdo, is
 refused with a message); a 7z by its signature (the game checks every ROM when
 it starts). The set goes to files/arcade/hotd.zip or hotd.7z.
 
+## Updates (src/quest/java: Updater, UpdateActivity; as the GoldenEye VR launcher's)
+
+The app reads this repo's GitHub releases (the API's list, no token) once a launch and from the SYSTEM tab's CHECK FOR
+UPDATES, and offers the newest one newer than its versionName that has its own APK: the Quest's
+`house-of-the-dead-vr-X.apk`, the Steam Frame's `...-frame.apk`, the phones' `...-android.apk` (UpdateVersion: semver
+order, a pre-release before its release). Drafts never; pre-releases only with TEST BUILDS on. UPDATE opens
+UpdateActivity, a 2D panel in a process of its own: "Install unknown apps" if it isn't allowed yet, the download
+(files/updates), its size and GitHub's SHA-256, then that it is this package, no older (versionCode) and signed with
+this app's key, then a PackageInstaller session; the system asks you to confirm, and the update ends the app. The next
+launch says "Updated to vX" once. Cancel abandons a session whose prompt was closed without an answer.
+
+Publishing: a release as before (tag vX.Y.Z, its APK named house-of-the-dead-vr-X.Y.Z.apk); a test build as a GitHub
+pre-release, tag vX.Y.Z-test.N, versionName X.Y.Z-test.N and a higher versionCode than the last build (Android takes no
+lower one), its APK house-of-the-dead-vr-X.Y.Z-test.N.apk. All signed with the release key: another key's APK is
+refused before the installer sees it. Tests: tools/updater_test (UpdateVersion on a desktop JVM); QUEST_TEST_UPDATE=
+seconds in env.txt presses UPDATE (a build whose versionName is set back sees the latest release as an update);
+FLAT_TEST_UPDATE shows the SYSTEM tab's line in the Windows app with a given status.
+
 ## The cabinet room
 
 The VIEW tab's Cabinet room setting (QOPT_ROOM) picks what surrounds the cabinet view:

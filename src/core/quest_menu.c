@@ -338,6 +338,64 @@ static void header(void) {
         float x = right - kbd_width(k, n); for (int i = 0; i < n; i++) kbd(&x, 47, k[i * 2], k[i * 2 + 1]);
     }
 }
+// ---- updates (the SYSTEM tab; H->update: the updater's status line, quest_menu.h) ----
+// its fields: state, offered version, -, message, test builds (0/1), installed version
+static void update_fields(char f[6][200]) {
+    memset(f, 0, 6 * 200);
+    const char *s = H->update ? H->update : "";
+    for (int i = 0; i < 6 && *s; i++) {
+        const char *e = strchr(s, '\t');
+        const size_t n = e ? (size_t)(e - s) : strlen(s);
+        snprintf(f[i], 200, "%.*s", (int)(n < 199 ? n : 199), s);
+        if (!e) break;
+        s = e + 1;
+    }
+}
+static bool update_waiting(void) {
+    if (!H->update) return false;
+    char f[6][200];
+    update_fields(f);
+    return !strcmp(f[0], "available");
+}
+// the line beside CHANGE ROM SET: CHECK FOR UPDATES / UPDATE TO v..., what the updater says, TEST BUILDS
+static void update_line(float x, float y) {
+    char f[6][200];
+    update_fields(f);
+    const char *st = f[0], *offered = f[1], *msg = f[3], *installed = f[5];
+    const bool avail = !strcmp(st, "available"), checking = !strcmp(st, "checking"), err = !strcmp(st, "error");
+    const bool tests = f[4][0] == '1';
+    char ver[64], label[96], line[300];
+    snprintf(ver, sizeof ver, "%s", offered);
+    char *sp = strchr(ver, ' ');
+    if (sp) *sp = 0;                                  // ("0.4.1-test.1 (test build)": the version alone)
+    if (avail) snprintf(label, sizeof label, "UPDATE TO v%s", ver);
+    else snprintf(label, sizeof label, "%s", checking ? "CHECKING\xE2\x80\xA6" : "CHECK FOR UPDATES");
+    const float bw = 250, tw = 200, tx = CX1 - tw;
+    const int id = ID(K_ROW, QOPT_COUNT + 1), tid = ID(K_ROW, QOPT_COUNT + 2);
+    focusable(id, F_BUTTON, (int)(x + bw / 2));
+    if (button(id, x, y, bw, 48, label, UI_B20, avail ? 1 : 0,
+               avail ? "Downloads it and installs it after you confirm. The game closes; start it again from the Library. "
+                       "Your ROM set, settings and saves are kept."
+                     : "Looks for a newer release of the app (its GitHub releases). It also looks once each time the app starts.")
+        && !checking)
+        H->update_cmd(avail ? "update" : "check");
+    focusable(tid, F_BUTTON, (int)(tx + tw / 2));
+    if (button(tid, tx, y, tw, 48, tests ? "TEST BUILDS: ON" : "TEST BUILDS: OFF", UI_B16, 0,
+               "ON: test builds (pre-releases, ahead of the next release; they may have bugs) are offered as updates too. "
+               "OFF: releases only."))
+        H->update_cmd(tests ? "testbuilds:0" : "testbuilds:1");
+    QColor ink = MUTED;
+    if (avail) { snprintf(line, sizeof line, "v%s is out. You have v%s.", offered, installed); ink = ACCENT; }
+    else if (checking) snprintf(line, sizeof line, "Looking for updates\xE2\x80\xA6");
+    else if (err) { snprintf(line, sizeof line, "%s", msg); ink = WARN; }
+    else if (msg[0]) { snprintf(line, sizeof line, "%s", msg); ink = GOOD; }     // "Updated to v0.4.1."
+    else if (!strcmp(st, "uptodate")) snprintf(line, sizeof line, "Up to date: v%s%s.", installed, tests ? " (test builds too)" : "");
+    else snprintf(line, sizeof line, "v%s", installed);
+    const float lx = x + bw + 14, lw = tx - 14 - lx;
+    if (width(UI_M17, line) <= lw) text(UI_M17, lx, mid(UI_M17, y, 48), line, ink);
+    else para(UI_M17, lx, y + 19, lw, 21, line, ink, 2);
+}
+
 static void tabs(void) {
     static const char *const names[QMENU_TAB_COUNT] = { "GUN", "HANDS", "VIEW", "COMFORT", "GRAPHICS", "SYSTEM", "ONLINE" };
     rrect(3, BODY_Y - 2, QMENU_W - 6, 2, 0, LINE);
@@ -357,6 +415,8 @@ static void tabs(void) {
         // a dot: a change on that tab waits for the next start; online: playing together (green) or not yet
         if (i == QMENU_TAB_GRAPHICS && !H->flat && H->get(QOPT_RESOLUTION) != H->boot_resolution && drawing())
             qc_circle(&cv, x + 20 + qc_text_width(UI_B24, names[i], 1) + 9, mid(UI_B24, 78, 55) - 9, 5, ACCENT);
+        if (i == QMENU_TAB_SYSTEM && update_waiting() && drawing())
+            qc_circle(&cv, x + 20 + qc_text_width(UI_B24, name, 1) + 9, mid(UI_B24, 78, 55) - 9, 5, ACCENT);
         if (i == QMENU_TAB_ONLINE && online_now() && drawing())
             qc_circle(&cv, x + 20 + qc_text_width(UI_B24, name, 1) + 9, mid(UI_B24, 78, 55) - 9, 5, V.state == OV_LINKED ? GOOD : ACCENT);
         if (clicked(id)) tab = i;
@@ -1025,9 +1085,11 @@ static void layout(int which) {
         settings_in(SYSTEM_ROWS, n, n + 1);   // (its ROM button below them: a sixth slot)
         const float by = CY0 + row_step(n + 1) * n + 6;
         // the game's own ROM set: another one (a different revision, a fresh copy)
+        focusable(ID(K_ROW, QOPT_COUNT), F_BUTTON, CX0 + 150);
         if (button(ID(K_ROW, QOPT_COUNT), CX0, by, 300, 48, "CHANGE ROM SET", UI_B20, 0,
                    "Choose your MAME ROM set of the game (hotd.zip or hotd.7z, Revision A). The app restarts with it."))
             H->action(QACT_ARCADE_IMPORT);
+        if (H->update) update_line(CX0 + 316, by);   // (updates: the apps that have an updater)
         next_row();
     }
     else online_tab();
@@ -1187,6 +1249,7 @@ bool qmenu_render(const QMenuHost *host, uint8_t *pixels, double now, int dirty[
     s.boot_r = H->boot_resolution; s.hz = H->hz_now; s.aw = H->active_w; s.ah = H->active_h; s.saved = H->saved;
     uint32_t h = mix(2166136261u, &s, sizeof s);
     if (modal == M_SERVER && kerror) h = mix(h, kerror, strlen(kerror));
+    if (H->update) h = mix(h, H->update, strlen(H->update));   // (the SYSTEM tab's update line and its dot)
     if (tab == QMENU_TAB_ONLINE || online_now()) { h = mix(h, &V, sizeof V); h = mix(h, games, (size_t)game_count * sizeof *games); }
     const int point[3] = { stick_mode ? 0 : hover, pressed, stick_mode ? focus : 0 };
     uint32_t p = mix(2166136261u, point, sizeof point); p = mix(p, help, strlen(help));

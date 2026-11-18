@@ -88,6 +88,11 @@ You need a **Meta Quest 3**. The Quest 3S has the same processor and should work
 
 Online play is on the menu's ONLINE tab. The menu's CONTROLS button lists every control, as your settings make them.
 
+Updates come from the same releases: the app looks for one when it starts, and the menu's SYSTEM tab shows it
+(UPDATE TO ...). It downloads the new APK, checks it and hands it to the headset's installer; your ROM set, settings
+and saves are kept. TEST BUILDS on that tab offers pre-release test builds too. The first update asks you to let the
+app "Install unknown apps".
+
 ### Controls
 
 The gun is in your right hand unless the HANDS tab says otherwise; "other hand" is the one without it.

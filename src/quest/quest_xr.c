@@ -305,6 +305,58 @@ static void multicast_lock(void) {
     else LOGI("Wi-Fi multicast lock held");
     (*a->vm)->DetachCurrentThread(a->vm);
 }
+// ---------------------------------------------------------------- updates (src/quest/java/.../Updater.java)
+// The project's GitHub releases: checked once a launch and from the SYSTEM tab, which shows the status (polled while
+// the menu is open) and starts the update (UpdateActivity, a 2D panel). The class through the app's class loader:
+// FindClass from this thread sees only the system's.
+static struct { jclass cls; jmethodID status, command; char line[512]; double polled; } UPD;
+static int upd_env(JNIEnv **env) { return (*S.app->activity->vm)->AttachCurrentThread(S.app->activity->vm, env, NULL) == JNI_OK; }
+static void upd_done(JNIEnv *env, const char *what) {
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionDescribe(env); (*env)->ExceptionClear(env); LOGE("updater: %s failed", what); }
+    (*S.app->activity->vm)->DetachCurrentThread(S.app->activity->vm);
+}
+static void updater_command(const char *cmd) {
+    JNIEnv *env;
+    if (!UPD.cls || !upd_env(&env)) return;
+    jstring s = (*env)->NewStringUTF(env, cmd);
+    (*env)->CallStaticVoidMethod(env, UPD.cls, UPD.command, s);
+    upd_done(env, cmd);
+    UPD.polled = -1;   // (the status again at once)
+    LOGI("updater: %s", cmd);
+}
+static void updater_poll(double now) {
+    if (!UPD.cls || (now - UPD.polled < 0.3 && UPD.polled >= 0)) return;
+    UPD.polled = now;
+    JNIEnv *env;
+    if (!upd_env(&env)) return;
+    jstring s = (jstring)(*env)->CallStaticObjectMethod(env, UPD.cls, UPD.status);
+    if (s && !(*env)->ExceptionCheck(env)) {
+        const char *c = (*env)->GetStringUTFChars(env, s, NULL);
+        if (c) { snprintf(UPD.line, sizeof UPD.line, "%s", c); (*env)->ReleaseStringUTFChars(env, s, c); }
+    }
+    upd_done(env, "status");
+}
+static void updater_start(void) {
+    ANativeActivity *a = S.app->activity;
+    JNIEnv *env;
+    if (!upd_env(&env)) return;
+    jclass ac = (*env)->GetObjectClass(env, a->clazz);
+    jobject loader = (*env)->CallObjectMethod(env, a->clazz, (*env)->GetMethodID(env, ac, "getClassLoader", "()Ljava/lang/ClassLoader;"));
+    jclass lc = loader ? (*env)->GetObjectClass(env, loader) : NULL;
+    jclass cls = lc ? (jclass)(*env)->CallObjectMethod(env, loader, (*env)->GetMethodID(env, lc, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;"),
+                                                       (*env)->NewStringUTF(env, "com.mrsco.hotdvr.Updater")) : NULL;
+    if (cls && !(*env)->ExceptionCheck(env)) {
+        jmethodID init = (*env)->GetStaticMethodID(env, cls, "init", "(Landroid/content/Context;)V");
+        UPD.status = (*env)->GetStaticMethodID(env, cls, "status", "()Ljava/lang/String;");
+        UPD.command = (*env)->GetStaticMethodID(env, cls, "command", "(Ljava/lang/String;)V");
+        if (init && UPD.status && UPD.command && !(*env)->ExceptionCheck(env)) {
+            (*env)->CallStaticVoidMethod(env, cls, init, a->clazz);
+            if (!(*env)->ExceptionCheck(env)) UPD.cls = (jclass)(*env)->NewGlobalRef(env, cls);
+        }
+    }
+    upd_done(env, "start");
+    if (UPD.cls) updater_command("check");   // one look a launch
+}
 static void setup_files(void) {
     const char *d = S.app->activity->externalDataPath ? S.app->activity->externalDataPath : S.app->activity->internalDataPath;
     snprintf(S.files, sizeof S.files, "%s", d ? d : "/sdcard/hotdvr");
@@ -353,6 +405,7 @@ static void setup_files(void) {
     voice_init();
     online_restart = request_restart;
     if (online_boot(S.files)) { multicast_lock(); online_start(); apply_options(); }   // (the partner's crosshair)
+    updater_start();
 }
 
 // ---------------------------------------------------------------- restarting the app (online play begins and ends so)
@@ -2113,6 +2166,7 @@ static void menu_action(int a) {
 }
 static QMenuHost menu_host(void) {
     QMenuHost h = { opt_get, opt_set, menu_action, S.boot_res, (unsigned)S.sc_w, (unsigned)S.sc_h, S.opt_saved != 0, S.hz_now };
+    if (UPD.cls) h.update = UPD.line, h.update_cmd = updater_command;   // (the SYSTEM tab's updates)
     return h;
 }
 // where hand h's ray meets the panel, in menu pixels
@@ -2161,6 +2215,7 @@ static void menu_input(XrTime t) {
         get_stick(k, &x, &y);
         if (fabsf(x) + fabsf(y) > fabsf(in.stick_x) + fabsf(in.stick_y)) { in.stick_x = x; in.stick_y = y; }
     }
+    updater_poll(in.now);
     QMenuHost host = menu_host();
     qmenu_update(&host, &in);
 }
@@ -2899,6 +2954,12 @@ static void frame(void) {
         static double at = -1; static XrTime t0; static int tab = -1;
         if (at < 0) { const char *e = getenv("QUEST_MENU_AT"); at = e ? atof(e) : 0; if (e && strchr(e, ',')) tab = atoi(strchr(e, ',') + 1); t0 = fs.predictedDisplayTime; }
         if (at > 0 && (double)(fs.predictedDisplayTime - t0) / 1e9 >= at) { at = 0; menu_set_open(1); if (tab >= 0) qmenu_open(tab); }
+    }
+    {   // QUEST_TEST_UPDATE=seconds (env.txt, tests): the SYSTEM tab's UPDATE that long after the first frame (the update
+        // the launch's check found; none: a check)
+        static double at = -1; static XrTime t0;
+        if (at < 0) { const char *e = getenv("QUEST_TEST_UPDATE"); at = e ? atof(e) : 0; t0 = fs.predictedDisplayTime; }
+        if (at > 0 && (double)(fs.predictedDisplayTime - t0) / 1e9 >= at) { at = 0; LOGI("test: update"); updater_command("update"); }
     }
     {   // QUEST_TEST_ONLINE=seconds,host|hostlan|join:CODE|joinip:IP|leave (env.txt, tests): that ONLINE tab action that long after the
         // first frame. env.txt goes first, so the restart the action makes starts as a player would have it.
