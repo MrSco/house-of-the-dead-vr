@@ -38,6 +38,7 @@ typedef struct {
     int w, h;                         // the game's frame (640 x 480)
     float up[3]; int up_ok;           // the world's up in the game camera's space (from the scenery), when known
     float turn, turn_all;             // how fast the game camera turns, radians per game frame: its heading, all of it
+    float move;                       // and how fast it moves, game units per game frame
     uint32_t serial;                  // counts published scenes
 } VrScene;
 // VR thread: the newest published scene (NULL before the first); it stays valid until the next call

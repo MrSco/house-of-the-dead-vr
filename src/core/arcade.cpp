@@ -204,16 +204,47 @@ struct DepthGrid {
     }
 } depth_grid;
 
-// Comfort (the app's Horizon and Turn vignette, d3d_vr.h VrScene up / turn / turn_all; a fade on camera cuts): the
-// camera's orientation from the sky, a cylinder of panels round the camera (window 1, about 1,800 units out) whose
-// top and bottom are fans: the line from the bottom's centre to the top's is the world's up, and a panel's corner
-// (the same every frame) gives the heading.
+// Comfort (the app's Horizon and Turn vignette, d3d_vr.h VrScene up / turn / turn_all / move; a fade on camera
+// cuts): the game's own camera, its world -> camera matrix in work RAM (GameCamera), every frame, indoors and out;
+// for the up, the sky first when it shows (a cylinder of panels round the camera, window 1, about 1,800 units out,
+// whose top and bottom are fans: the line from the bottom's centre to the top's is the world's up).
 struct Comfort {
     bool have = false, ever = false;               // the last frame had the sky; some frame had
     float up[3] = {0, 1, 0}, ref[3] = {0, 0, 1}; // the last up and horizontal reference seen, camera space
     int fade = 0;                                // frames of the cut's fade left
 } comfort;
 constexpr float kCutTurn = 0.44f;  // radians in one frame (25 degrees): a cut, not a turn
+constexpr float kCutMove = 30.f;   // game units in one frame (3.3 m): a cut, not a move
+
+// The game's camera: its world -> camera matrix at work RAM 0x51ea50, MAME's 3 x 4 as the geometrizer takes it
+// (x' = m0 x + m3 y + m6 z + m9 ...; world up +y). Found by searching RAM for a rotation that changes from frame to
+// frame: its turn matches the scenery's (2.06 against 2.07 degrees a frame, stage 1), its up the sky's (0, 0.58, 0.81
+// looking up at the gargoyle), and it goes on indoors where there is no sky. Read after each frame.
+struct GameCamera {
+    bool ok = false;
+    float r[9]; // rows of R (camera <- world)
+    float p[3]; // its position in the world
+};
+GameCamera read_camera(rt::M2Board &b) {
+    GameCamera c;
+    float m[12];
+    for (int i = 0; i < 12; i++) {
+        const uint32_t w = b.read_dword(0x0051ea50 + 4 * uint32_t(i));
+        std::memcpy(&m[i], &w, 4);
+        if (!std::isfinite(m[i])) return c;
+    }
+    const float r[9] = {m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]};
+    for (int i = 0; i < 3; i++)   // a rotation, or not the camera (the attract's 2D screens, a boot)
+        for (int j = 0; j < 3; j++) {
+            const float d = r[3 * i] * r[3 * j] + r[3 * i + 1] * r[3 * j + 1] + r[3 * i + 2] * r[3 * j + 2];
+            if (std::fabs(d - (i == j ? 1.f : 0.f)) > 0.01f) return c;
+        }
+    std::copy(r, r + 9, c.r);
+    for (int k = 0; k < 3; k++) c.p[k] = -(r[k] * m[9] + r[3 + k] * m[10] + r[6 + k] * m[11]); // -R^T t
+    c.ok = true;
+    return c;
+}
+GameCamera game_camera, last_camera; // this frame's (the game thread sets it before publishing), the one before
 constexpr float kSkyNear = 200.f;
 constexpr int kScreenHold = 10;  // the sky's points are all further than this (game units; its fans' centres ~300)
 constexpr int kCutFade = 9;        // frames the fade takes (from black)
@@ -274,10 +305,20 @@ bool sky_frame(const std::vector<rt::GeoPoly> &polys, float *up, float *ref) {
 
 // up, turn and the cut fade for the scene being built
 void comfort_from_sky(const std::vector<rt::GeoPoly> &polys, VrScene &sc) {
-    float turn = 0, turn_all = 0;
+    float turn = 0, turn_all = 0, move = 0;
     float up[3], ref[3];
     const bool ok = sky_frame(polys, up, ref);
-    if (ok && comfort.have) {
+    const GameCamera &c = game_camera, &l = last_camera;
+    if (c.ok && l.ok) {   // the game's camera: all of its turn (R R'^T's angle), its heading's, its move
+        float tr = 0;
+        for (int i = 0; i < 9; i++) tr += c.r[i] * l.r[i];
+        turn_all = std::acos(std::clamp((tr - 1.f) * 0.5f, -1.f, 1.f));
+        // the heading: its forward (R^T z, R's third row) about the world's up (+y)
+        const float h1 = std::atan2(c.r[6], c.r[8]), h0 = std::atan2(l.r[6], l.r[8]);
+        turn = std::fabs(std::remainder(h1 - h0, 6.2831853f));
+        move = std::hypot(c.p[0] - l.p[0], c.p[1] - l.p[1], c.p[2] - l.p[2]);
+        if (turn_all > kCutTurn || move > kCutMove) comfort.fade = kCutFade, turn = turn_all = move = 0; // a cut
+    } else if (ok && comfort.have) {
         float c[3];
         cross3(comfort.ref, ref, c);
         turn = std::fabs(std::atan2(dot3(c, up), dot3(comfort.ref, ref)));
@@ -290,12 +331,24 @@ void comfort_from_sky(const std::vector<rt::GeoPoly> &polys, VrScene &sc) {
         if (turn_all > kCutTurn) comfort.fade = kCutFade, turn = turn_all = 0; // a cut: fade, no vignette
     }
     if (ok) std::copy(up, up + 3, comfort.up), std::copy(ref, ref + 3, comfort.ref), comfort.ever = true;
-    if (comfort.ever) { // (no sky this frame, indoors: the last up, rather than the world snapping by the camera's pitch)
+    else if (c.ok && c.r[4] > 0.3f) { // no sky (indoors): the camera's own (R's +y column)
+        comfort.up[0] = c.r[1], comfort.up[1] = c.r[4], comfort.up[2] = c.r[7];
+        comfort.ever = true;
+    }
+    if (comfort.ever) { // (no sky and no camera: the last up, rather than the world snapping by the camera's pitch)
         sc.up[0] = comfort.up[0], sc.up[1] = comfort.up[1], sc.up[2] = comfort.up[2];
         sc.up_ok = 1;
     }
     comfort.have = ok;
-    sc.turn = turn, sc.turn_all = turn_all;
+    sc.turn = turn, sc.turn_all = turn_all, sc.move = move;
+    {   // M2_COMFORT_LOG=1 (tests): twice a second, what comfort measured
+        static int on = -1, n = 0;
+        if (on < 0) on = getenv("M2_COMFORT_LOG") && atoi(getenv("M2_COMFORT_LOG"));
+        if (on && ++n % 30 == 0)
+            LOGI("comfort: camera %d sky %d, turn %.0f deg/s (heading %.0f), %.1f m/s, up %.2f %.2f %.2f", int(c.ok), int(ok),
+                 double(turn_all) * 60 * 57.3, double(turn) * 60 * 57.3, double(move) * 60 * 0.11, double(comfort.up[0]),
+                 double(comfort.up[1]), double(comfort.up[2]));
+    }
     if (comfort.fade > 0) { // black, clearing over kCutFade frames
         const uint32_t a = uint32_t(255 * comfort.fade / kCutFade);
         sc.fade = a << 24;
@@ -1267,6 +1320,8 @@ extern "C" int SDL_main(int argc, char **argv) {
             prof.sound += sound_thread.take_ns();
         }
         update_ammo(*game);
+        last_camera = game_camera;
+        game_camera = read_camera(game->board());
         const uint64_t t_scene = now_ns();
         const int behind = arcade_net::catching_up(); // a guest with frames to catch up on: 2 many (don't draw)
         const rt::Video &video = game->board().video();

@@ -99,7 +99,7 @@ static const RowDef COMFORT_ROWS[] = {
     { QOPT_HORIZON, "Horizon", "Keep the world level when the game's camera tilts",
       "LEVEL: the world stays level; look down or up yourself. NO ROLL: no sideways tilt. GAME: as the game's camera.",
       T_SEG, { "GAME", "NO ROLL", "LEVEL" }, 3, 1, "", false },
-    { QOPT_VIGNETTE, "Turn vignette", "Darkens the edges while the camera turns", "When the game's camera swings round, the edges of your view darken. HIGH narrows it more.",
+    { QOPT_VIGNETTE, "Turn vignette", "Darkens the edges while the camera turns or rushes", "When the game's camera swings round or moves fast, the edges of your view darken. HIGH starts sooner and narrows it more.",
       T_SEG, { "OFF", "LOW", "HIGH" }, 3, 1, "", false },
 };
 static const RowDef GRAPHICS_ROWS[] = {

@@ -28,7 +28,17 @@ int main(int argc, char **argv) {
         if (!std::strcmp(argv[i], "--inputs")) script.load(argv[++i]);
     rt::GameLoop game(argv[1]);
     if (!std::getenv("M2_VR") || std::atoi(std::getenv("M2_VR")) != 0) game.board().set_vr(true);
-    for (uint64_t f = 0; f < frames; f++) script.pokes(f, game.board()), game.run_frame(script.at(f));
+    // M2_POLYAT_OBJECTS=FIRST: every frame from FIRST on, the models drawn and their matrices (Geo::objects), then out
+    const char *objs = std::getenv("M2_POLYAT_OBJECTS");
+    const uint64_t objs_from = objs ? std::strtoull(objs, nullptr, 10) : 0;
+    for (uint64_t f = 0; f < frames; f++) {
+        script.pokes(f, game.board()), game.run_frame(script.at(f));
+        if (objs && f + 1 >= objs_from)
+            for (const rt::Geo::Object &o : game.board().geo().objects)
+                std::printf("obj %llu %08x %d %g %g %g %g %g %g %g %g %g %g %g %g\n", (unsigned long long)(f + 1), o.address, o.window,
+                            o.m[0], o.m[1], o.m[2], o.m[3], o.m[4], o.m[5], o.m[6], o.m[7], o.m[8], o.m[9], o.m[10], o.m[11]);
+    }
+    if (objs) return 0;
     const rt::Video &video = game.board().video();
     const std::vector<rt::GeoPoly> &polys = video.gpu_polys();
     std::vector<size_t> order(polys.size());

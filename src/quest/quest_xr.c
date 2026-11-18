@@ -1206,11 +1206,17 @@ static void update_vignette(float dt) {
     const VrScene *sc = S.scene;
     float target = 0;
     if (sc && !S.menu_open && S.opt[QOPT_VIGNETTE] != QVIGNETTE_OFF) {
-        // degrees a second the world turns around you: the heading only when the horizon is kept level
+        // degrees a second the world turns around you (the heading only when the horizon is kept level), and metres a
+        // second it moves past you: the game walks you at about 0.7 m/s indoors, swoops at 8 to 12, turns at up to 200
+        // degrees a second; LOW eases in later and closes less than HIGH
+        const int high = S.opt[QOPT_VIGNETTE] == QVIGNETTE_HIGH;
         float rate = (S.opt[QOPT_HORIZON] == QHORIZON_LEVEL ? sc->turn : sc->turn_all) * 60.0f * 57.2958f;
-        target = (rate - 25.0f) / 80.0f;
+        float speed = sc->move * S.scale * 60.0f;
+        float t_turn = high ? (rate - 15.0f) / 60.0f : (rate - 30.0f) / 90.0f;
+        float t_move = high ? (speed - 1.0f) / 3.0f : (speed - 2.0f) / 6.0f;
+        target = t_turn > t_move ? t_turn : t_move;
         target = target < 0 ? 0 : target > 1 ? 1 : target;
-        target *= S.opt[QOPT_VIGNETTE] == QVIGNETTE_HIGH ? 1.0f : 0.65f;
+        target *= high ? 1.0f : 0.65f;
     }
     float tau = target > S.vig ? 0.08f : 0.35f;          // closes quickly, opens gently
     S.vig += (target - S.vig) * (1 - expf(-dt / tau));

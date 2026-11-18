@@ -140,6 +140,15 @@ public:
     // This frame's output.
     std::vector<GeoPoly> polys;       // kept polygons, in the order added
     std::vector<uint32_t> pushed;     // every word handed to the rasterizer
+    // Every model drawn this frame (geo_object_data): its address and the matrix it was drawn with (model -> camera,
+    // MAME's 3 x 4: x' = m0 x + m3 y + m6 z + m9 ...), in its window. The scenery's stays put in the world, so from
+    // one frame to the next its matrices change as the camera moves (a headset's comfort: arcade.cpp).
+    struct Object {
+        uint32_t address;
+        uint8_t window;
+        float m[12];
+    };
+    std::vector<Object> objects;
     bool record_pushes = false;
 
     struct plane {

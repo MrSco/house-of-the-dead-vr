@@ -1536,6 +1536,11 @@ GeoPtr Geo::geo_object_data(geo_state *geo, uint32_t opcode, GeoPtr input)
 	uint32_t  tha = *input++;     /* Texture Header Address */
 	uint32_t  oba = *input++;     /* Object Address */
 	uint32_t  obc = *input++;     /* Object Count */
+	{
+		Object o{oba, raster->cur_window, {}};
+		std::copy(geo->matrix, geo->matrix + 12, o.m);
+		objects.push_back(o);
+	}
 
 	GeoPtr obp;                /* Object Pointer */
 
@@ -2148,6 +2153,7 @@ void Geo::parse(uint32_t read_start)
 
 	// reset raster frame variables
 	render_frame_start();
+	objects.clear();
 
 	while (end_code == false && input.i < 0x20000/4 && op_count++ < 0x8000)
 	{
