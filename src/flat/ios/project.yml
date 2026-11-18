@@ -8,8 +8,8 @@
 # From the environment (build_apple.py sets them):
 #   ANGLE_DIR          ANGLE's one place on the Mac (~/angle), its xcframeworks
 #   HOTD_LIBS          build_ios (the libraries: build_ios/simulator, build_ios/device)
-#   HOTD_VERSION       0.4.1 (the Quest app's versionName)
-#   HOTD_BUILD         7 (its versionCode)
+#   HOTD_VERSION       0.4.2 (the Quest app's versionName)
+#   HOTD_BUILD         8 (its versionCode)
 #   DEVELOPMENT_TEAM   your Apple team id, for a signed device build (SideStore re-signs an unsigned one)
 name: HouseOfTheDeadVR
 options:

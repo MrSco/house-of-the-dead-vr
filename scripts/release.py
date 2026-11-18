@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A release's downloads, every platform from the same commit (as GoldenEye VR's releases), and their table.
 
-  python scripts/release.py [--apple] [--only quest,frame,phone,windows,mac,ios] [--publish] [--no-build]
+  python scripts/release.py [--apple] [--testflight] [--only quest,frame,phone,windows,mac,ios] [--publish] [--no-build]
 
 From a clean checkout (no uncommitted changes to tracked files: the builds stamp the commit), the version being
 src/quest/AndroidManifest.xml's versionName. Builds into build_release/<version>/, with the names the in-app updater
@@ -18,7 +18,9 @@ Then their SHA-256 into docs/releases/v<version>.md's "## Downloads" (the notes,
 Quest's crash symbols to the private repo. --publish: the GitHub release (tag v<version>, the notes as its text; a
 pre-release for a version with a suffix, 0.4.1-test.1), created, or its assets replaced when it exists. Publishing a
 release also announces it on Discord (.github/workflows/discord-release.yml). --no-build: what build_release/<version>
-already holds (build, check the downloads, then publish them).
+already holds (build, check the downloads, then publish them). --testflight: the iPhone and iPad app to TestFlight
+too, signed for the App Store, its build number the versionCode (the Mac's ~/src/hotd-testflight.sh, which holds the
+account's signing: scripts/build_apple.py --archive).
 """
 import argparse
 import hashlib
@@ -109,6 +111,7 @@ def main():
     ap.add_argument('--only', help='these platforms only (comma-separated keys)')
     ap.add_argument('--publish', action='store_true', help='create or update the GitHub release')
     ap.add_argument('--no-build', action='store_true', help='the downloads already in build_release/<version>')
+    ap.add_argument('--testflight', action='store_true', help='also upload the iPhone/iPad app to TestFlight')
     a = ap.parse_args()
     if not a.no_build and git('status', '--porcelain', '--untracked-files=no'):
         sys.exit('release: uncommitted changes (the builds stamp the commit): commit them first')
@@ -128,6 +131,12 @@ def main():
         for key, suffix, _ in PLATFORMS:
             if key in keys: build(key, out, 'house-of-the-dead-vr-%s%s' % (v, suffix))
         if 'quest' in keys: run([sys.executable, os.path.join(ROOT, 'scripts', 'quest_tools.py'), 'symbols'])
+    if a.testflight and not a.no_build:
+        if not ('mac' in keys or 'ios' in keys): run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py')])
+        man = open(os.path.join(ROOT, 'src', 'quest', 'AndroidManifest.xml'), encoding='utf-8').read()
+        build_no = re.search(r'android:versionCode="([^"]+)"', man).group(1)
+        run(['ssh', MAC, '~/src/hotd-testflight.sh %s --upload' % build_no])
+        log('TestFlight: v%s build %s uploaded (App Store Connect processes it, then it reaches the testers)' % (v, build_no))
     # the notes' downloads table (written over the old one)
     notes = os.path.join(ROOT, 'docs', 'releases', 'v%s.md' % v)
     os.makedirs(os.path.dirname(notes), exist_ok=True)
