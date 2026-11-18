@@ -9,8 +9,9 @@
 # Direct3D 12). The game is built with Clang: if the Clang tools cannot be
 # added, setup stops and says how. --msvc builds with Microsoft's compiler
 # instead. SDL 3 is fetched and built with the project; Vulkan comes with the
-# GPU driver. Put your own ROM set at roms\daytona93.zip (Deluxe '93) and/or
-# roms\daytona.zip (Revision A, 1994) to have the game recompiled too.
+# GPU driver. Put your own ROM set at roms\hotd.zip (or .7z) to have The
+# House of the Dead recompiled too (or run scripts/recompile.py --game
+# houseofthedead afterwards). docs/getting-started.md has the whole path.
 
 $ErrorActionPreference = 'Stop'
 Set-Location -Path $PSScriptRoot

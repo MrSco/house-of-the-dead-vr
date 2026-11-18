@@ -74,7 +74,7 @@ grew from are not part of it (removed 2026-11-16: the project is the Quest
 app); their dependencies (vitaGL, libvita2d and the rest) went with them. Their
 history is in [RetroValou's repository](https://github.com/RetroValou/Sega-Model2-recomp-PSVita).
 
-## The Quest app (`src/quest`, `src/net`)
+## The apps (`src/quest`, `src/flat`, `src/core`, `src/net`)
 
 | Component | Source | Licence | Use |
 | --- | --- | --- | --- |
@@ -83,6 +83,7 @@ history is in [RetroValou's repository](https://github.com/RetroValou/Sega-Model
 | Khronos OpenXR loader for Android 1.1.53 | Maven Central `org.khronos.openxr:openxr_loader_for_android` | Apache-2.0 | Linked; fetched by `scripts/quest_tools.py` into `third_party/quest`, shipped in the APK |
 | SDL 2.32.10 headers | https://github.com/libsdl-org/SDL | zlib | Compiled against; `src/core/host_sdl.c` implements the part used |
 | SDL 3 (`extern/sdl3`) | https://github.com/libsdl-org/SDL | zlib | HOTDVR.exe's game pads: `SDL3.dll` beside it (gamepad, joystick and sensor parts only), loaded at run time by `src/flat/win/pad_win.c` |
+| ANGLE | https://chromium.googlesource.com/angle/angle | BSD-3-Clause | OpenGL ES 3 on Metal for the Mac, iPhone and iPad apps: built outside the repository (`~/angle`), its frameworks in the iOS app, its dylibs in the Mac app |
 | Opus 1.5.2, SpeexDSP 1.2.1, RNNoise 0.2 | xiph.org | BSD | Voice chat; see `src/core/VOICE-LICENSES.md` |
 | Chakra Petch (the menu's font) | Google Fonts | SIL OFL 1.1 | Baked into `src/core/ui_font_data.h`; `src/core/ui_font_OFL.txt` |
 | "The House of the Dead Arcade cabinet" by Seraphim Sarov | Sketchfab | CC BY 4.0 | `src/quest/assets/cabinet.tccab`, changed (see `cabinet.json`) |

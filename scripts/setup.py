@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Fetch everything needed to build daytona-arcade-recomp and build it. The
-same steps on Linux, macOS and Windows; run ./setup.sh (Linux, macOS) or
+"""Fetch everything needed to build the recompiler's tools and build them. Run
 setup.ps1 (Windows) first to install the toolchain, or run this directly if
-you already have one.
+you already have one (docs/getting-started.md).
 
   setup.py [--test-extras] [--with-mame] [--build-mame] [--no-build]
 
@@ -74,14 +73,14 @@ def need(tool, hint):
 
 def check_toolchain():
     say("Checking the toolchain")
-    need("git", "Install Git (setup.sh / setup.ps1 do this).")
-    need("cmake", "Install CMake 3.20 or newer (setup.sh / setup.ps1 do this).")
+    need("git", "Install Git (setup.ps1 does this).")
+    need("cmake", "Install CMake 3.20 or newer (setup.ps1 does this).")
     out = subprocess.run(["cmake", "--version"], capture_output=True, text=True).stdout
     m = re.search(r"(\d+)\.(\d+)", out)
     if not m or (int(m.group(1)), int(m.group(2))) < (3, 20):
         sys.exit(f"setup: CMake 3.20 or newer is needed, found {out.splitlines()[0] if out else 'none'}")
     if not WINDOWS and not (shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")):
-        sys.exit("setup: no C++ compiler found (setup.sh installs one)")
+        sys.exit("setup: no C++ compiler found (setup.ps1 installs one)")
     print(f"{platform.system()} {platform.machine()}, Python {platform.python_version()}, {out.splitlines()[0]}")
 
 
@@ -334,12 +333,9 @@ starting "m2import:" above names the first file that is missing or wrong),
 so that game was not built.
 
 Each game is built from exactly the MAME sets listed in scripts/games.py,
-each under its own name. For Daytona USA: daytona93 (Deluxe '93:
-epr-16530a.12, epr-16531a.13, epr-16534a.6, epr-16535a.7) at
-roms/daytona93.zip, and daytona (Revision A, 1994: epr-16722a.12,
-epr-16723a.13, epr-16724a.6, epr-16725a.7) at roms/daytona.zip (or .7z).
-Other sets (daytonas, daytonat, daytonase, ...) have different program ROMs
-and cannot be used, whatever the file is called.
+each under its own name. For The House of the Dead: hotd (Revision A) at
+roms/hotd.zip (or .7z). Other sets have different program ROMs and cannot
+be used, whatever the file is called.
 
 Put the right set under the right name and run setup again.
 See docs/getting-started.md, "Troubleshooting".
