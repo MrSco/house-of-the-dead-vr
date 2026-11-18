@@ -86,6 +86,10 @@ You need a **Meta Quest 3**. The Quest 3S has the same processor and should work
 3. Start **House of the Dead VR** from Unknown Sources. Pull the trigger and choose the ROM set. The app checks it, keeps its
    own copy and offers to delete the one you copied.
 
+**Other screens:** each release also has the game for Windows (mouse, pads, light guns), the Mac (Apple silicon), Android
+phones and tablets, iPhone and iPad (SideStore) and the Steam Frame, built from the same code; they all play online with
+each other and the Quest. The release notes say how to install each, and which are still experimental.
+
 Online play is on the menu's ONLINE tab. The menu's CONTROLS button lists every control, as your settings make them.
 
 Updates come from the same releases: the app looks for one when it starts, and the menu's SYSTEM tab shows it
