@@ -408,6 +408,27 @@ template <class Out> void key_split(const M2Vert *pv, int n, Out out) {
     fan(back, nb);
 }
 
+// The backdrop (m2_vr.h key -2): the lowest window with polygons when one above it has some too, the sky (window 1
+// under the world's 2 outdoors: clouds 1,800 units out, mountains 1,670 in front of them, a lid and a cone under the
+// horizon; indoors there is no window 1). The arcade draws that window wholly behind the ones over it, in its own
+// order within it, and that order (by each panel's sortz, one corner's z) is right only on its own screen: off to the
+// side, as a headset or a wide screen looks, a cloud panel comes over the mountains, a gap in them; by their sortz in
+// the depth buffer, clouds covered mountains here and there, panel by panel as the camera moved. The renderer draws it
+// where it is, behind the world (m2_gl.c draw_world). The arcade's order puts the window's polygons at the world's end
+// (build: windows from the top down), as draw_world takes them.
+struct Backdrop {
+    int bottom = 1 << 30, top = -1; // the lowest and the highest window with polygons
+    Backdrop(const std::vector<rt::GeoPoly> &polys, int windows) {
+        for (const rt::GeoPoly &p : polys)
+            if (p.window <= windows && p.num_vertices >= 3)
+                bottom = std::min(bottom, int(p.window)), top = std::max(top, int(p.window));
+    }
+    void place(const rt::GeoPoly &poly, M2Vert *pv) const {
+        if (int(poly.window) != bottom || bottom >= top) return;
+        for (int k = 0; k < poly.num_vertices; k++) pv[k].key = -2.f;
+    }
+};
+
 // One polygon as camera-space vertices for the main camera (c0m, c1m: its centre; fxm, fym: its focus), with its
 // Model 2 state; effect: one of the shots' effects (build places those). 0: nothing to draw.
 int poly_vertices(const rt::GeoPoly &poly, const rt::VideoMem &mem, uint32_t rank, int c0m, int c1m, float fxm, float fym,
@@ -502,6 +523,7 @@ void build(Slot &s, const rt::Video &video, uint32_t serial) {
             return a > b;
         });
         std::vector<M2Vert> fx; // the screen's effects (below), in the arcade's order
+        Backdrop backdrop(polys, windows);
         uint32_t rank = 0;
         for (size_t i : order) {
             const rt::GeoPoly &poly = polys[i];
@@ -510,6 +532,7 @@ void build(Slot &s, const rt::Video &video, uint32_t serial) {
             bool effect = false;
             M2Vert pv[8];
             if (!poly_vertices(poly, mem, rank, c0m, c1m, fxm, fym, pv, effect)) continue;
+            if (!effect) backdrop.place(poly, pv);
             key_split(pv, poly.num_vertices, [&](const M2Vert &a, const M2Vert &b, const M2Vert &c) {
                 for (const M2Vert *q : {&a, &b, &c}) {
                     if (effect) {
@@ -630,6 +653,7 @@ void make_courtyard(const std::string &images, const std::string &out) {
         return a > b;
     });
     std::vector<M2Vert> world;
+    Backdrop backdrop(polys, windows);
     uint32_t rank = 0;
     for (size_t i : order) {
         const rt::GeoPoly &poly = polys[i];
@@ -638,6 +662,7 @@ void make_courtyard(const std::string &images, const std::string &out) {
         bool effect = false;
         M2Vert pv[8];
         if (!poly_vertices(poly, mem, rank, c0m, c1m, pj.fx, -pj.fy, pv, effect) || effect) continue;
+        backdrop.place(poly, pv);
         key_split(pv, poly.num_vertices, [&](const M2Vert &a, const M2Vert &b, const M2Vert &c) {
             world.push_back(a), world.push_back(b), world.push_back(c);
         });
@@ -1229,10 +1254,11 @@ extern "C" int SDL_main(int argc, char **argv) {
                        "epr-19697a.16), as hotd.zip or hotd.7z in\n" + game_dir + "\n\nPress the menu button to quit.");
     }
     {   // the cabinet room's courtyard, once (the images just kept: a new set's images make it again)
-        // (courtyard5 (4: M2Vert::key a ratio, 3 before it): the fountain, with the whole scenery sent
-        // (hook_hotd_scenery_cull); the earlier ones, the road outside the gate, are dropped)
-        const std::string cy = game_dir + "/courtyard5.m2w", images = game_dir + "/images";
-        std::remove((game_dir + "/courtyard4.m2w").c_str()); // (5: M2Vert::key the sort z itself)
+        // (courtyard6 (5: the sky by its sortz, 4: M2Vert::key a ratio, 3 before it): the fountain, with the whole
+        // scenery sent (hook_hotd_scenery_cull); the earlier ones, the road outside the gate, are dropped)
+        const std::string cy = game_dir + "/courtyard6.m2w", images = game_dir + "/images";
+        std::remove((game_dir + "/courtyard5.m2w").c_str()); // (6: the sky a backdrop, Backdrop)
+        std::remove((game_dir + "/courtyard4.m2w").c_str());
         std::remove((game_dir + "/courtyard3.m2w").c_str());
         std::remove((game_dir + "/courtyard2.m2w").c_str());
         std::remove((game_dir + "/courtyard.m2w").c_str());

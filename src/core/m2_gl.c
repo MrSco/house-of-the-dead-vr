@@ -33,6 +33,7 @@ static const char *VS =
     "uniform float order;\n"   // > 0: the depth is the draw order's alone (prio x order: 0 near, 1 far)
     "uniform vec4 eye;\n"      // the eye in the polygons' space (xyz) and its clip z (w): m2_gl_draw
     "uniform float key_max;\n" // the farthest key plane ahead of the eye (game units) the far plane keeps
+    "uniform float sky_c;\n"   // the sky's depth: z = w - sky_c (key_uniforms)
     "layout(location = 4) in vec3 col;\n"
     "layout(location = 5) in uvec4 info;\n"
     "layout(location = 6) in uvec2 more;\n"
@@ -46,7 +47,13 @@ static const char *VS =
     // (out along its ray: m2_vr.h prio; far off, more: the depth buffer's step grows with the distance squared, so the
     // relative step must grow with the distance to stay a few of its steps; prio_k from the projection's near plane)
     "  gl_Position = mvp * vec4(pos, 1.0);\n"
-    "  if (order > 0.0) {\n"
+    // The sky (key <= -2), in either mode: where it is, on a depth range of its own behind the world's (draw_world),
+    // its depth z / w = 1 - sky_c / w: 500 game units at -1, the mountains (1,670) and the clouds (1,800) far apart
+    // in it (the projection's own depth, so far out, or the draw order's, put them within a step of the 24-bit buffer:
+    // the clouds, drawn after, won)
+    "  if (key <= -2.0) {\n"
+    "    gl_Position.z = gl_Position.w - sky_c;\n"
+    "  } else if (order > 0.0) {\n"
     "    gl_Position.z = (min(prio * order, 1.0) * 2.0 - 1.0) * gl_Position.w;\n"
     "  } else {\n"
     // the depth alone is where the point's ray from the eye meets the plane z = key (the z the arcade sorted its
@@ -229,7 +236,7 @@ static const char *FS_FACE =
 // with the same shading, levelled by the sky's up it was saved with.
 static struct {
     GLuint vao, vbo, tex, luma, xlat;
-    GLsizei nv;
+    GLsizei nv, nv_sky;
     float level[9];         // camera space -> levelled (rows)
     int tried, ok;
 } B;
@@ -241,11 +248,12 @@ static struct {
     int face_any;
     uint32_t face_serial;
     GLuint prog, vao, vbo, tex, luma, xlat;
-    GLint u_mvp, u_prio_k, u_lift, u_order, u_eye, u_key_max;
+    GLint u_mvp, u_prio_k, u_lift, u_order, u_eye, u_key_max, u_sky_c;
     float prio_k, lift, order;   // (order: m2_gl_arcade_order)
-    GLsizei nv, nv_world;
+    GLsizei nv, nv_world, nv_sky; // (nv_sky: where the sky starts, at the world's end; nv_world: none)
     int ready;
 } M;
+static GLsizei sky_start(const M2Vert *v, GLsizei n);
 
 static GLuint shader(GLenum type, const char *src) {
     GLuint s = glCreateShader(type);
@@ -312,6 +320,7 @@ void m2_gl_init(void) {
     M.u_order = glGetUniformLocation(M.prog, "order");
     M.u_eye = glGetUniformLocation(M.prog, "eye");
     M.u_key_max = glGetUniformLocation(M.prog, "key_max");
+    M.u_sky_c = glGetUniformLocation(M.prog, "sky_c");
     M.u_lift = glGetUniformLocation(M.prog, "lift");
     if (M.lift <= 0) M.lift = 1;
     glUniform1i(glGetUniformLocation(M.prog, "texram"), 2);
@@ -374,6 +383,7 @@ void m2_gl_sync(void) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     M.nv = (GLsizei)s->nv;
     M.nv_world = (GLsizei)s->nv_world;
+    M.nv_sky = sky_start(s->v, M.nv_world);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     if (s->luma) {
         glBindTexture(GL_TEXTURE_2D, M.luma);
@@ -428,6 +438,26 @@ void m2_gl_draw_face(const float *proj, float eye_x) {
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+// The sky (arcade.cpp Backdrop: key -2, the world's last triangles): where it starts (n: none)
+static GLsizei sky_start(const M2Vert *v, GLsizei n) {
+    GLsizei i = n;
+    while (i >= 3 && v[i - 1].key <= -2.0f) i -= 3;
+    return i;
+}
+// The world, then the sky behind it: the sky by its real distance (the mountains in front of the clouds, all round
+// you; VS) on the depth buffer's last sliver, the world on the rest, so the world is always in front of it, as the
+// arcade draws the sky's window behind the world's. (The sky's own order, the arcade's, is meant for its own screen:
+// off to the side it has a cloud panel over the mountains, a gap in them.) 24 bits: the sliver is some 8000 steps.
+static void draw_world(GLsizei sky, GLsizei n) {
+    glDepthRangef(0.0f, 0.9995f);
+    glDrawArrays(GL_TRIANGLES, 0, sky);
+    if (n > sky) {
+        glDepthRangef(0.9995f, 1.0f);
+        glDrawArrays(GL_TRIANGLES, sky, n - sky);
+    }
+    glDepthRangef(0.0f, 0.9995f);   // (the shots' effects next: on the world)
+}
+
 // The key depth's uniforms from mvp (column-major, clip <- the polygons' space; a perspective projection): the eye
 // is the point clip x, y and w are 0 at, its clip z eye.w; key_max keeps the key planes inside the far plane
 static void key_uniforms(const float *m) {
@@ -435,7 +465,7 @@ static void key_uniforms(const float *m) {
     const float a[3][4] = { { m[0], m[4], m[8], m[12] }, { m[1], m[5], m[9], m[13] }, { m[3], m[7], m[11], m[15] } };
     const float det = a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
                       a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
-    float e[4] = { 0, 0, 0, 0 }, kmax = 1e30f;
+    float e[4] = { 0, 0, 0, 0 }, kmax = 1e30f, sky_c = 0;
     if (det > 1e-20f || det < -1e-20f) {
         for (int c = 0; c < 3; c++) {   // Cramer: column c replaced by -r[3]
             float b[3][3];
@@ -451,9 +481,11 @@ static void key_uniforms(const float *m) {
         const float p10 = k2 > 0 ? -(m[2] * m[3] + m[6] * m[7] + m[10] * m[11]) / k2 : 0;
         const float far_d = p10 + 1.0f != 0 ? e[3] / (p10 + 1.0f) : -1;
         if (k2 > 0 && far_d > 0) kmax = 0.9f * far_d / sqrtf(k2);
+        sky_c = 500.0f * sqrtf(k2);   // (w is k2's root times the depth in game units)
     }
     glUniform4f(M.u_eye, e[0], e[1], e[2], e[3]);
     glUniform1f(M.u_key_max, kmax);
+    glUniform1f(M.u_sky_c, sky_c);
 }
 
 void m2_gl_draw(const float *mvp) {
@@ -474,12 +506,13 @@ void m2_gl_draw(const float *mvp) {
     glDisable(GL_BLEND);
     glDisable(GL_CULL_FACE);
     glBindVertexArray(M.vao);
-    glDrawArrays(GL_TRIANGLES, 0, M.nv_world);
+    draw_world(M.nv_sky, M.nv_world);
     if (M.nv > M.nv_world) {   // the shots' effects, on the surfaces they hit: in the arcade's order (m2_vr.h)
         glDepthMask(GL_FALSE);
         glDrawArrays(GL_TRIANGLES, M.nv_world, M.nv - M.nv_world);
         glDepthMask(GL_TRUE);
     }
+    glDepthRangef(0.0f, 1.0f);
     glBindVertexArray(0);
     glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, 0);
@@ -523,6 +556,7 @@ static void load_backdrop(void) {
         glBindTexture(GL_TEXTURE_2D, 0);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
         B.nv = (GLsizei)n;
+        B.nv_sky = sky_start(v, B.nv);
         // the levelling: Rodrigues about up x (0,1,0)
         float l = sqrtf(up[0] * up[0] + up[1] * up[1] + up[2] * up[2]);
         float ux = up[0] / l, uy = up[1] / l, uz = up[2] / l;
@@ -576,7 +610,8 @@ void m2_gl_draw_backdrop(const float *mvp) {
     glDisable(GL_BLEND);
     glDisable(GL_CULL_FACE);
     glBindVertexArray(B.vao);
-    glDrawArrays(GL_TRIANGLES, 0, B.nv);
+    draw_world(B.nv_sky, B.nv);
+    glDepthRangef(0.0f, 1.0f);
     glBindVertexArray(0);
     glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, 0);

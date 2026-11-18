@@ -150,6 +150,7 @@ PLAT_GL_FUNCS(PLAT_GL_DECLARE)
 #define glVertexAttribIPointer plat_glVertexAttribIPointer
 #define glVertexAttribPointer plat_glVertexAttribPointer
 #define glClearDepthf(d) glClearDepth((GLclampd)(d))
+#define glDepthRangef(n, f) glDepthRange((GLclampd)(n), (GLclampd)(f))
 
 // with the context current: load the functions; 0 and the missing one's name when one is missing
 int plat_gl_load(const char **missing);

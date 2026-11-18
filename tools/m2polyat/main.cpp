@@ -12,7 +12,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <numeric>
+#include <tuple>
 #include <string>
 #include <vector>
 
@@ -31,18 +33,56 @@ int main(int argc, char **argv) {
     // M2_POLYAT_OBJECTS=FIRST: every frame from FIRST on, the models drawn and their matrices (Geo::objects), then out
     const char *objs = std::getenv("M2_POLYAT_OBJECTS");
     const uint64_t objs_from = objs ? std::strtoull(objs, nullptr, 10) : 0;
+    // M2_POLYAT_TEXCHECK=1: the hardware renderers' copy of texture RAM (arcade.cpp copy_texture: a 4 KB row copied when
+    // its page's generation moves) against texture RAM itself, every frame: the rows that differ (a write its page's
+    // generation missed: those renderers would draw stale texels there)
+    const bool texcheck = std::getenv("M2_POLYAT_TEXCHECK") != nullptr;
+    std::vector<uint32_t> tex_copy(2 * 512 * 1024);
+    std::vector<uint64_t> tex_seen(2 * 512, ~uint64_t(0));
+    uint64_t stale_frames = 0;
     for (uint64_t f = 0; f < frames; f++) {
         script.pokes(f, game.board()), game.run_frame(script.at(f));
+        if (texcheck) {
+            const rt::VideoMem &m = game.board().video().gpu_mem();
+            int stale = 0, first = -1;
+            for (uint32_t row = 0; row < 1024; row++) {
+                const uint32_t *src = row < 512 ? m.tex0 + row * 1024 : m.tex1 + (row - 512) * 1024;
+                if (m.tex_page_generation[row] != tex_seen[row]) {
+                    tex_seen[row] = m.tex_page_generation[row];
+                    std::memcpy(tex_copy.data() + size_t(row) * 1024, src, 4096);
+                } else if (std::memcmp(tex_copy.data() + size_t(row) * 1024, src, 4096)) {
+                    if (first < 0) first = int(row);
+                    stale++;
+                }
+            }
+            if (stale) stale_frames++;
+            if (stale && (f + 1) % 50 == 0)
+                std::printf("frame %llu: %d texture rows stale (first %d)\n", (unsigned long long)(f + 1), stale, first);
+            continue;
+        }
         if (objs && f + 1 >= objs_from && std::getenv("M2_POLYAT_SKY")) {   // (and =1: the sky's panels kept, window 1)
-            int n = 0;
-            for (const rt::GeoPoly &p : game.board().video().gpu_polys()) n += p.window == 1;
-            std::printf("sky %llu %d\n", (unsigned long long)(f + 1), n);
+            int n = 0, lod0 = 1 << 30, lod1 = -(1 << 30);
+            for (const rt::GeoPoly &p : game.board().video().gpu_polys())
+                if (p.window == 1) {
+                    n++;
+                    if (p.texheader[0] == 0x60cb) lod0 = std::min(lod0, int(p.texlod)), lod1 = std::max(lod1, int(p.texlod));
+                }
+            {
+                unsigned wins = 0;
+                for (const rt::GeoPoly &p : game.board().video().gpu_polys()) wins |= 1u << (p.window & 7);
+                std::printf("windows %llu %x\n", (unsigned long long)(f + 1), wins);
+            }
+            std::printf("sky %llu %d mountains texlod %d..%d\n", (unsigned long long)(f + 1), n, lod0, lod1);
             continue;
         }
         if (objs && f + 1 >= objs_from)
             for (const rt::Geo::Object &o : game.board().geo().objects)
                 std::printf("obj %llu %08x %d %g %g %g %g %g %g %g %g %g %g %g %g\n", (unsigned long long)(f + 1), o.address, o.window,
                             o.m[0], o.m[1], o.m[2], o.m[3], o.m[4], o.m[5], o.m[6], o.m[7], o.m[8], o.m[9], o.m[10], o.m[11]);
+    }
+    if (texcheck) {
+        std::printf("texcheck: %llu of %llu frames with stale rows\n", (unsigned long long)stale_frames, (unsigned long long)frames);
+        return 0;
     }
     if (objs) return 0;
     const rt::Video &video = game.board().video();
@@ -139,6 +179,33 @@ int main(int argc, char **argv) {
         }
         return 0;
     }
+    if (const char *pre = std::getenv("M2_POLYAT_SKYTEX")) {   // PREFIX: texture RAM (PREFIX.tex) and the sky's polygons
+        const rt::VideoMem &m = video.gpu_mem();                    // with their texture state (PREFIX.txt)
+        if (FILE *f = std::fopen((std::string(pre) + ".tex").c_str(), "wb")) {
+            std::fwrite(m.tex0, 4, 0x80000, f), std::fwrite(m.tex1, 4, 0x80000, f);
+            std::fclose(f);
+        }
+        if (FILE *f = std::fopen((std::string(pre) + ".txt").c_str(), "w")) {
+            std::map<std::tuple<int, int, float, float, int>, int> cf;
+            for (const rt::GeoPoly &p : polys) cf[{p.center[0], p.center[1], p.focus[0], p.focus[1], int(p.window)}]++;
+            for (const auto &[k, n] : cf)
+                std::fprintf(f, "# window %d centre %d %d focus %g %g: %d polygons\n", std::get<4>(k), std::get<0>(k), std::get<1>(k),
+                             double(std::get<2>(k)), double(std::get<3>(k)), n);
+            for (const rt::GeoPoly &p : polys) {
+                if (p.window != 1) continue;
+                std::fprintf(f, "%04x %04x %04x %04x %d %d %d", p.texheader[0], p.texheader[1], p.texheader[2], p.texheader[3],
+                             int(p.texlod), int(p.luma), p.num_vertices);
+                std::fprintf(f, " C %d %d F %g %g R", p.center[0], p.center[1], double(p.focus[0]), double(p.focus[1]));
+                for (int i = 0; i < p.num_vertices; i++) std::fprintf(f, " %g %g", double(p.v[i].x), double(p.v[i].y));
+                for (int i = 0; i < p.num_vertices; i++)
+                    std::fprintf(f, " %g %g %g %g %g", double(p.v[i].x / p.focus[0]), double(p.v[i].y / p.focus[1]),
+                                 double(p.v[i].p[0]), double(p.v[i].p[1] * 32.0f), double(p.v[i].p[2] * 32.0f));
+                std::fprintf(f, "\n");
+            }
+            std::fclose(f);
+        }
+        return 0;
+    }
     if (const char *path = std::getenv("M2_POLYAT_DUMP")) {   // every polygon in camera space (x right, y up, z ahead)
         if (FILE *f = std::fopen(path, "w")) {
             for (size_t rank = 0; rank < order.size(); rank++) {
@@ -148,7 +215,7 @@ int main(int argc, char **argv) {
                     const float z = p.v[i].p[0];
                     std::fprintf(f, " %g %g %g", double(p.v[i].x / p.focus[0]), double(p.v[i].y / p.focus[1]), double(z));
                 }
-                std::fprintf(f, "\n");
+                std::fprintf(f, " sortz %g\n", double(p.sortz));   // (the z it was sorted by: arcade.cpp's key)
             }
             std::fclose(f);
         }

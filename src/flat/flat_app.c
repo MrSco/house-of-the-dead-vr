@@ -7,7 +7,9 @@
 // FLAT_TEST_PLAY=1 plays: coins and Start every few seconds, and shots round the screen, every eighth off it;
 // FLAT_TEST_TALK=1 talks: push to talk, held the whole time (voice frames sent without a voice);
 // FLAT_QUIT_AT=seconds closes the app then; FLAT_MENU_AT=seconds[,tab] opens the menu then (on that tab:
-// quest_menu.h's QMENU_TAB_*); FLAT_SHOT=seconds writes the picture to flat_shot.ppm (flat.c).
+// quest_menu.h's QMENU_TAB_*); FLAT_SHOT=seconds writes the picture to flat_shot.ppm (flat.c); FLAT_TEST_HIDDEN=1
+// (Windows) never shows the window: the picture is still drawn, for M2_SHOTS and FLAT_SHOT; FLAT_TEST_LOOK (flat.c)
+// looks round as a headset does (with M2_GL_ORDER=0, the headset's depth: the app's own is the arcade's order).
 #include "flat.h"
 #include "platform/platform.h"
 #include "quest.h"

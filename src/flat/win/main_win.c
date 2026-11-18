@@ -247,11 +247,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
         flat_app_quit();
         return 1;
     }
-    ShowWindow(W.wnd, show);
+    const int hidden = getenv("FLAT_TEST_HIDDEN") && atoi(getenv("FLAT_TEST_HIDDEN"));   // (tests: never shown)
+    if (!hidden) ShowWindow(W.wnd, show);
     GetClientRect(W.wnd, &r);
     W.w = r.right; W.h = r.bottom;
 
-    if (flat_opt_get(QOPT_FULLSCREEN)) { W.fullscreen = 0; fullscreen(1); }
+    if (!hidden && flat_opt_get(QOPT_FULLSCREEN)) { W.fullscreen = 0; fullscreen(1); }
     // no ROM set yet: ask for it at once
     {
         wchar_t z[MAX_PATH + 32], s7[MAX_PATH + 32];
