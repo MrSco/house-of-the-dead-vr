@@ -137,8 +137,9 @@ def archive(a, env, spec_dir, libs):
 ''' % (env['HOTD_TEAM'], bundle, env['HOTD_PROFILE']))
     run(['xcodebuild', '-exportArchive', '-archivePath', xa, '-exportPath', os.path.join(out, 'export'),
          '-exportOptionsPlist', opts], env=env)
-    ipa = os.path.join(out, 'export', 'HouseOfTheDeadVR.ipa')
-    if not os.path.exists(ipa): sys.exit('build_apple: the export made no .ipa')
+    ipas = glob.glob(os.path.join(out, 'export', '*.ipa'))   # (named after the app's name: "House of the Dead VR.ipa")
+    if not ipas: sys.exit('build_apple: the export made no .ipa')
+    ipa = ipas[0]
     print('[apple] App Store ipa: %s' % ipa)
     if not a.upload: return
     iss = env['HOTD_ASC_ISSUER']
