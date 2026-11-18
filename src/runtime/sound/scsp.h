@@ -16,10 +16,16 @@
 #include <algorithm>
 #include <bit>
 #include <cstdint>
+#include <cstdio>
 
 namespace rt { class State; }
 
 namespace snd {
+
+// The sound log (tests: finding a sound and what the game sends for it): M2_SCSP_LOG=1 to stderr, any other value a
+// file to write it to; nullptr when off. The board's command bytes from the game, each key-on with its sample's hash
+// (M2_SCSP_DUMP=dir: the sample too) and the runs of the sample ROM the program copies, on the samples' clock.
+FILE *sound_log();
 
 class ScspHost {
 public:

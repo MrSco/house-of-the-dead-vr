@@ -130,12 +130,17 @@ uint32_t Scsp::rand() { // a fixed linear congruential generator in place of mac
     return rand_ >> 8;
 }
 
-// M2_SCSP_LOG=1 (tests: finding a sound's sample): each key-on to stderr, at the samples rendered so far (44.1 kHz)
+// (scsp.h) the samples rendered so far, the log's clock (44.1 kHz)
 static uint64_t g_log_rendered = 0;
-static int log_keyons() {
-    static int on = -1;
-    if (on < 0) on = std::getenv("M2_SCSP_LOG") && std::atoi(std::getenv("M2_SCSP_LOG")) != 0;
-    return on;
+FILE *sound_log() {
+    static int state = -1;
+    static FILE *f = nullptr;
+    if (state < 0) {
+        const char *e = std::getenv("M2_SCSP_LOG");
+        if (e && *e && std::strcmp(e, "0") != 0) f = std::strcmp(e, "1") == 0 ? stderr : std::fopen(e, "w");
+        state = f != nullptr;
+    }
+    return f;
 }
 
 void Scsp::render(float *stereo, int n) {
@@ -475,14 +480,15 @@ void Scsp::Compute_LFO(SCSP_SLOT *slot) {
 }
 
 void Scsp::StartSlot(SCSP_SLOT *slot) {
-    if (log_keyons()) {   // (with its sample's content hash; M2_SCSP_DUMP=dir: the sample, SA to LEA, raw, once each)
+    if (FILE *log = sound_log()) {   // (with its sample's content hash; M2_SCSP_DUMP=dir: the sample, raw, once each)
         const uint32_t sa = uint32_t(SA(slot)) & 0x7ffffu;
         const uint32_t len = std::min((uint32_t(LEA(slot)) + 1) * (PCM8B(slot) ? 1u : 2u), 0x80000u - sa);
         uint32_t h = 2166136261u;   // (the driver loads other sounds to the same place)
         for (uint32_t i = 0; i < len; i++) h = (h ^ ram_[sa + i]) * 16777619u;
-        std::fprintf(stderr, "keyon t=%.3f slot=%d sa=%05x lsa=%04x lea=%04x pcm8=%d lp=%d oct=%d fns=%03x tl=%02x disdl=%d h=%08x\n",
+        std::fprintf(log, "keyon t=%.3f slot=%d sa=%05x lsa=%04x lea=%04x pcm8=%d lp=%d oct=%d fns=%03x tl=%02x disdl=%d h=%08x\n",
                      double(g_log_rendered) / kRate, int(slot - m_Slots), sa, unsigned(LSA(slot)), unsigned(LEA(slot)),
                      PCM8B(slot) ? 1 : 0, int(LPCTL(slot)), int(OCT(slot)), unsigned(FNS(slot)), unsigned(TL(slot)), int(DISDL(slot)), h);
+        std::fflush(log);
         if (const char *dir = std::getenv("M2_SCSP_DUMP")) {
             char path[512];
             std::snprintf(path, sizeof path, "%s/s_%08x_%d.raw", dir, h, PCM8B(slot) ? 8 : 16);
