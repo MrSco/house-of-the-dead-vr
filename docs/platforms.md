@@ -180,7 +180,7 @@ atomics) and `HOTDVR-<version>-windows.zip`.
   Khronos OpenXR loader (not Meta's), OpenXR 1.0, the graphics requirements asked before the session, every Meta
   extension optional, Touch controllers bound. Built, untested: no Frame at hand.
 
-**P3, iPhone / iPad and the Mac (2026-11-16): done but for devices.** Built on the Mac (`rjuliano-mac`, Xcode 27.2,
+**P3, iPhone / iPad and the Mac (2026-11-16): done but for devices.** Built on a Mac (Xcode 27.2,
 ANGLE in `~/angle` as GoldenEye VR's): `python scripts/apple_sync.py [--images]` on the PC sends the checkout, the
 generated code and the fetched libraries over ssh; `python3 scripts/build_apple.py simulator|device|mac [--app]
 [--ipa]` builds there.

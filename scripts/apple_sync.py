@@ -2,7 +2,9 @@
 """The Apple builds' sources onto the Mac (docs/platforms.md, P3): the Apple apps are built there (Xcode), from this
 checkout as it is, with what git doesn't hold.
 
-  python scripts/apple_sync.py [--host rocco@rjuliano-mac] [--dest src/house-of-the-dead-vr] [--images]
+  python scripts/apple_sync.py [--host USER@MAC] [--dest src/house-of-the-dead-vr] [--images]
+
+The Mac is --host, or the HOTD_MAC environment variable (user@host, as ssh takes it).
 
 Sends over ssh, as one tar stream: the tracked files (and new ones git doesn't ignore), the generated code
 (build_houseofthedead/recomp/hotd/gen), the libraries the builds fetch (extern: SoftFloat, LZMA, ymfm;
@@ -31,10 +33,11 @@ def files():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--host', default=os.environ.get('HOTD_MAC', 'rocco@rjuliano-mac'))
+    ap.add_argument('--host', default=os.environ.get('HOTD_MAC'), help='user@host of the Mac (default: $HOTD_MAC)')
     ap.add_argument('--dest', default='src/house-of-the-dead-vr', help='under the home folder on the Mac')
     ap.add_argument('--images', action='store_true', help='the ROM set\'s images too (m2nettest)')
     a = ap.parse_args()
+    if not a.host: sys.exit('apple_sync: which Mac? --host user@host, or set HOTD_MAC')
     extra = EXTRA + ([IMAGES] if a.images else [])
     for d in extra:
         if not os.path.isdir(os.path.join(ROOT, d)): sys.exit('apple_sync: no %s here' % d)

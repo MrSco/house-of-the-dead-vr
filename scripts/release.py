@@ -32,7 +32,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = 'MrSco/house-of-the-dead-vr'
-MAC = 'rocco@rjuliano-mac'
+MAC = os.environ.get('HOTD_MAC')  # user@host of the Mac that builds the Apple apps (ssh)
 MAC_DIR = 'src/house-of-the-dead-vr'
 # (key, file suffix, what it is for, how to say it in the table)
 PLATFORMS = [
@@ -107,12 +107,14 @@ def table(out, v, commit):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--apple', action='store_true', help='the Mac app and the iOS IPA too, on the Mac (%s)' % MAC)
+    ap.add_argument('--apple', action='store_true', help='the Mac app and the iOS IPA too, on the Mac ($HOTD_MAC)')
     ap.add_argument('--only', help='these platforms only (comma-separated keys)')
     ap.add_argument('--publish', action='store_true', help='create or update the GitHub release')
     ap.add_argument('--no-build', action='store_true', help='the downloads already in build_release/<version>')
     ap.add_argument('--testflight', action='store_true', help='also upload the iPhone/iPad app to TestFlight')
     a = ap.parse_args()
+    if (a.apple or a.testflight) and not a.no_build and not MAC:
+        sys.exit('release: --apple and --testflight build on the Mac: set HOTD_MAC to its user@host')
     if not a.no_build and git('status', '--porcelain', '--untracked-files=no'):
         sys.exit('release: uncommitted changes (the builds stamp the commit): commit them first')
     v, commit = version(), git('rev-parse', '--short=8', 'HEAD')
