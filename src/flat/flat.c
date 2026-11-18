@@ -293,10 +293,11 @@ static void render_picture(void) {
     glEnable(GL_DEPTH_TEST);
     float p[16];
     game_proj(p, sc);
-    {   // FLAT_TEST_LOOK=pitch,yaw,fov (degrees; tests): the camera turned (pitch + looks down) with that field of
-        // view, as a headset looks round the game's world (the VR scenery hook sends all of it)
-        static int on = -1; static float pitch, yaw, fov;
-        if (on < 0) { const char *e = getenv("FLAT_TEST_LOOK"); on = e && sscanf(e, "%f,%f,%f", &pitch, &yaw, &fov) == 3; }
+    {   // FLAT_TEST_LOOK=pitch,yaw,fov[,dx,dy,dz] (degrees, game units; tests): the camera turned (pitch + looks down)
+        // with that field of view, and moved by dx, dy, dz in its own space (z ahead), as a headset looks round the
+        // game's world from a head that leans away from the arcade's camera (the VR scenery hook sends all of it)
+        static int on = -1; static float pitch, yaw, fov, d[3];
+        if (on < 0) { const char *e = getenv("FLAT_TEST_LOOK"); on = e && sscanf(e, "%f,%f,%f,%f,%f,%f", &pitch, &yaw, &fov, &d[0], &d[1], &d[2]) >= 3; }
         if (on) {
             const float a = pitch * 3.14159265f / 180, b = yaw * 3.14159265f / 180, t = 1.0f / tanf(fov * 3.14159265f / 360);
             const float ca = cosf(a), sa = sinf(a), cb = cosf(b), sb = sinf(b);
@@ -311,6 +312,7 @@ static void render_picture(void) {
                     for (int k = 0; k < 4; k++) s += q[k * 4 + rr] * r[c * 4 + k];
                     p[c * 4 + rr] = s;
                 }
+            for (int rr = 0; rr < 4; rr++) p[12 + rr] -= p[rr] * d[0] + p[4 + rr] * d[1] + p[8 + rr] * d[2];
         }
     }
     m2_gl_near(1.0f);
