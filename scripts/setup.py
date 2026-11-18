@@ -12,7 +12,7 @@ Always:
     at their pinned commits into extern/ (all built from source with the
     project, statically);
   - configures and builds the tools and tests (in the default game's
-    desktop build, build_daytona/pc/daytona93/), runs the tests;
+    desktop build, build_houseofthedead/pc/hotd/), runs the tests;
   - for every ROM set of scripts/games.py found in roms/ (roms/<set>.zip or
     .7z, or another archive name games.py gives, such as srallycb.zip):
     imports it, recompiles the game's code to native C++ and builds it, all
@@ -149,6 +149,25 @@ def vs_with_clang():
     return instances[0] if instances else None
 
 
+def vs_with_msvc():
+    """Visual Studio instances with the C++ tools (MSVC), the newest first."""
+    if not os.path.exists(VSWHERE):
+        return []
+    out = subprocess.run([VSWHERE, "-all", "-products", "*", "-requires",
+                          "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-format", "json", "-utf8"],
+                         capture_output=True, text=True, encoding="utf-8", check=True).stdout
+    instances = json.loads(out)
+    instances.sort(key=lambda i: [int(n) for n in i["installationVersion"].split(".")], reverse=True)
+    return instances
+
+
+def vs_generators():
+    """The Visual Studio generators this CMake has, by name."""
+    capabilities = json.loads(subprocess.run(["cmake", "-E", "capabilities"],
+                              capture_output=True, text=True, check=True).stdout)
+    return [g["name"] for g in capabilities["generators"] if g["name"].startswith("Visual Studio ")]
+
+
 def cached(build, key):
     try:
         with open(os.path.join(build, "CMakeCache.txt")) as cache:
@@ -178,10 +197,11 @@ def configure_and_build(build, romset=None):
     want = {}  # cache entries that must match, or the build directory is reconfigured
     if WINDOWS and not (shutil.which("cl") and shutil.which("ninja")):
         # Visual Studio generator: finds the compiler without a developer prompt.
-        # Clang (clang-cl) when Visual Studio has it, else MSVC.
+        # MSVC, as HOTDVR.exe is built (scripts/build_windows.py: /fp:strict, the
+        # same game as the Quest's); M2_COMPILER=clang for Visual Studio's clang-cl.
         cmd += ["-A", "x64"]
-        choice = os.environ.get("M2_COMPILER", "").lower()  # clang or msvc forces one (CI builds both)
-        clang_vs = vs_with_clang() if choice != "msvc" else None
+        choice = os.environ.get("M2_COMPILER", "").lower()
+        clang_vs = vs_with_clang() if choice == "clang" else None
         if choice == "clang" and not clang_vs:
             sys.exit("setup: M2_COMPILER=clang, but Visual Studio 2022 has no Clang tools (setup.ps1 adds them)")
         toolset = "ClangCL" if clang_vs else ""
@@ -199,7 +219,21 @@ def configure_and_build(build, romset=None):
             want["CMAKE_GENERATOR_INSTANCE"] = instance
             print(f"Compiler: Clang ({generator}, {instance})")
         else:
-            print("Compiler: MSVC. For Clang, run setup.ps1, which adds Visual Studio's Clang tools.")
+            # The newest Visual Studio this CMake has a generator for, named outright: CMake's
+            # own default can be Ninja (CMAKE_GENERATOR, or a CMake older than the Visual Studio).
+            generators = vs_generators()
+            for vs in vs_with_msvc():
+                major = vs["installationVersion"].split(".", 1)[0]
+                generator = next((g for g in generators if g.startswith(f"Visual Studio {major} ")), None)
+                if generator:
+                    instance = vs["installationPath"].replace("\\", "/")
+                    cmd += ["-G", generator, "-DCMAKE_GENERATOR_INSTANCE=" + instance]
+                    want["CMAKE_GENERATOR"] = generator
+                    want["CMAKE_GENERATOR_INSTANCE"] = instance
+                    print(f"Compiler: MSVC ({generator}, {instance}; setup.ps1 --clang for Clang)")
+                    break
+            else:
+                print("Compiler: MSVC (setup.ps1 --clang for Visual Studio's Clang).")
         want["CMAKE_GENERATOR_TOOLSET"] = toolset
     elif shutil.which("ninja"):
         cmd += ["-G", "Ninja"]
@@ -237,7 +271,7 @@ def main():
     say("Fetching SoftFloat 3e (extF80 reference for i960 FP)")
     fetch(*SOFTFLOAT, "softfloat")
 
-    say("Fetching SDL 3.4.16 (window, input, SDL_GPU: Vulkan / Direct3D 12 / Metal)")
+    say("Fetching SDL 3.4.16 (HOTDVR.exe's game pads; the desktop tools' window)")
     fetch(*SDL3, "sdl3")
     apply_patches("sdl3", "sdl3")  # Vulkan application name (THIRD_PARTY.md)
 
@@ -247,7 +281,7 @@ def main():
     say("Fetching the 7-Zip LZMA SDK 26.03 (7z ROM sets)")
     fetch(*LZMA_SDK, "lzma")
 
-    say("Fetching Dear ImGui 1.92.9b (launcher interface)")
+    say("Fetching Dear ImGui 1.92.9b (the desktop tools' interface)")
     fetch(*IMGUI, "imgui")
 
     if args.test_extras:
@@ -298,9 +332,9 @@ def main():
     run(["ctest", "--test-dir", build, "-C", "Release", "--output-on-failure"], check=False)
     say("Done")
     for label, exe in built:
-        print(f"\n{label} is built. Start it with:\n\n    " + shown(exe))
+        print(f"\n{label} is recompiled.")
     if built:
-        print()
+        print(NEXT)
 
 
 EXE = ".exe" if WINDOWS else ""
@@ -320,6 +354,14 @@ def sets():
     order = [games.DEFAULT] + [g for g in games.GAMES if g != games.DEFAULT]
     return [(s, games.title(s)) for g in order for s in games.GAMES[g]["sets"]]
 
+
+NEXT = """
+Build an app from it (docs/getting-started.md):
+
+    python scripts/build_windows.py --run      Windows (HOTDVR.exe)
+    python scripts/build_quest.py              the Quest, over USB
+    python scripts/build_quest.py --flavor phone|frame
+"""
 
 BUILD_FAILED = """
 setup: your ROM set was accepted, but recompiling or building the game

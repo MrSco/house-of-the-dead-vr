@@ -33,15 +33,18 @@ In PowerShell:
 
     powershell -ExecutionPolicy Bypass -File setup.ps1
 
-It installs Git, CMake, Ninja, Python and the Visual Studio 2022 Build Tools with winget, then fetches the pinned
-libraries into `extern/` (SoftFloat, SDL 3, ymfm, the LZMA SDK) and builds and tests the recompiler's tools. If you
-already have Visual Studio, it adds the C++ tools to it, and Windows asks for permission (the Visual Studio
-Installer needs administrator rights). If it says Python "is not on PATH yet", close PowerShell, open a new one and
-run the same command again.
+It installs Git, CMake, Ninja, Python and the Visual Studio 2022 Build Tools with their C++ workload with winget,
+then fetches the pinned libraries into `extern/` (SoftFloat, SDL 3, ymfm, the LZMA SDK, Dear ImGui) and builds and
+tests the recompiler's tools in `build_houseofthedead/pc/hotd/`. Everything is built with MSVC, the compiler
+HOTDVR.exe ships with; `setup.ps1 --clang` uses Visual Studio's clang-cl instead (it adds the Clang tools, and
+Windows asks for permission: the Visual Studio Installer needs administrator rights). If it says Python "is not on
+PATH yet", close PowerShell, open a new one and run the same command again.
+
+If your ROM set is already in `roms/`, setup recompiles the game too, and step 3 is done.
 
 ## 3. Recompile the game
 
-    python scripts/recompile.py --game houseofthedead
+    python scripts/recompile.py
 
 This imports your ROM set, recompiles the arcade's i960, 68000 and DSP programs to C++ and builds the desktop tools,
 all under `build_houseofthedead/`. If the ROM set is wrong or incomplete, the `m2import:` line says which file is

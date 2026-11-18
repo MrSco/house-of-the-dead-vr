@@ -5,9 +5,9 @@ program to native C++ and build them. Same steps on Linux, macOS and Windows.
   recompile.py [--game GAME] [--set SET] [--config Release] [--fast_inaccuracy] [--tgp-profile]
                [--i960-profile] [--sharc-profile] [--inline-bus] [--recomp-only]
 
-The game is one of scripts/games.py's (daytona, the default, segarally);
---set picks another of its sets (daytona: daytona93, the default, or
-daytona, Revision A). Needs the user's ROM set at roms/<set>.zip or
+The game is one of scripts/games.py's (houseofthedead, the default, with
+its one set, hotd; daytona and the others the runtime came with); --set
+picks another of a game's sets. Needs the user's ROM set at roms/<set>.zip or
 roms/<set>.7z (git-ignored), or under one of the other archive names
 scripts/games.py gives that set (a merged srallycb archive holds srallyc's
 files too). Everything derived from it goes under the game's folder,

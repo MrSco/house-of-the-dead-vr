@@ -78,7 +78,7 @@ GAMES = {
 }
 
 # The game the scripts build when none is given.
-DEFAULT = "daytona"
+DEFAULT = "houseofthedead"
 
 SETS = {
     "daytona93": {

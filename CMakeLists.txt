@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
-project(daytona_recomp LANGUAGES C CXX)
+project(hotd_recomp LANGUAGES C CXX)
 
 set(M2_GEN_ROOT "${CMAKE_BINARY_DIR}/gen" CACHE PATH
-    "Directory containing recompiled daytona93/daytona93_tgp/daytona93_snd sources")
+    "Directory containing the recompiled sources: <set>/, <set>_tgp/, <set>_snd/ (hotd/, hotd_tgp/, hotd_snd/)")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -78,18 +78,18 @@ target_include_directories(trace PUBLIC src)
 # Runtime the recompiled game runs on: i960 context and services (call/ret,
 # interrupts, memory; MAME's semantics, transplanted, BSD-3), replay bus and
 # lockstep. No instruction interpreter.
-# The ROM set the game is recompiled from (MAME's name, daytona93 by
+# The ROM set the game is recompiled from (MAME's name, hotd by
 # default). One set per build directory: its generated code, seeds and saves
 # are its own. A set is known when it has a seed file (seeds/<set>.txt), a
 # record in src/games/ and an entry in scripts/games.py
 # (docs/adding-a-game.md).
-set(M2_ROMSET daytona93 CACHE STRING "MAME ROM set to recompile (scripts/games.py lists them)")
+set(M2_ROMSET hotd CACHE STRING "MAME ROM set to recompile (scripts/games.py lists them)")
 if(NOT M2_ROMSET MATCHES "^[a-z0-9_]+$" OR NOT EXISTS ${CMAKE_SOURCE_DIR}/seeds/${M2_ROMSET}.txt)
     message(FATAL_ERROR "M2_ROMSET ${M2_ROMSET}: no seeds/${M2_ROMSET}.txt; known sets are listed in scripts/games.py")
 endif()
-# The game the set belongs to (scripts/games.py: daytona, segarally), which
+# The game the set belongs to (scripts/games.py: houseofthedead, daytona, ...), which
 # recompile.py and setup.py pass: the desktop executable is named after it.
-set(M2_GAME daytona CACHE STRING "The game (scripts/games.py), the desktop executable's name")
+set(M2_GAME houseofthedead CACHE STRING "The game (scripts/games.py), the desktop executable's name")
 if(NOT M2_GAME MATCHES "^[a-z0-9_]+$")
     message(FATAL_ERROR "M2_GAME ${M2_GAME}: lower-case letters, digits and _ only (scripts/games.py)")
 endif()

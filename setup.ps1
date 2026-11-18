@@ -1,15 +1,14 @@
 # One-step setup for Windows 10/11: installs the build prerequisites with
 # winget, then fetches the pinned dependencies and builds (scripts/setup.py).
 #
-#   powershell -ExecutionPolicy Bypass -File setup.ps1 [--msvc] [--test-extras] [--with-mame]
+#   powershell -ExecutionPolicy Bypass -File setup.ps1 [--clang] [--test-extras] [--with-mame]
 #
 # Installs (skipping what is already there): Git, CMake, Ninja, Python 3 and
-# Visual Studio 2022 Build Tools with the C++ workload and its Clang tools
-# (clang-cl and the ClangCL toolset, MSVC and the Windows SDK, which has
-# Direct3D 12). The game is built with Clang: if the Clang tools cannot be
-# added, setup stops and says how. --msvc builds with Microsoft's compiler
-# instead. SDL 3 is fetched and built with the project; Vulkan comes with the
-# GPU driver. Put your own ROM set at roms\hotd.zip (or .7z) to have The
+# Visual Studio 2022 Build Tools with the C++ workload (MSVC and the Windows
+# SDK). Everything is built with MSVC, as HOTDVR.exe is (scripts/build_windows.py:
+# /fp:strict, so the PC computes the same game as the Quest, bit for bit).
+# --clang adds Visual Studio's Clang tools and builds the tools with clang-cl
+# instead. SDL 3 is fetched and built with the project. Put your own ROM set at roms\hotd.zip (or .7z) to have The
 # House of the Dead recompiled too (or run scripts/recompile.py --game
 # houseofthedead afterwards). docs/getting-started.md has the whole path.
 
@@ -36,14 +35,16 @@ Install-Package 'Git.Git'
 Install-Package 'Kitware.CMake'
 Install-Package 'Ninja-build.Ninja'
 Install-Package 'Python.Python.3.12'
-# --msvc: Microsoft's compiler instead of Clang. The rest goes to setup.py.
-$useMsvc = $args -contains '--msvc'
-$setupArgs = @($args | Where-Object { $_ -ne '--msvc' })
+# --clang: Visual Studio's clang-cl instead of MSVC. The rest goes to setup.py.
+$useClang = $args -contains '--clang'
+$setupArgs = @($args | Where-Object { $_ -ne '--clang' -and $_ -ne '--msvc' })  # (--msvc: the old switch, now the default)
 
-# The C++ tools, with Clang (clang-cl and the ClangCL toolset).
-$vsComponents = @('Microsoft.VisualStudio.Workload.VCTools',
-                  'Microsoft.VisualStudio.Component.VC.Llvm.Clang',
-                  'Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset')
+# The C++ tools (MSVC); with --clang, Clang too (clang-cl and the ClangCL toolset).
+$vsComponents = @('Microsoft.VisualStudio.Workload.VCTools')
+if ($useClang) {
+    $vsComponents += @('Microsoft.VisualStudio.Component.VC.Llvm.Clang',
+                       'Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset')
+}
 $vsAdd = ($vsComponents | ForEach-Object { "--add $_" }) -join ' '
 Install-Package 'Microsoft.VisualStudio.2022.BuildTools' "--wait --passive --norestart $vsAdd --includeRecommended"
 
@@ -56,7 +57,7 @@ function Test-VsClang {
     return [bool]$found
 }
 
-if (-not $useMsvc -and -not (Test-VsClang)) {
+if ($useClang -and -not (Test-VsClang)) {
     # winget leaves an existing Visual Studio 2022 or Build Tools install as it is:
     # add the Clang tools to that version, never a newer side-by-side install.
     # Changing an install needs administrator
@@ -76,14 +77,14 @@ if (-not $useMsvc -and -not (Test-VsClang)) {
         }
     }
     if (-not (Test-VsClang)) {
-        Write-Error ("The Clang tools for Visual Studio 2022 are not installed, and setup builds with Clang.`n" +
+        Write-Error ("The Clang tools for Visual Studio 2022 are not installed (setup.ps1 --clang).`n" +
             "Add them to Visual Studio 2022 in the Visual Studio Installer: Modify > Individual components > " +
             "'C++ Clang Compiler for Windows' and 'MSBuild support for LLVM (clang-cl) toolset', " +
-            "then run setup.ps1 again. Or run setup.ps1 --msvc to build with Microsoft's compiler.")
+            "then run setup.ps1 --clang again. Or run setup.ps1 without --clang to build with MSVC.")
     }
 }
 # setup.py: build with this compiler (and reconfigure a build made with the other).
-$env:M2_COMPILER = if ($useMsvc) { 'msvc' } else { 'clang' }
+$env:M2_COMPILER = if ($useClang) { 'clang' } else { 'msvc' }
 
 # Pick up the new tools without opening a new terminal.
 $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +

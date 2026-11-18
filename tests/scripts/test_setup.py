@@ -73,6 +73,17 @@ class VisualStudioSelectionTests(unittest.TestCase):
                 SETUP.configure_and_build("unused-build-directory")
         run.assert_not_called()
 
+    def test_msvc_by_default_names_the_newest_generator_cmake_has(self):
+        instances = [{"installationVersion": "18.10.1", "installationPath": r"C:\VS\18"},
+                     {"installationVersion": "17.14.3", "installationPath": r"C:\VS\2022"}]
+        with tempfile.TemporaryDirectory() as tmp,              patch.object(SETUP, "WINDOWS", True),              patch.object(SETUP.shutil, "which", return_value=None),              patch.dict(os.environ, {"M2_COMPILER": ""}),              patch.object(SETUP, "vs_with_clang") as clang,              patch.object(SETUP, "vs_with_msvc", return_value=instances),              patch.object(SETUP, "vs_generators", return_value=["Visual Studio 17 2022", "Visual Studio 16 2019"]),              patch.object(SETUP, "run") as run:
+            SETUP.configure_and_build(os.path.join(tmp, "build"))
+        clang.assert_not_called()
+        configure = run.call_args_list[0].args[0]
+        self.assertEqual(configure[configure.index("-G") + 1], "Visual Studio 17 2022")
+        self.assertIn("-DCMAKE_GENERATOR_INSTANCE=C:/VS/2022", configure)
+        self.assertNotIn("-T", configure)
+
 
 if __name__ == "__main__":
     unittest.main()
