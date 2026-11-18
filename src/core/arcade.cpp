@@ -101,6 +101,7 @@ namespace rt { extern uint64_t tgpx4_ns; } // (tgp_board.cpp: the TGPx4's time s
 uint64_t tgpx4_ns_total();
 
 namespace {
+extern rt::GameLoop *the_game; // (below: the game being played)
 uint64_t now_ns();
 
 // ---- scenes: the game thread fills one slot while the VR thread reads another
@@ -341,11 +342,12 @@ void comfort_from_sky(const std::vector<rt::GeoPoly> &polys, VrScene &sc) {
     }
     comfort.have = ok;
     sc.turn = turn, sc.turn_all = turn_all, sc.move = move;
-    {   // M2_COMFORT_LOG=1 (tests): twice a second, what comfort measured
+    {   // M2_COMFORT_LOG=N (tests): every Nth frame (1: every one), what comfort measured
         static int on = -1, n = 0;
-        if (on < 0) on = getenv("M2_COMFORT_LOG") && atoi(getenv("M2_COMFORT_LOG"));
-        if (on && ++n % 30 == 0)
-            LOGI("comfort: camera %d sky %d, turn %.0f deg/s (heading %.0f), %.1f m/s, up %.2f %.2f %.2f", int(c.ok), int(ok),
+        if (on < 0) on = getenv("M2_COMFORT_LOG") ? std::max(0, atoi(getenv("M2_COMFORT_LOG"))) : 0;
+        if (on && ++n % on == 0)
+            LOGI("comfort: frame %llu camera %d sky %d, turn %.0f deg/s (heading %.0f), %.1f m/s, up %.2f %.2f %.2f",
+                 (unsigned long long)the_game->frames(), int(c.ok), int(ok),
                  double(turn_all) * 60 * 57.3, double(turn) * 60 * 57.3, double(move) * 60 * 0.11, double(comfort.up[0]),
                  double(comfort.up[1]), double(comfort.up[2]));
     }
