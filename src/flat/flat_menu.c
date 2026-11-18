@@ -57,10 +57,9 @@ int flat_menu_is_open(void) { return M.open; }
 
 static void menu_action(int a) {
     if (a == QACT_RESUME) flat_menu_set_open(0);
-    else if (a == QACT_GAME_MENU) {   // the game's own pause: Esc, tapped
+    else if (a == QACT_RESTART) {   // the game back to its start (the game thread, between frames)
         flat_menu_set_open(0);
-        quest_key(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, 1);
-        quest_key(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, 0);
+        arcade_restart();
     } else if (a == QACT_QUIT) flat_os_quit();
     else if (a == QACT_ARCADE_IMPORT) flat_os_import_rom();
 }

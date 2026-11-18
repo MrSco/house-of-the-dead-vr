@@ -9,7 +9,9 @@
 // FLAT_QUIT_AT=seconds closes the app then; FLAT_MENU_AT=seconds[,tab] opens the menu then (on that tab:
 // quest_menu.h's QMENU_TAB_*); FLAT_SHOT=seconds writes the picture to flat_shot.ppm (flat.c); FLAT_TEST_HIDDEN=1
 // (Windows) never shows the window: the picture is still drawn, for M2_SHOTS and FLAT_SHOT; FLAT_TEST_LOOK (flat.c)
-// looks round as a headset does (with M2_GL_ORDER=0, the headset's depth: the app's own is the arcade's order).
+// looks round as a headset does (with M2_GL_ORDER=0, the headset's depth: the app's own is the arcade's order;
+// FLAT_TEST_NEARFAR=1.818,9091 its depth planes, the Quest's); M2_TEST_RESTART_AT=frame presses RESTART then
+// (arcade.cpp).
 #include "flat.h"
 #include "platform/platform.h"
 #include "quest.h"

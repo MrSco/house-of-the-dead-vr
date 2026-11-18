@@ -164,8 +164,14 @@ constexpr float kEffectZ = 1.05f;
 constexpr float kEffectDistance = 13.6f;
 constexpr float kEffectInFront = 0.96f; // of the surface's distance
 // The headset's key depth (m2_vr.h M2Vert::key): the arcade camera's z (game units: a third of a metre, about as far
-// as a head leans from it) nearer than which key_split gives a polygon m2_gl.c's fixed step instead of its sort plane
-constexpr float kKeyNear = 3.0f;
+// as a head leans from it) nearer than which key_split gives a polygon m2_gl.c's fixed step instead of its sort plane,
+// and the most its sort plane may push a point out along its ray (key / z): a big floor polygon's plane (its far end's
+// z, hundreds of units) met by a ray down at the ground near the camera lay hundreds of times as far off, where the
+// depth buffer has no steps left between its layers (the path and the grass over it flickered under your feet, the
+// two eyes and every move of the head choosing another). Both as m2_gl.c's VS has them.
+constexpr float kKeyNear = 3.0f, kKeyStretch = 8.0f;
+// The sky's key (m2_vr.h; arcade.cpp Backdrop, m2_gl.c: under -1e5)
+constexpr float kSkyKey = -1.0e6f;
 
 // The nearest world surface along each 8 x 8 pixel cell of the arcade's picture (1/z, 0: none), from the frame's
 // camera-space triangles.
@@ -376,39 +382,41 @@ void choose_projection(const std::vector<rt::GeoPoly> &polys, int windows, int c
     pj.fy = -std::get<3>(best);
 }
 
-// The headset's key depth needs each ray from your eye to meet the polygon's sort plane (z = key) ahead of you
-// (m2_gl.c). One reaching nearer the arcade's camera than kKeyNear, or behind it, as the floor at your feet and the
-// sky's dome do, is cut at z = kKeyNear: the part ahead keeps its key, the nearer part (where the arcade's picture
-// never shows it: no order of its to keep) goes out by m2_gl.c's fixed step, key -1. Each part as a fan of
-// triangles to out(a, b, c).
+// The headset's key depth needs each ray from your eye to meet the polygon's sort plane (z = key) ahead of you, and
+// not too far past the point (m2_gl.c). One reaching nearer the arcade's camera than kKeyNear (or behind it, as the
+// floor at your feet and the sky's dome do) or than key / kKeyStretch (where its plane would push the point out more
+// than kKeyStretch times) is cut there: the part beyond keeps its key, the nearer part goes out by m2_gl.c's fixed
+// step, key -key (the step: key / kKeyNear, from 1.03 to kKeyStretch: the same as the plane's at the cut, so the two
+// parts meet, and a layer over another stays over it). Each part as a fan of triangles to out(a, b, c).
 template <class Out> void key_split(const M2Vert *pv, int n, Out out) {
     auto fan = [&](const M2Vert *v, int m) {
         for (int k = 1; k + 1 < m; k++) out(v[0], v[k], v[k + 1]);
     };
     float zmin = 1e30f;
     for (int k = 0; k < n; k++) zmin = std::min(zmin, pv[k].z);
-    if (!(pv[0].key > 0.f) || zmin >= kKeyNear) return fan(pv, n);
+    const float key = pv[0].key, cut = std::max(kKeyNear, key / kKeyStretch);
+    if (!(key > 0.f) || zmin >= cut) return fan(pv, n);
     M2Vert front[9], back[9];
     int nf = 0, nb = 0;
     for (int i = 0; i < n; i++) {
         const M2Vert &p = pv[i], &q = pv[(i + 1) % n];
-        const bool pin = p.z >= kKeyNear, qin = q.z >= kKeyNear;
+        const bool pin = p.z >= cut, qin = q.z >= cut;
         if (pin) front[nf++] = p;
         else back[nb++] = p;
         if (pin != qin) {
-            const float t = (kKeyNear - p.z) / (q.z - p.z);
+            const float t = (cut - p.z) / (q.z - p.z);
             M2Vert c = p;
-            c.x = p.x + t * (q.x - p.x), c.y = p.y + t * (q.y - p.y), c.z = kKeyNear;
+            c.x = p.x + t * (q.x - p.x), c.y = p.y + t * (q.y - p.y), c.z = cut;
             c.u = p.u + t * (q.u - p.u), c.v = p.v + t * (q.v - p.v), c.depth = p.depth + t * (q.depth - p.depth);
             front[nf++] = c, back[nb++] = c;
         }
     }
-    for (int k = 0; k < nb; k++) back[k].key = -1.f;
+    for (int k = 0; k < nb; k++) back[k].key = -key;
     fan(front, nf);
     fan(back, nb);
 }
 
-// The backdrop (m2_vr.h key -2): the lowest window with polygons when one above it has some too, the sky (window 1
+// The backdrop (m2_vr.h key kSkyKey): the lowest window with polygons when one above it has some too, the sky (window 1
 // under the world's 2 outdoors: clouds 1,800 units out, mountains 1,670 in front of them, a lid and a cone under the
 // horizon; indoors there is no window 1). The arcade draws that window wholly behind the ones over it, in its own
 // order within it, and that order (by each panel's sortz, one corner's z) is right only on its own screen: off to the
@@ -425,7 +433,7 @@ struct Backdrop {
     }
     void place(const rt::GeoPoly &poly, M2Vert *pv) const {
         if (int(poly.window) != bottom || bottom >= top) return;
-        for (int k = 0; k < poly.num_vertices; k++) pv[k].key = -2.f;
+        for (int k = 0; k < poly.num_vertices; k++) pv[k].key = kSkyKey;
     }
 };
 
@@ -1102,6 +1110,15 @@ std::vector<uint64_t> shot_frames() {
 } // namespace
 
 rt::GameLoop *the_game = nullptr;
+
+// RESTART (the menu: QACT_RESTART): the game back to its start, as when the cabinet is switched on. The board has no
+// reset; the game thread keeps a save state of it soon after power-on (kRestartFrame: the start-up checks done, the
+// attract about to begin) and loads it when asked, between frames; the settings and high scores (the I/O board's
+// EEPROM, the backup RAM) are written out first and read back after, so they are kept. Not while playing online
+// (the other player's game would go on: the menu doesn't offer it then).
+constexpr uint64_t kRestartFrame = 240;
+std::vector<uint8_t> restart_state;
+std::atomic<int> restart_wanted{0};
 uint32_t game_crc() { return the_game->board().state_hash(); } // online play's checksum (arcade_net)
 
 // The players' bullets and lives in work RAM (found with tools/m2probe: RAM at every shot of the scripted games):
@@ -1175,6 +1192,7 @@ uint64_t now_ns() { return plat_now_ns(); }
 uint64_t tgpx4_ns_total() { return rt::tgpx4_ns; }
 
 // The courtyard's file once it exists (m2_gl.c loads it for the cabinet room), else NULL
+extern "C" void arcade_restart(void) { restart_wanted.store(1); }
 extern "C" const char *arcade_courtyard_file(void) { return courtyard_ready.load(std::memory_order_acquire); }
 
 extern "C" const VrScene *d3d_vr_scene(void) {
@@ -1254,10 +1272,12 @@ extern "C" int SDL_main(int argc, char **argv) {
                        "epr-19697a.16), as hotd.zip or hotd.7z in\n" + game_dir + "\n\nPress the menu button to quit.");
     }
     {   // the cabinet room's courtyard, once (the images just kept: a new set's images make it again)
-        // (courtyard6 (5: the sky by its sortz, 4: M2Vert::key a ratio, 3 before it): the fountain, with the whole
-        // scenery sent (hook_hotd_scenery_cull); the earlier ones, the road outside the gate, are dropped)
-        const std::string cy = game_dir + "/courtyard6.m2w", images = game_dir + "/images";
-        std::remove((game_dir + "/courtyard5.m2w").c_str()); // (6: the sky a backdrop, Backdrop)
+        // (courtyard7 (6: the near parts' key -1, the sky's -2; 5: the sky by its sortz, 4: M2Vert::key a ratio, 3
+        // before it): the fountain, with the whole scenery sent (hook_hotd_scenery_cull); the earlier ones, the road
+        // outside the gate, are dropped)
+        const std::string cy = game_dir + "/courtyard7.m2w", images = game_dir + "/images";
+        std::remove((game_dir + "/courtyard6.m2w").c_str()); // (7: key_split's -key, kSkyKey)
+        std::remove((game_dir + "/courtyard5.m2w").c_str());
         std::remove((game_dir + "/courtyard4.m2w").c_str());
         std::remove((game_dir + "/courtyard3.m2w").c_str());
         std::remove((game_dir + "/courtyard2.m2w").c_str());
@@ -1313,6 +1333,43 @@ extern "C" int SDL_main(int argc, char **argv) {
     }
     while (!quit) {
         poll_events(quit);
+        // RESTART: its save state once, then on request (the sound thread idle: the state has its last frame)
+        if (restart_state.empty() && game->frames() == kRestartFrame && arcade_net::mode() == arcade_net::Off) {
+            sound_thread.wait();
+            try {
+                game->save_state(restart_state);
+                LOGI("restart state: %zu bytes at frame %llu", restart_state.size(), (unsigned long long)game->frames());
+            } catch (const std::exception &e) {
+                restart_state.clear();
+                LOGE("restart state: %s", e.what());
+            }
+        }
+        {   // M2_TEST_RESTART_AT=frame (tests): RESTART pressed once, at that frame
+            static long long at = -2;
+            if (at == -2) at = getenv("M2_TEST_RESTART_AT") ? std::atoll(getenv("M2_TEST_RESTART_AT")) : -1;
+            if (at >= 0 && game->frames() == uint64_t(at)) at = -1, restart_wanted.store(1);
+        }
+        if (restart_wanted.exchange(0)) {
+            if (restart_state.empty() || arcade_net::mode() != arcade_net::Off) {
+                LOGE("restart: %s", restart_state.empty() ? "no state yet" : "not online");
+            } else {
+                sound_thread.wait();
+                try {
+                    tools::save_nvram(*game, save_dir); // the settings and scores as they are now, kept
+                    game->load_state(restart_state.data(), restart_state.size());
+                    tools::load_nvram(*game, save_dir);
+                    saved_eeprom.assign(game->board().io().eeprom.begin(), game->board().io().eeprom.end());
+                    saved_backup.assign(game->board().backup_ram().begin(), game->board().backup_ram().end());
+                    game_camera = last_camera = GameCamera{};
+                    comfort.fade = kCutFade; // (from black)
+                    next = now_ns();
+                    LOGI("restarted: frame %llu", (unsigned long long)game->frames());
+                } catch (const std::exception &e) {
+                    LOGE("restart: %s", e.what());
+                }
+                continue;
+            }
+        }
         // a guest joining: the host's game as it is (its save state), loaded instead of running every frame since
         // the host's start; the host's bundles follow from the frame after it
         if (arcade_net::snapshot_waiting()) {

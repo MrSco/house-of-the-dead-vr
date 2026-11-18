@@ -1,4 +1,4 @@
-// The VR menu: tabs (GUN, HANDS, VIEW, COMFORT, GRAPHICS, SYSTEM, ONLINE) over a footer (RESUME, RECENTER, GAME MENU, QUIT), driven by the gun's
+// The VR menu: tabs (GUN, HANDS, VIEW, COMFORT, GRAPHICS, SYSTEM, ONLINE) over a footer (RESUME, RECENTER, RESTART, QUIT), driven by the gun's
 // laser and trigger, or by the sticks, A and B, the grips switching tabs. Adapted from the Time Crisis 2 VR project's
 // pause menu (quest/quest_menu.c, MIT). It draws on the CPU into a QMENU_W x QMENU_H RGBA texture (quest_canvas.c), only
 // when something on it changed; quest_xr.c shows it on a panel in front of you.
@@ -7,7 +7,8 @@
 #include <stdint.h>
 
 enum { QMENU_W = 1120, QMENU_H = 728 };
-enum { QACT_RESUME, QACT_RECENTER, QACT_GAME_MENU, QACT_QUIT, QACT_ARCADE_IMPORT };
+enum { QACT_RESUME, QACT_RECENTER, QACT_RESTART, QACT_QUIT, QACT_ARCADE_IMPORT };
+// QACT_RESTART: the game back to its start, as switched on (arcade.cpp arcade_restart), settings and scores kept
 typedef struct QMenuHost {
     int (*get)(int option);              // quest_options.h
     void (*set)(int option, int value);

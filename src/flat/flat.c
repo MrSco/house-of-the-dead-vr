@@ -293,6 +293,13 @@ static void render_picture(void) {
     glEnable(GL_DEPTH_TEST);
     float p[16];
     game_proj(p, sc);
+    float near_u = 1.0f;
+    {   // FLAT_TEST_NEARFAR=near,far (game units; tests): the depth's planes another renderer uses (the Quest's world:
+        // 0.2 m and 1000 m at its 0.11 m a unit, 1.818,9091), its depth buffer's precision with them
+        static int on = -1; static float n, f;
+        if (on < 0) { const char *e = getenv("FLAT_TEST_NEARFAR"); on = e && sscanf(e, "%f,%f", &n, &f) == 2 && n > 0 && f > n; }
+        if (on) { p[10] = (f + n) / (f - n); p[14] = -2 * f * n / (f - n); near_u = n; }
+    }
     {   // FLAT_TEST_LOOK=pitch,yaw,fov[,dx,dy,dz] (degrees, game units; tests): the camera turned (pitch + looks down)
         // with that field of view, and moved by dx, dy, dz in its own space (z ahead), as a headset looks round the
         // game's world from a head that leans away from the arcade's camera (the VR scenery hook sends all of it)
@@ -315,7 +322,7 @@ static void render_picture(void) {
             for (int rr = 0; rr < 4; rr++) p[12 + rr] -= p[rr] * d[0] + p[4 + rr] * d[1] + p[8 + rr] * d[2];
         }
     }
-    m2_gl_near(1.0f);
+    m2_gl_near(near_u);
     m2_gl_draw(p);
     if (F.tex_w) {
         const float q[] = { -1, 1, 0, 0, 0,  1, 1, 0, 1, 0,  1, -1, 0, 1, 1,  -1, 1, 0, 0, 0,  1, -1, 0, 1, 1,  -1, -1, 0, 0, 1 };

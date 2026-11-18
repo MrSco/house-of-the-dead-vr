@@ -47,11 +47,11 @@ static const char *VS =
     // (out along its ray: m2_vr.h prio; far off, more: the depth buffer's step grows with the distance squared, so the
     // relative step must grow with the distance to stay a few of its steps; prio_k from the projection's near plane)
     "  gl_Position = mvp * vec4(pos, 1.0);\n"
-    // The sky (key <= -2), in either mode: where it is, on a depth range of its own behind the world's (draw_world),
+    // The sky (key under -1e5: arcade.cpp kSkyKey), in either mode: where it is, on a depth range of its own behind the world's (draw_world),
     // its depth z / w = 1 - sky_c / w: 500 game units at -1, the mountains (1,670) and the clouds (1,800) far apart
     // in it (the projection's own depth, so far out, or the draw order's, put them within a step of the 24-bit buffer:
     // the clouds, drawn after, won)
-    "  if (key <= -2.0) {\n"
+    "  if (key < -1.0e5) {\n"
     "    gl_Position.z = gl_Position.w - sky_c;\n"
     "  } else if (order > 0.0) {\n"
     "    gl_Position.z = (min(prio * order, 1.0) * 2.0 - 1.0) * gl_Position.w;\n"
@@ -62,9 +62,11 @@ static const char *VS =
     // Along the ray Q = E + t (P - E) clip space is (1 - t) E' + t P' with E' = (0, 0, eye.w, 0): Q's depth on P's
     // own w is z' = P'.z - eye.w + eye.w / t, t = (key - eye.z) / (pos.z - eye.z): linear in pos, so the clipper and
     // the rasterizer carry it across a polygon exactly (one reaching behind you, as the floor at your feet does)
-    // A polygon too near the arcade's camera for its plane (key < 0: the floor at your feet, the sky's dome; rays from
-    // the eye meet the plane behind you) goes out by a fixed step along the rays instead, t = 1.03 and the draw
-    // order's step: z' = P'.z - eye.w + eye.w / t (a figure's feet dipping into the floor stay over it)
+    // A polygon's part too near the arcade's camera for its plane (key < 0: -key its plane; the floor at your feet,
+    // whose rays from the eye meet the plane behind you, or the ground just ahead of the camera, whose plane lies
+    // hundreds of times as far: arcade.cpp key_split) goes out by a fixed step along the rays instead: t = -key / 3,
+    // from 1.03 to 8 (arcade.cpp kKeyNear, kKeyStretch: the plane's own step where the part was cut off, so the
+    // parts meet) and the draw order's step as the plane's: z' = P'.z - eye.w + eye.w / t
     "    float s = key - eye.z;\n"
     "    if (key > 0.0 && s > 1e-3) {\n"
     "      s = min(s, key_max) * (1.0 + prio * clamp(s * prio_k, 1.0, 16.0));\n"
@@ -72,7 +74,9 @@ static const char *VS =
     // (a ray at a grazing angle to the plane, as the sky's high up are, meets it past the far plane: kept inside)
     "      if (gl_Position.w > 0.0) gl_Position.z = min(gl_Position.z, 0.99999 * gl_Position.w);\n"
     "    } else if (key < 0.0) {\n"
-    "      gl_Position.z += eye.w * (1.0 / (1.03 * (1.0 + prio)) - 1.0);\n"
+    "      float sk = max(min(-key - eye.z, key_max), 1e-3);\n"
+    "      float t = clamp(-key / 3.0, 1.03, 8.0) * (1.0 + prio * clamp(sk * prio_k, 1.0, 16.0));\n"
+    "      gl_Position.z += eye.w * (1.0 / t - 1.0);\n"
     "    } else {\n"
     "      vec3 q = pos * (1.0 + prio * clamp(length(pos) * prio_k, 1.0, 16.0));\n"
     "      vec4 d = mvp * vec4(q, 1.0);\n"
@@ -438,10 +442,10 @@ void m2_gl_draw_face(const float *proj, float eye_x) {
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
-// The sky (arcade.cpp Backdrop: key -2, the world's last triangles): where it starts (n: none)
+// The sky (arcade.cpp Backdrop: key kSkyKey, the world's last triangles): where it starts (n: none)
 static GLsizei sky_start(const M2Vert *v, GLsizei n) {
     GLsizei i = n;
-    while (i >= 3 && v[i - 1].key <= -2.0f) i -= 3;
+    while (i >= 3 && v[i - 1].key < -1.0e5f) i -= 3;
     return i;
 }
 // The world, then the sky behind it: the sky by its real distance (the mountains in front of the clouds, all round

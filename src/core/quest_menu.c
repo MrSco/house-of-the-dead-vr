@@ -30,7 +30,7 @@ enum { K_TAB = 1, K_FOOT, K_ROW, K_SEG, K_STEP, K_TRACK, K_RESET, K_TABS, K_MBTN
 #define ID(k, a) ((k) << 8 | (a))
 #define KIND(id) ((id) >> 8)
 #define ARG(id) ((id) & 255)
-enum { M_NONE, M_QUIT, M_HOST, M_HOSTLAN, M_QUICK, M_LEAVE, M_CODE, M_NAME, M_IP, M_SERVER, M_CONTROLS };
+enum { M_NONE, M_QUIT, M_RESTART, M_HOST, M_HOSTLAN, M_QUICK, M_LEAVE, M_CODE, M_NAME, M_IP, M_SERVER, M_CONTROLS };
 enum { S_MAIN, S_BROWSE, S_LAN };
 enum { ON_HOST, ON_CODE, ON_BROWSE, ON_QUICK, ON_LAN, ON_NAME, ON_MUTE, ON_LEAVE, ON_BACK, ON_REFRESH, ON_HOSTLAN, ON_IPEDIT, ON_JOINIP, ON_PREV, ON_NEXT, ON_SERVER };
 enum { F_BUTTON, F_SEG, F_SLIDER, F_TABS };   // what left / right does on a focused row
@@ -368,13 +368,14 @@ static void tabs(void) {
 static void footer(void) {
     rrect(3, FOOT_Y, QMENU_W - 6, 2, 0, LINE);
     if (drawing()) qc_text_fit(&cv, UI_M17, 27, FOOT_Y + 30, CW, help, MUTED, 0);
-    const char *labels[5] = { "RESUME", "RECENTER", "CONTROLS", "GAME MENU", "QUIT" };
+    const char *labels[5] = { "RESUME", "RECENTER", "CONTROLS", "RESTART", "QUIT" };
     const char *tips[5] = { H->flat ? "Back to the game. Esc does the same." : "Back to the game. The menu button does the same.",
                             "Puts the game where you are now, facing the way you look.",
                             "Every button and gesture: the controllers, your hands and this menu.",
-                            "The game's own pause screen (Esc): Continue, or Exit to its title screen.",
+                            online_now() ? "Back to the game's start: not while playing online (leave the online game first)."
+                                         : "Back to the game's start, as when it's switched on. Asks first.",
                             "Closes the app. Your settings and the game's saves are kept." };
-    const int icons[5] = { I_PLAY, I_RECENTER, I_KEYS, I_LIST, I_CROSS };
+    const int icons[5] = { I_PLAY, I_RECENTER, I_KEYS, I_RESET, I_CROSS };
     tips[2] = H->flat ? "The mouse, the keys and this menu." : tips[2];
     const int nb = H->flat ? 4 : 5;
     const float y = FOOT_Y + 46, h = QMENU_H - 3 - 16 - y, unit = (CW + 4 - 12 * (nb - 1)) / (nb + 0.1f);
@@ -393,7 +394,7 @@ static void footer(void) {
             if (i == 0) H->action(QACT_RESUME);
             else if (i == 1) H->action(QACT_RECENTER);
             else if (i == 2) { modal = M_CONTROLS; focus = ID(K_MBTN, 1); }
-            else if (i == 3) H->action(QACT_GAME_MENU);
+            else if (i == 3) { if (!online_now()) { modal = M_RESTART; focus = ID(K_MBTN, 1); } }
             else { modal = M_QUIT; focus = ID(K_MBTN, 1); }
         }
         x += w + 12;
@@ -781,6 +782,7 @@ static void modal_buttons(float x, float y, float w, const char *ok) {
         const int m = modal;
         modal = M_NONE;
         if (m == M_QUIT) H->action(QACT_QUIT);
+        else if (m == M_RESTART) H->action(QACT_RESTART);
         else if (m == M_HOST) online_host_room();
         else if (m == M_HOSTLAN) online_host_lan();
         else if (m == M_QUICK) online_quick();
@@ -796,7 +798,11 @@ static void modal_buttons(float x, float y, float w, const char *ok) {
 static void confirm(void) {
     const float w = 660; float x, y;
     const char *title = "QUIT?", *body = "The app closes. The game in progress is lost.", *note = "Your settings, high scores and the game's options are kept.", *ok = "QUIT";
-    if (modal == M_HOST || modal == M_HOSTLAN) {
+    if (modal == M_RESTART) {
+        title = "RESTART THE GAME?";
+        body = "Back to the start, as when the cabinet is switched on. The game in progress is lost.";
+        ok = "RESTART";
+    } else if (modal == M_HOST || modal == M_HOSTLAN) {
         title = modal == M_HOST ? "HOST A ROOM?" : "HOST ON THIS NETWORK?";
         body = "The app restarts into an online game (about 10 s): the game starts from its title, and you play P1.";
         note = modal == M_HOST ? "Your room's code shows on this tab. Friends join with it at any time." : "Friends on your network find your game in LOCAL NETWORK.";

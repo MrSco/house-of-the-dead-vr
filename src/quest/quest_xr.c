@@ -2105,10 +2105,9 @@ static void menu_set_open(int open) {
 static void menu_action(int a) {
     if (a == QACT_RESUME) menu_set_open(0);
     else if (a == QACT_RECENTER) { recenter(); menu_place(); }
-    else if (a == QACT_GAME_MENU) {          // the game's own pause: Esc, tapped
+    else if (a == QACT_RESTART) {            // the game back to its start (the game thread, between frames)
         menu_set_open(0);
-        quest_key(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, 1);
-        quest_key(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, 0);
+        arcade_restart();
     } else if (a == QACT_QUIT) S.exit_requested = 1;
     else if (a == QACT_ARCADE_IMPORT) start_import();   // ImportActivity ends this run and starts the app again
 }

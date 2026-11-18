@@ -26,8 +26,9 @@ typedef struct {
     float key;              // depth only (the headset's): the z the arcade sorted its polygon by (rt::GeoPoly::
                             // sortz): each point's depth is where its ray from the eye meets the plane z = key
                             // (m2_gl.c); negative: the part of a polygon too near the arcade's camera for that
-                            // (arcade.cpp key_split), a fixed step out along the rays; 0: where it is; -2: the
-                            // sky, where it is, behind everything (arcade.cpp Backdrop, m2_gl.c draw_world)
+                            // (arcade.cpp key_split), -key its plane, a fixed step out along the rays; 0: where it
+                            // is; under -1e5: the sky, where it is, behind everything (arcade.cpp Backdrop, m2_gl.c
+                            // draw_world)
 } M2Vert;
 
 #define M2_TEX_WORDS 0x100000u   // texture RAM: sheet 0 then sheet 1, 0x80000 dwords each (1024 x 1024 R32UI)
