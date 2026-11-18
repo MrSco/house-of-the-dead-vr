@@ -110,9 +110,14 @@ def main():
     ap.add_argument('--publish', action='store_true', help='create or update the GitHub release')
     ap.add_argument('--no-build', action='store_true', help='the downloads already in build_release/<version>')
     a = ap.parse_args()
-    if git('status', '--porcelain', '--untracked-files=no'):
+    if not a.no_build and git('status', '--porcelain', '--untracked-files=no'):
         sys.exit('release: uncommitted changes (the builds stamp the commit): commit them first')
     v, commit = version(), git('rev-parse', '--short=8', 'HEAD')
+    quest_apk = os.path.join(ROOT, 'build_release', v, 'house-of-the-dead-vr-%s.apk' % v)
+    if a.no_build and os.path.exists(quest_apk):   # (the commit the downloads were built from: the Quest APK's stamp)
+        import zipfile
+        info = zipfile.ZipFile(quest_apk).read('assets/build-info.txt').decode()
+        commit = re.search(r'commit=([0-9a-f]+)', info).group(1)[:8]
     keys = [k for k, _, _ in PLATFORMS if (a.apple or k not in ('mac', 'ios'))]
     if a.only: keys = [k for k in keys if k in a.only.split(',')]
     out = os.path.join(ROOT, 'build_release', v)
@@ -140,7 +145,7 @@ def main():
         run(['gh', 'release', 'edit', tag, '-R', REPO, '--notes-file', notes])
     else:
         run(['gh', 'release', 'create', tag, '-R', REPO, '--title', 'House of the Dead VR ' + v, '--notes-file', notes,
-             '--target', git('rev-parse', 'HEAD')] + (['--prerelease'] if '-' in v else ['--latest']) + files)
+             '--target', git('rev-parse', commit)] + (['--prerelease'] if '-' in v else ['--latest']) + files)
     log('published %s' % tag)
 
 
