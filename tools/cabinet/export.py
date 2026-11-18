@@ -126,9 +126,11 @@ for comp in components(cab):
         k = (y * TEX + x) * 4
         cs.append([base[k + j] / 255.0 for j in range(3)])
     c = [sum(q[j] for q in cs) / len(cs) for j in range(3)]
-    if (max(c) - min(c) > 0.25 and min(abs(q.x) for q in ps) > 0.35 and max(abs(q.x) for q in ps) < 0.82 and
-            min(q.z for q in ps) > 1.0 and max(q.z for q in ps) < 1.95 and min(q.y for q in ps) > -2.25 and
-            max(q.y for q in ps) < -1.2):
+    in_cords = (min(abs(q.x) for q in ps) > 0.35 and max(abs(q.x) for q in ps) < 0.82 and
+                min(q.z for q in ps) > 1.0 and max(q.z for q in ps) < 1.95 and min(q.y for q in ps) > -2.25)
+    # (and a dimmer scrap of one floating clear of the cabinet's front, y -1.56: a red sliver by the right holster)
+    if in_cords and ((max(c) - min(c) > 0.25 and max(q.y for q in ps) < -1.2) or
+                     (max(c) - min(c) > 0.15 and max(q.y for q in ps) < -1.6)):
         cord_verts.update(comp)
         ports.extend(ps)
 # the sharper art (--art): the atlas for the texture, the art's faces' uvs moved to their new places
@@ -164,6 +166,13 @@ if art_dir:
         olds = [(u * OLDT, (1 - v) * OLDT) for u, v in uvs]      # the old texture's pixels, rows from the top
         for pc in amap['pieces']:
             if not on_faces(pc['faces'], c, fn): continue
+            # the control panel's front face (upright, over the holsters): one dark grey texel, the cabinet front's own
+            # (30, 30, 31; atlas pixel (256, 20), rows from the top: a plain 5 x 5 patch of the model's texture, no
+            # glow). The picture stops at the rounded edge: its last row ran down the face, and blurred (the face
+            # seen at a slant) with the atlas's other edge, smeared red and black. One texel: no blur at any distance.
+            if pc['faces'] == 'panel' and fn.y < -0.9 and c.z < 1.655 and abs(c.y + 1.484) < 0.006:   # (not the
+                # holsters' mounting plates in front of it)
+                return [((256 + 0.5) / NEWT, 1 - (20 + 0.5) / NEWT)] * 3
             if 'planar' in pc:                                     # projected: two axes -> atlas pixels
                 if 'old' in pc:                                    # (only the faces that carried the old art)
                     rects = pc['old'] if isinstance(pc['old'][0], list) else [pc['old']]

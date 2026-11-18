@@ -7,8 +7,8 @@
   "credit": "This work is based on \"The House of the Dead Arcade cabinet\" (https://sketchfab.com/3d-models/the-house-of-the-dead-arcade-cabinet-e03d6a5f5efd49d19cfb7d95a27ad363) by Seraphim Sarov (https://sketchfab.com/Songti) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
   "made_by": "tools/cabinet/export.py (Blender 5.2) from the Sketchfab glTF download",
   "format": "TCCAB001",
-  "changes": "the zombie bursting from the screen and its rig removed, the guns taken out, scaled to 2.09 m, textures 1024 px (base colour and emissive), the game screen fitted to the opening; the guns' coiled cords left out (the app draws them, from the same ports); sharper marquee, control panel and side art (the side art scaled evenly onto the side panels, placed by their outlines' corners; the control panel's picture unrolled over its slope, card and speakers) in a 2048 texture (tools/cabinet/art_atlas.py)",
-  "asset_sha256": "f62320f215fcc77f1fc64b0febb93c67eea91997c3b0246050cd74194b62e8d8",
+  "changes": "the zombie bursting from the screen and its rig removed, the guns taken out, scaled to 2.09 m, textures 1024 px (base colour and emissive), the game screen fitted to the opening; the guns' coiled cords left out (the app draws them, from the same ports; a scrap of one floating by the right holster too); the control panel's front face over the holsters one plain dark grey, as the rest of the front; sharper marquee, control panel and side art (the side art scaled evenly onto the side panels, placed by their outlines' corners; the control panel's picture unrolled over its slope, card and speakers) in a 2048 texture (tools/cabinet/art_atlas.py)",
+  "asset_sha256": "1a958b48156400851be08f9029c1e90515be7945c173f19a5607fb6ea55ad124",
   "art": {
     "note": "The cabinet artwork is SEGA's (The House of the Dead, 1996). Sources of the sharper pieces:",
     "marquee": "the project's cleaned, upscaled marquee (docs/cabinet art), drawn across the whole marquee panel",
