@@ -23,6 +23,9 @@ vendor/
 *.rom
 *.bin
 *.ic*
+# (but the app icons: scripts/make_icons.py)
+!src/flat/win/hotdvr.ico
+!src/flat/mac/AppIcon.icns
 roms/*
 !roms/.gitkeep
 rom/

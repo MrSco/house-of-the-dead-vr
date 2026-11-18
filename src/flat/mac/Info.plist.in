@@ -16,6 +16,8 @@
 	<string>House of the Dead VR</string>
 	<key>CFBundleDisplayName</key>
 	<string>House of the Dead VR</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

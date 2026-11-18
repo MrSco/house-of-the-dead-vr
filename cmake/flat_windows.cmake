@@ -42,7 +42,7 @@ set(M2_FLAT_C
     src/core/quest_menu.c src/core/quest_canvas.c src/core/quest_options.c
     src/platform/windows/platform_win.c src/platform/windows/audio_win.c src/platform/windows/gl_win.c
     src/platform/windows/crash_win.c)
-add_executable(hotdvr WIN32 ${M2_FLAT_C} ${M2_NET_C})
+add_executable(hotdvr WIN32 ${M2_FLAT_C} ${M2_NET_C} src/flat/win/hotdvr.rc)   # (.rc: its icon)
 set_target_properties(hotdvr PROPERTIES OUTPUT_NAME HOTDVR C_STANDARD 11)
 target_include_directories(hotdvr PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${M2_NET_SRC} ${M2_QUEST_SDL2})
 target_compile_definitions(hotdvr PRIVATE HOTD_ARCADE HOTD_VOICE _CRT_SECURE_NO_WARNINGS)

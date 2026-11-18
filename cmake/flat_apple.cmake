@@ -54,7 +54,8 @@ if(NOT IOS)
     # the Mac app: the libraries, Apple's frameworks, ANGLE's dylibs copied into the bundle (their install names are
     # ./libEGL.dylib and ./libGLESv2.dylib: rewritten to @rpath, and the bundle signed again, ad hoc)
     set(M2_ANGLE_MAC ${ANGLE_DIR}/out/mac)
-    add_executable(hotdvr_mac MACOSX_BUNDLE src/flat/ios/stub.c)
+    add_executable(hotdvr_mac MACOSX_BUNDLE src/flat/ios/stub.c src/flat/mac/AppIcon.icns)
+    set_source_files_properties(src/flat/mac/AppIcon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)   # (its icon)
     set_target_properties(hotdvr_mac PROPERTIES OUTPUT_NAME "House of the Dead VR"
         MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/src/flat/mac/Info.plist.in
         BUILD_RPATH "@executable_path/../Frameworks" INSTALL_RPATH "@executable_path/../Frameworks")

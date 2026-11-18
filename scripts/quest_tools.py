@@ -288,8 +288,11 @@ def package_apk(tools, out, so, xr_lib, pkg, label, release=False, manifest=None
     open(man, 'w', encoding='utf-8').write(text.replace('@PACKAGE@', pkg).replace('@LABEL@', label))
     unaligned, aligned = os.path.join(out, 'unaligned.apk'), os.path.join(out, 'aligned.apk')
     dex = quest_dex(tools, out)
+    # the app icon (src/quest/res: scripts/make_icons.py), compiled for aapt2's link
+    res_zip = os.path.join(out, 'res.zip')
+    run([tools['aapt2'], 'compile', '--dir', os.path.join(ROOT, 'src', 'quest', 'res'), '-o', res_zip])
     run([tools['aapt2'], 'link', '-o', unaligned, '--manifest', man, '-I', tools['android_jar'],
-         '--min-sdk-version', str(QUEST_API), '--target-sdk-version', '32'])
+         '--min-sdk-version', str(QUEST_API), '--target-sdk-version', '32', res_zip])
     stripped = os.path.join(out, 'libhotdvr.stripped.so')
     run([tools['strip'], '--strip-unneeded', '-o', stripped, so])
     with zipfile.ZipFile(unaligned, 'a', zipfile.ZIP_DEFLATED) as z:

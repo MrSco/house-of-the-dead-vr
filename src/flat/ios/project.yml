@@ -36,6 +36,8 @@ targets:
     sources:
       # the app's one source of its own: main() is the libraries' (src/flat/ios/main_ios.m)
       - path: stub.c
+      # its icon (scripts/make_icons.py)
+      - path: Assets.xcassets
     settings:
       base:
         SDKROOT: iphoneos
@@ -43,6 +45,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.mrsco.hotdvr
         PRODUCT_NAME: HouseOfTheDeadVR
         INFOPLIST_FILE: Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: "${HOTD_VERSION}"
         CURRENT_PROJECT_VERSION: "${HOTD_BUILD}"
         # -ObjC: the app and scene delegates are only named at run time, so without it the linker drops them
