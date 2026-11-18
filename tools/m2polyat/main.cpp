@@ -33,6 +33,12 @@ int main(int argc, char **argv) {
     const uint64_t objs_from = objs ? std::strtoull(objs, nullptr, 10) : 0;
     for (uint64_t f = 0; f < frames; f++) {
         script.pokes(f, game.board()), game.run_frame(script.at(f));
+        if (objs && f + 1 >= objs_from && std::getenv("M2_POLYAT_SKY")) {   // (and =1: the sky's panels kept, window 1)
+            int n = 0;
+            for (const rt::GeoPoly &p : game.board().video().gpu_polys()) n += p.window == 1;
+            std::printf("sky %llu %d\n", (unsigned long long)(f + 1), n);
+            continue;
+        }
         if (objs && f + 1 >= objs_from)
             for (const rt::Geo::Object &o : game.board().geo().objects)
                 std::printf("obj %llu %08x %d %g %g %g %g %g %g %g %g %g %g %g %g\n", (unsigned long long)(f + 1), o.address, o.window,
@@ -71,6 +77,65 @@ int main(int argc, char **argv) {
             if (zmin > 0) continue; // (only those crossing the camera's plane or behind it)
             std::printf("  keyed nearer: rank %5zu sortz %8.3f verts z %8.3f..%8.3f window %d tex %04x %04x\n", rank,
                         double(p.sortz), double(zmin), double(zmax), p.window, p.texheader[0], p.texheader[2]);
+        }
+        return 0;
+    }
+    if (const char *path = std::getenv("M2_POLYAT_SHADOWS")) {
+        // the pixels where the arcade's order puts a shadow (solid black, texheader 00c0, colour 0) over a textured
+        // polygon nearer the camera there (a figure standing on it): how many, and a mask (PGM) of them
+        struct P { float x[8], y[8], iz[8]; int n; float a, b, c; bool ok; };
+        std::vector<P> pp(order.size());
+        for (size_t r = 0; r < order.size(); r++) {
+            const rt::GeoPoly &p = polys[order[r]];
+            P &q = pp[r];
+            q.n = p.num_vertices, q.ok = q.n >= 3;
+            for (int i = 0; i < q.n && q.ok; i++) {
+                const float z = p.v[i].p[0];
+                if (z <= 0.01f) { q.ok = false; break; }
+                q.x[i] = float(video.crtc_x() + p.center[0]) + p.v[i].x / z;
+                q.y[i] = float((384 - p.center[1]) + video.crtc_y()) - p.v[i].y / z;
+                q.iz[i] = 1.f / z;
+            }
+            if (!q.ok) continue;   // 1/z over the screen: the plane through the first three points
+            const float x1 = q.x[1] - q.x[0], y1 = q.y[1] - q.y[0], z1 = q.iz[1] - q.iz[0];
+            const float x2 = q.x[2] - q.x[0], y2 = q.y[2] - q.y[0], z2 = q.iz[2] - q.iz[0];
+            const float d = x1 * y2 - x2 * y1;
+            if (std::fabs(d) < 1e-6f) { q.ok = false; continue; }
+            q.a = (z1 * y2 - z2 * y1) / d, q.b = (x1 * z2 - x2 * z1) / d, q.c = q.iz[0] - q.a * q.x[0] - q.b * q.y[0];
+        }
+        auto inside = [](const P &q, float X, float Y) {
+            int pos = 0, neg = 0;
+            for (int i = 0; i < q.n; i++) {
+                const int j = (i + 1) % q.n;
+                const float c = (q.x[j] - q.x[i]) * (Y - q.y[i]) - (q.y[j] - q.y[i]) * (X - q.x[i]);
+                if (c > 0) pos++; else if (c < 0) neg++;
+            }
+            return !(pos && neg) && (pos || neg);
+        };
+        std::vector<uint8_t> mask(496 * 384, 0);
+        int shadow_px = 0, over = 0;
+        for (int y = 0; y < 384; y++)
+            for (int x = 0; x < 496; x++) {
+                const float X = x + .5f, Y = y + .5f;
+                size_t win = SIZE_MAX;
+                for (size_t r = 0; r < order.size() && win == SIZE_MAX; r++)
+                    if (pp[r].ok && inside(pp[r], X, Y)) win = r;
+                if (win == SIZE_MAX) continue;
+                const rt::GeoPoly &w = polys[order[win]];
+                if (w.texheader[0] != 0x00c0 || w.texheader[3] != 0) continue;
+                shadow_px++;
+                const float wz = pp[win].a * X + pp[win].b * Y + pp[win].c;
+                for (size_t r = win + 1; r < order.size(); r++) {
+                    const rt::GeoPoly &p = polys[order[r]];
+                    if (!pp[r].ok || p.window != w.window || !((p.texheader[0] >> 14) & 1) || !inside(pp[r], X, Y)) continue;
+                    if (pp[r].a * X + pp[r].b * Y + pp[r].c > wz * 1.02f) { over++, mask[size_t(y) * 496 + size_t(x)] = 255; break; }
+                }
+            }
+        std::printf("shadow pixels %d; of them over a nearer textured polygon %d\n", shadow_px, over);
+        if (FILE *f = std::fopen(path, "wb")) {
+            std::fprintf(f, "P5\n496 384\n255\n");
+            std::fwrite(mask.data(), 1, mask.size(), f);
+            std::fclose(f);
         }
         return 0;
     }

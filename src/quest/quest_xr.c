@@ -165,7 +165,7 @@ static struct {
     float menu_m[16], menu_t[2];
     GLuint prog_menu, menu_tex; GLint u_menu_mvp;
     // comfort: the vignette's program and strength now
-    GLuint prog_vig; GLint u_vig; float vig;
+    GLuint prog_vig; GLint u_vig, u_vig_k; float vig;
 } S = { .active = 1, .floor_y = -1.6f, .scale = 0.11f, .panel_m = 1.5f };
 
 // hand h holds a gun (the HANDS tab)
@@ -804,9 +804,17 @@ static const char *FS_TEX =
 // the turn vignette: clear in the middle, dark towards the edges, the clear part shrinking as vig grows
 static const char *VS_VIG =
     "#version 300 es\nlayout(location=0) in vec2 pos;\nout vec2 p;\nvoid main() { gl_Position = vec4(pos, 0.0, 1.0); p = pos; }\n";
+// (by each pixel's direction from the eye, through that eye's projection (k: m0, m8, m5, m9): the eyes' views are
+// not centred alike, so a ring in each picture's middle was two rings, out of step; this is one, round where you look)
 static const char *FS_VIG =
-    "#version 300 es\nprecision mediump float;\nuniform float vig;\nin vec2 p;\nout vec4 o;\n"
-    "void main() { float inner = mix(1.25, 0.32, vig); float a = smoothstep(inner, inner + 0.4, length(p)); o = vec4(0.0, 0.0, 0.0, a * min(1.0, vig * 3.0)); }\n";
+    "#version 300 es\nprecision highp float;\nuniform float vig;\nuniform vec4 k;\nin vec2 p;\nout vec4 o;\n"
+    "void main() {\n"
+    "  vec2 t = vec2((p.x + k.y) / k.x, (p.y + k.w) / k.z);\n"   // the ray's tangents (x / -z, y / -z)
+    "  float ang = degrees(atan(length(t)));\n"
+    "  float inner = mix(62.0, 22.0, vig);\n"                       // open: past the view; closed: a 22 degree window
+    "  float a = smoothstep(inner, inner + 14.0, ang);\n"
+    "  o = vec4(0.0, 0.0, 0.0, a * min(1.0, vig * 3.0));\n"
+    "}\n";
 // the menu's panel: its texture as it is (mipmapped: steady text from any distance)
 static const char *FS_MENU =
     "#version 300 es\nprecision mediump float;\nuniform sampler2D tex;\nin vec2 v_uv;\nout vec4 o;\n"
@@ -849,6 +857,7 @@ static int gl_init(void) {
     load_reload_lines(S.app->activity->assetManager);
     S.prog_vig = program(VS_VIG, FS_VIG);
     S.u_vig = glGetUniformLocation(S.prog_vig, "vig");
+    S.u_vig_k = glGetUniformLocation(S.prog_vig, "k");
     S.prog_menu = program(VS_TEX, FS_MENU);
     S.u_menu_mvp = glGetUniformLocation(S.prog_menu, "mvp");
     glUseProgram(S.prog_menu);
@@ -1186,8 +1195,9 @@ static void draw_dim(float a) {
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
 }
-// Turn vignette (comfort): while the game camera turns fast, the edges of the view darken (a ring in each eye)
-static void draw_vignette(void) {
+// Turn vignette (comfort): while the game camera turns or moves fast, the edges of the view darken (by the
+// direction from the eye: proj, this eye's projection)
+static void draw_vignette(const float *proj) {
     if (S.vig < 0.01f || S.cabinet || S.screen_scene) return;
     static const float q[12] = { -1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1 };
     glDisable(GL_DEPTH_TEST);
@@ -1195,6 +1205,7 @@ static void draw_vignette(void) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glUseProgram(S.prog_vig);
     glUniform1f(S.u_vig, S.vig);
+    glUniform4f(S.u_vig_k, proj[0], proj[8], proj[5], proj[9]);
     glDisableVertexAttribArray(1);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), q);
@@ -1739,7 +1750,7 @@ static void draw_scene(const float *proj, const float *view, const float *pv) {
     glDisable(GL_BLEND);
     draw_rack_hint(pv);
     draw_online_label(pv);
-    if (!S.cabinet && !S.menu_open) { if (!S.screen_scene) draw_fade(); draw_vignette(); }   // (the screen has its fade)
+    if (!S.cabinet && !S.menu_open) { if (!S.screen_scene) draw_fade(); draw_vignette(proj); }   // (the screen has its fade)
 }
 static void facing_pose(float *m, float up, float ahead);
 // No game to show (its files missing, or it didn't start): the message page (quest_show_message) on a panel ahead of
