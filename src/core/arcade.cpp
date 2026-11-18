@@ -695,7 +695,7 @@ void SDLCALL audio_cb(void *ud, Uint8 *stream, int len) {
 }
 
 // ---- the reload gesture's own lines for the game's "Shoot outside of the screen!" (said when you pull the trigger
-// on an empty gun): "Drop the mag!", "Load mag!", "Rack slide!" by the step you're at (quest_xr.c sets
+// on an empty gun): "Drop the mag!", "Insert a magazine!", "Rack the slide!" by the step you're at (quest_xr.c sets
 // arcade_reload_step; the others: the game's line). Baked in: the line's place in this player's sample ROM holds the
 // clip for the step (the rest silence), so the game's own sound program says it, as it says the line. The game and
 // its board run as ever (the sample bytes only reach the speakers: the game's RAM is the same, m2probe

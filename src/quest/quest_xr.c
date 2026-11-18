@@ -1948,12 +1948,12 @@ static void release_all(void) {
     if (S.menu) { quest_key(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, 0); S.menu = 0; }
 }
 // The reload gesture's lines for the game's "Shoot outside of the screen!" (said when the trigger is pulled on an
-// empty gun): assets voice-drop-mag.wav, voice-load-mag.wav, voice-rack-slide.wav (16-bit mono 22050 Hz WAVs, the
-// line's rate) to the arcade bridge (arcade_reload_clip), which bakes the one for your step (arcade_reload_step) into
-// the line's place
+// empty gun): assets voice-drop-the-mag.wav, voice-insert-a-magazine.wav, voice-rack-the-slide.wav (16-bit mono
+// 22050 Hz WAVs, the line's rate) to the arcade bridge (arcade_reload_clip), which bakes the one for your step
+// (arcade_reload_step) into the line's place
 void arcade_reload_clip(int step, const int16_t *pcm, int n);
 static void load_reload_lines(struct AAssetManager *am) {
-    static const char *const names[3] = { "voice-drop-mag.wav", "voice-load-mag.wav", "voice-rack-slide.wav" };
+    static const char *const names[3] = { "voice-drop-the-mag.wav", "voice-insert-a-magazine.wav", "voice-rack-the-slide.wav" };
     for (int i = 0; i < 3; i++) {
         AAsset *a = am ? AAssetManager_open(am, names[i], AASSET_MODE_BUFFER) : NULL;
         if (!a) { LOGE("reload line: no asset %s", names[i]); continue; }
