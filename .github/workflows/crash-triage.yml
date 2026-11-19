@@ -40,7 +40,7 @@ jobs:
     steps:
       # (this runs in the private crash repository, MrSco/house-of-the-dead-vr-crashes, where the relay files the
       # issues and the symbols are; the code is the public repository's)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: MrSco/house-of-the-dead-vr
           persist-credentials: false
