@@ -557,6 +557,33 @@ libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANG
     of 600) and the 4K joined, **160 of 160**; HOTDVR.exe hosted a zonesync.net room and the HD joined by its code,
     **160 of 160**, the HD guest at 57.1 to 57.9 frames a second, its speakers at most 174 ms short in 10 s.
 
+- **Two players on one screen** (2026-11-20, branch local-2p; the rules under "Two players on one screen" above):
+  - The game's RAM first: with player 1 alone, `host_player_playing(1)` read 1 (0x51F294 isn't player 2's lives) and
+    0x51F4A0 went to 0 on player 1's continue screen, so the rules go by each player's state byte instead (docs/vr.md).
+  - Windows (HOTDVR.exe, hidden, `FLAT_TEST_PAD` 2 or 3 virtual SDL pads and the keyboard and mouse scripted): the
+    keyboard starts player 1, pad 2's A joins as player 2 (the 2P HUD, the blue crosshair beside the red one, its
+    shots hitting and its bullets dropping); pad 1 used alone with the mouse there stays player 1 (its Start in play
+    doesn't join); a pad that was never used pressing A on player 1's continue screen continues player 1 and is then
+    player 1's (its A later in play doesn't join); player 2's pad unplugged and plugged in again is player 2's again;
+    player 2 continues with their own pad; a third pad's A while player 2 is out takes the seat over. The ONLINE tab
+    and HOST A ROOM's confirmation say player 2 here leaves; the CONTROLS page has the rows.
+  - Determinism: `crossplay_check.py`: 30 of 30 checksums both ways (PC and Quest), save states the same 600 frames
+    both ways, and the bundles both machines recorded byte for byte the 0.5.0 build's. Online, two HOTDVR.exe on
+    this PC (`hostlan`, `joinip:127.0.0.1`): 60 of 60 checksums, no desync; the host's second pad's A there drove
+    the host's own player, as before, and joined nobody.
+  - iOS Simulator (iOS 27): touch is player 1, a hidden GCVirtualController (iOS 17's) presses A and joins as player
+    2, its stick and trigger move and fire the blue sight. Only one virtual controller connects at a time there.
+  - Apple TV Simulator: a stand-in pad device (`FLAT_TEST_REMOTE` padstart) starts player 1; the remote's Play/Pause
+    held joins as player 2, its swipes and clicks move and fire the large blue crosshair beside the red one; the
+    screensaver stays held off in the two-player game.
+  - Android emulator (`hotd_test`): the keyboard (adb's keyboard events) starts player 1, adb's gamepad A joins as
+    player 2 and R1 fires its sight (the 2P HUD, the blue crosshair). The emulator draws the 3D white; the HUD shows.
+  - The Mac app builds; not run with pads (no virtual pads on macOS).
+  - Left for a player: two real pads on each of Windows, Mac, iPhone / iPad, Apple TV and an Android phone (SDL3's,
+    XInput's and GameController's pad ids, a real disconnect and reconnect, the pads' player lights on Apple), the
+    Siri Remote as player 2 beside a real pad on both Apple TVs, a light gun (a mouse) beside a pad, and the feel of
+    two sights on a TV.
+
 **Left for a player (the end check):** on the headset, a stage and an online game with this build (joining a game under way, both ways: the
 headset here lost tracking on the desk, so its app couldn't be opened for a live join), and the headset's new
 depth (figures over the floors and walls they dip into: the girl at the door, the first zombie's feet); on Windows, the

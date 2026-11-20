@@ -299,7 +299,7 @@ static void test_pad(double now) {
         for (int i = 0; i < 15; i++) S.SetJoystickVirtualButton(T.joy[k], i, b[i] != 0);
     }
     // the steps that happen once: unplugging, the keyboard and mouse, the log a second after
-    static int done[96], logged[96];
+    static int done[96], logged[96], let_go[96];
     for (int i = 0; i < T.nsteps; i++) {
         const struct Step *s = &T.step[i];
         if (!done[i] && t >= s->at) {
@@ -317,12 +317,12 @@ static void test_pad(double now) {
                     flat_view_rect(&vx, &vy, &vw, &vh);
                     if (sscanf(s->what, "%f;%f", &fx, &fy) == 2 && vw > 0) {
                         flat_dev_pointer(FLAT_DEV_KBM, vx + (int)(fx * vw), vy + (int)(fy * vh));
-                        flat_dev_trigger(FLAT_DEV_KBM, 1);
-                        flat_dev_trigger(FLAT_DEV_KBM, 0);
+                        flat_dev_trigger(FLAT_DEV_KBM, 1);   // (let go a moment later, below)
                     }
                 }
             }
         }
+        if (!s->who && !let_go[i] && t >= s->at + 0.1) { let_go[i] = 1; if (strcmp(s->what, "SPACE")) flat_dev_trigger(FLAT_DEV_KBM, 0); }
         if (!logged[i] && t >= s->at + 1) {
             logged[i] = 1;
             char line[256];

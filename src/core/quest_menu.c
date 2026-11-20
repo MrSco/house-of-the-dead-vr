@@ -204,9 +204,12 @@ static char help[200];
 void qmenu_open(int t) {
     if (t >= 0 && t < QMENU_TAB_COUNT) tab = t;
     modal = M_NONE; pressed = 0; focus = ID(K_FOOT, 0);
-    // QMENU_TEST_SCREEN=browse|lan (tests, with FLAT_MENU_AT / QUEST_MENU_AT on the ONLINE tab): that page of the tab
-    const char *e = tab == QMENU_TAB_ONLINE ? getenv("QMENU_TEST_SCREEN") : NULL;
-    if (e && (!strcmp(e, "browse") || !strcmp(e, "lan"))) { screen = !strcmp(e, "lan") ? S_LAN : S_BROWSE; page = 0; online_browse(true); }
+    // QMENU_TEST_SCREEN=browse|lan (tests, with FLAT_MENU_AT / QUEST_MENU_AT on the ONLINE tab): that page of the tab;
+    // controls|host (any tab): the CONTROLS page, the HOST A ROOM confirmation
+    const char *e = getenv("QMENU_TEST_SCREEN");
+    if (e && tab == QMENU_TAB_ONLINE && (!strcmp(e, "browse") || !strcmp(e, "lan"))) { screen = !strcmp(e, "lan") ? S_LAN : S_BROWSE; page = 0; online_browse(true); }
+    if (e && !strcmp(e, "controls")) modal = M_CONTROLS;
+    if (e && !strcmp(e, "host")) modal = M_HOST;
 }
 bool qmenu_pointer(float *px, float *py) { if (!have_pointer) return false; *px = ptr_x; *py = ptr_y; return true; }
 bool qmenu_modal(void) { return modal != M_NONE || screen != S_MAIN; }
@@ -681,7 +684,7 @@ static void online_offline(void) {
     on_item(ON_BROWSE, CX0, &y, I_LIST, "BROWSE GAMES", "Open rooms and games on your network", "Lists open rooms on the lobby server and games hosted on your network.", 0);
     on_item(ON_QUICK, CX0, &y, I_BOLT, "QUICK MATCH", "Join anyone who is waiting", "Joins the first open room on the lobby server.", 0);
     on_item(ON_LAN, CX0, &y, I_SWAP, "LOCAL NETWORK\xE2\x80\xA6", "Host here, or join by IP", "Host or join on your own network, without the lobby server.", 0);
-    if (H->local_p2) para(UI_M17, CX0 + 8, y + 22, COLW - 16, 23, "Two players here: playing online, player 2 here leaves the game (the partner is P2).", WARN, 2);
+    if (H->local_p2) para(UI_M17, CX0 + 8, y + 22, COLW - 16, 23, "Two players here: online, player 2 here leaves the game.", WARN, 1);
     // right column: you, voice
     frow = 1;   // beside the left column's rows: up / down walks each column
     float ry = CY0;
@@ -947,7 +950,7 @@ static void controls_page_flat(void) {
         controls_row(rx, &ry, rw, "L2 / L1 / X", "Reload");
         controls_row(rx, &ry, rw, "A / Menu", "Coins and Start");
         controls_row(rx, &ry, rw, "Options", "This menu");
-        controls_row(rx, &ry, rw, "Two players", "While P1 plays, A on another pad (or Play/Pause held on the remote): P2, the blue sight");
+        controls_row(rx, &ry, rw, "Two players", "While P1 plays: A on another pad joins as P2");
         const float bw = 180;
         if (button(ID(K_MBTN, 1), x + w - 32 - bw, y + h - 26 - 52, bw, 52, "CLOSE", UI_B22, 1, NULL)) modal = M_NONE;
         focusable(ID(K_MBTN, 1), F_BUTTON, (int)(x + w - 32 - bw / 2));
@@ -967,7 +970,7 @@ static void controls_page_flat(void) {
         controls_row(rx, &ry, rw, "L2 / L1 / X", "Reload");
         controls_row(rx, &ry, rw, "A / Start", "Coins and Start");
         controls_row(rx, &ry, rw, "Select / Back", "This menu");
-        controls_row(rx, &ry, rw, "Two players", "While P1 plays, A on another pad (or START on the screen): P2, the blue sight");
+        controls_row(rx, &ry, rw, "Two players", "While P1 plays: A on another pad joins as P2");
         const float bw = 180;
         if (button(ID(K_MBTN, 1), x + w - 32 - bw, y + h - 26 - 52, bw, 52, "CLOSE", UI_B22, 1, NULL)) modal = M_NONE;
         focusable(ID(K_MBTN, 1), F_BUTTON, (int)(x + w - 32 - bw / 2));
@@ -986,10 +989,10 @@ static void controls_page_flat(void) {
     controls_row(rx, &ry, rw, "Click", "Choose what the pointer is on");
     controls_row(rx, &ry, rw, "Arrows, Enter, Esc", "Move, choose, back");
     controls_row(rx, &ry, rw, "Tab", "The next tab (Shift: the one before)");
-    ry += 16;
+    ry += 40;
     text(UI_B20, rx, ry, "GAME PADS, TWO PLAYERS", ACCENT); ry += 12;
     controls_row(rx, &ry, rw, "Stick, R2, L2, A / Start", "Aim, shoot, reload, coins and Start");
-    controls_row(rx, &ry, rw, "A / Start on a second device", "While P1 plays: player 2 joins on it (the blue sight)");
+    controls_row(rx, &ry, rw, "A / Start on another device", "While P1 plays: player 2 joins on it");
     const float bw = 180;
     if (button(ID(K_MBTN, 1), x + w - 32 - bw, y + h - 26 - 52, bw, 52, "CLOSE", UI_B22, 1, NULL)) modal = M_NONE;
     focusable(ID(K_MBTN, 1), F_BUTTON, (int)(x + w - 32 - bw / 2));
