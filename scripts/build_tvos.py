@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The game on Apple TV, flat (docs/platforms.md, "Apple TV"), built on the Mac.
 
-  python3 scripts/build_tvos.py simulator|device [--app] [--ipa]
+  python3 scripts/build_tvos.py simulator|device [--app] [--ipa] [--dest UDID]
 
 From the PC: python scripts/apple_sync.py first (the sources, the generated code and the libraries this needs), then
 this over ssh. As scripts/build_apple.py does for iPhone and iPad: CMake builds every part into static libraries
@@ -10,7 +10,11 @@ makes the Xcode project (xcodegen, src/flat/tvos/project.yml) and builds HouseOf
 device build as an unsigned IPA (an Apple TV takes it only signed: Xcode with your team, see docs/platforms.md).
 
 ANGLE (OpenGL ES 3 on Metal): ANGLE_DIR, ~/angle by default, with its Apple TV slices in xcframeworks-tvos (GoldenEye
-VR's tools/build_angle_apple.sh tvos-device tvos-simulator makes them). A signed device build: DEVELOPMENT_TEAM=<team>.
+VR's tools/build_angle_apple.sh tvos-device tvos-simulator makes them). A signed device build: DEVELOPMENT_TEAM=<team>,
+with automatic signing; on a Mac with no account in Xcode, the team's App Store Connect key does the profiles
+(HOTD_ASC_KEY_DIR with AuthKey_<id>.p8, HOTD_ASC_KEY_ID, HOTD_ASC_ISSUER: a file or the id, as build_apple.py), and
+--dest UDID builds for that paired Apple TV, registering it with the team if it isn't yet. Codesign needs the
+development identity's keychain unlocked: run it from the Mac's desktop session (Terminal), not over ssh.
 """
 import argparse
 import glob
@@ -34,6 +38,7 @@ def main():
     ap.add_argument('slice', choices=('simulator', 'device'))
     ap.add_argument('--app', action='store_true', help='make the Xcode project and build the app')
     ap.add_argument('--ipa', action='store_true', help='an unsigned IPA of the device app')
+    ap.add_argument('--dest', metavar='UDID', help='a signed build for this paired Apple TV (registered if new)')
     a = ap.parse_args()
     env = dict(os.environ)
     env['PATH'] = '/opt/homebrew/bin:/usr/local/bin:' + env.get('PATH', '')
@@ -67,6 +72,13 @@ def main():
     dd = os.path.join(libs, 'dd')
     sign = ['CODE_SIGN_IDENTITY=-'] if a.slice == 'simulator' else (
         ['CODE_SIGNING_ALLOWED=NO'] if not env['DEVELOPMENT_TEAM'] else ['-allowProvisioningUpdates', 'CODE_SIGN_STYLE=Automatic'])
+    if a.slice == 'device' and env['DEVELOPMENT_TEAM']:
+        if a.dest: sign += ['-destination', 'id=' + a.dest, '-allowProvisioningDeviceRegistration']
+        if env.get('HOTD_ASC_KEY_ID'):   # the profiles through the team's App Store Connect key (no Xcode account)
+            iss = env['HOTD_ASC_ISSUER']
+            if os.path.isfile(iss): iss = open(iss).read().strip()
+            sign += ['-authenticationKeyPath', os.path.join(env['HOTD_ASC_KEY_DIR'], 'AuthKey_%s.p8' % env['HOTD_ASC_KEY_ID']),
+                     '-authenticationKeyID', env['HOTD_ASC_KEY_ID'], '-authenticationKeyIssuerID', iss]
     run(['xcodebuild', '-project', os.path.join(spec_dir, 'HouseOfTheDeadVR.xcodeproj'), '-scheme', 'HouseOfTheDeadVR',
          '-sdk', sdk, '-configuration', 'Release', '-derivedDataPath', dd, 'build'] + sign, env=env)
     app = os.path.join(dd, 'Build', 'Products', 'Release-' + sdk, 'HouseOfTheDeadVR.app')
