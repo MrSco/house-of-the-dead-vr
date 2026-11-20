@@ -21,7 +21,10 @@ static struct {
     int mx, my, down, pointer;
     int press, release;           // a press and a let-go since the last frame (a tap may come and go between two)
     int key[8];                   // keys pressed since the last frame
+    int tv;                       // Apple TV's layout (flat_menu_tv)
 } M;
+
+void flat_menu_tv(int on) { M.tv = on; }
 
 static const char *VS =
     "uniform mat4 mvp;\nlayout(location=0) in vec3 pos;\nlayout(location=1) in vec2 uv;\nout vec2 v_uv;\n"
@@ -42,6 +45,7 @@ static QMenuHost host(void) {
     h.saved = true;
     h.flat = true;
     h.touch = flat_os_touch() != 0;
+    h.tv = M.tv != 0;
     h.reports = flat_os_has_reports() != 0;
 #ifdef _WIN32
     h.pc_switch = 1;                     // HOTDVR.exe: PLAY IN VR (the SYSTEM tab)

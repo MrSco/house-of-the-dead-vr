@@ -117,6 +117,18 @@ int plat_mic_permission(void) {
         if (!atomic_exchange(&asked, 1)) [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) { (void)granted; }];
         return 0;
     }
+#elif TARGET_OS_TV
+    // Apple TV has no microphone of its own: voice chat only listens unless the system reports an input (a headset
+    // through a paired iPhone, AirPods); then its permission, as iOS 17's
+    if (![AVAudioSession sharedInstance].isInputAvailable) return -1;
+    static atomic_int asked;
+    switch ([AVAudioApplication sharedInstance].recordPermission) {
+    case AVAudioApplicationRecordPermissionGranted: return 1;
+    case AVAudioApplicationRecordPermissionDenied: return -1;
+    default:
+        if (!atomic_exchange(&asked, 1)) [AVAudioApplication requestRecordPermissionWithCompletionHandler:^(BOOL granted) { (void)granted; }];
+        return 0;
+    }
 #else
     static atomic_int asked;
     switch ([AVAudioSession sharedInstance].recordPermission) {

@@ -45,6 +45,7 @@ const QOptDef qopt_defs[QOPT_COUNT] = {
     // (0: as the arcade drew it; 25 opens the darkest rooms and leaves the lit scenes near the arcade's. A new key:
     // brightness_pct's 50 was chosen while Windows drew the 3D too dark, and saved files carry it)
     [QOPT_BRIGHTNESS] = { "brightness_level_pct", 0, 100, 25 },
+    [QOPT_REMOTE_SPEED] = { "tv_remote_speed_pct", 25, 300, 100 },
 };
 
 void qoptions_defaults(int *v) {

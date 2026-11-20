@@ -13,6 +13,8 @@ third_party/
 build_quest/
 # the iOS app's Xcode project, made by xcodegen beside its spec (scripts/build_apple.py)
 src/flat/ios/*.xcodeproj/
+# ...and the Apple TV app's (scripts/build_tvos.py)
+src/flat/tvos/*.xcodeproj/
 vendor/
 
 # ---- ROMs and anything derived from them — LEGAL, not tidiness ----

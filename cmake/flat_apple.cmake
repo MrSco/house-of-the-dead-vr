@@ -4,6 +4,7 @@
 #   made by xcodegen) links: the game (arcade_core and what it needs), and hotdvr_apple: the shared C (src/core),
 #   the flat shell (src/flat) with its iOS front end, online play (src/net), voice chat and its libraries, the Apple
 #   platform (src/platform/apple, posix.c).
+# - Apple TV: as iPhone and iPad, with the tvOS front end (src/flat/tvos/project.yml is its app).
 # - macOS: the same with the Mac front end, as an app (House of the Dead VR.app), ANGLE's dylibs in it.
 set(M2_TP ${CMAKE_SOURCE_DIR}/third_party/quest)
 set(M2_OPUS ${M2_TP}/opus-1.5.2)
@@ -31,7 +32,10 @@ add_library(m2_rnnoise STATIC ${M2_RNN}/src/denoise.c ${M2_RNN}/src/rnn.c ${M2_R
 target_include_directories(m2_rnnoise PUBLIC ${M2_RNN}/include PRIVATE ${M2_RNN}/src ${M2_OPUS}/celt ${M2_OPUS}/include)
 target_compile_options(m2_rnnoise PRIVATE -w)
 
-if(IOS)
+if(CMAKE_SYSTEM_NAME STREQUAL "tvOS")
+    # Apple TV (scripts/build_tvos.py, src/flat/tvos/project.yml): the remote and pads, the ROM set by the LAN upload page
+    set(M2_FRONT src/flat/tvos/main_tvos.m src/flat/tvos/tv_upload.m src/flat/tvos/tv_store.m)
+elseif(IOS)
     set(M2_FRONT src/flat/ios/main_ios.m)
 else()
     set(M2_FRONT src/flat/mac/main_mac.m)
@@ -50,7 +54,7 @@ set_source_files_properties(${M2_FRONT} src/platform/apple/apple.m PROPERTIES CO
 # (the shared C: its own warnings, as on the Quest; ObjC from the C99 headers)
 target_compile_options(hotdvr_apple PRIVATE -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers)
 
-if(NOT IOS)
+if(NOT IOS AND NOT CMAKE_SYSTEM_NAME STREQUAL "tvOS")
     # the Mac app: the libraries, Apple's frameworks, ANGLE's dylibs copied into the bundle (their install names are
     # ./libEGL.dylib and ./libGLESv2.dylib: rewritten to @rpath, and the bundle signed again, ad hoc)
     set(M2_ANGLE_MAC ${ANGLE_DIR}/out/mac)
