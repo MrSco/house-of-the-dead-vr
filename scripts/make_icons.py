@@ -10,6 +10,8 @@ assets/branding/app-icon.png (square) becomes:
   src/flat/ios/Assets.xcassets/AppIcon.appiconset the iPhone and iPad app's (src/flat/ios/project.yml)
   src/flat/tvos/Assets.xcassets                   Apple TV's layered icon and Top Shelf (src/flat/tvos/project.yml);
                                                   only these: python scripts/make_icons.py tvos
+  src/visionos/Assets.xcassets                    Vision Pro's layered round icon (src/visionos/project.yml);
+                                                  only these: python scripts/make_icons.py visionos
 assets/branding/banner.png becomes docs/images/header.jpg (the README's top). Run it again when the artwork changes,
 and commit what it writes. Needs Pillow.
 """
@@ -48,6 +50,7 @@ def main():
     json.dump({'info': {'author': 'xcode', 'version': 1}},
               open(out('src', 'flat', 'ios', 'Assets.xcassets', 'Contents.json'), 'w'), indent=2)
     tvos_brand_assets()
+    visionos_icon()
     # the README's banner
     banner = Image.open(os.path.join(BRAND, 'banner.png')).convert('RGB')
     if banner.width > 1600:
@@ -127,6 +130,27 @@ def tvos_brand_assets():
     print('Apple TV icons written')
 
 
+# Vision Pro: the home view's icon is a round stack of up to three 1024 layers (a solid image stack; App Store
+# validation refuses the app without one). The square icon is the opaque back layer (visionOS masks it to a circle),
+# the middle and front layers clear. As GoldenEye VR's port/visionos/Assets.xcassets.
+def visionos_icon():
+    icon = Image.open(os.path.join(BRAND, 'app-icon.png')).convert('RGB').resize((1024, 1024), Image.LANCZOS)
+    base = os.path.join(ROOT, 'src', 'visionos', 'Assets.xcassets')
+    stack = os.path.join(base, 'AppIcon.solidimagestack')
+    shutil.rmtree(stack, ignore_errors=True)
+    tv_json(os.path.join(base, 'Contents.json'), {'info': TV_INFO})
+    layers = (('Front', 'front.png', None), ('Middle', 'middle.png', None), ('Back', 'back.jpg', icon))
+    for layer, name, img in layers:
+        d = os.path.join(stack, layer + '.solidimagestacklayer')
+        tv_save(img if img else Image.new('RGBA', (1024, 1024), (0, 0, 0, 0)), os.path.join(d, 'Content.imageset', name))
+        tv_json(os.path.join(d, 'Content.imageset', 'Contents.json'),
+                {'images': [{'filename': name, 'idiom': 'vision', 'scale': '2x'}], 'info': TV_INFO})
+        tv_json(os.path.join(d, 'Contents.json'), {'info': TV_INFO})
+    tv_json(os.path.join(stack, 'Contents.json'), {'info': TV_INFO, 'layers': [{'filename': l[0] + '.solidimagestacklayer'} for l in layers]})
+    print('Vision Pro icon written')
+
+
 if __name__ == '__main__':
     if sys.argv[1:] == ['tvos']: tvos_brand_assets()
+    elif sys.argv[1:] == ['visionos']: visionos_icon()
     else: main()

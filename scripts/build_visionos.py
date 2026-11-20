@@ -13,8 +13,8 @@ tools/build_angle_apple.sh makes them).
 
 HOTD_BUNDLE_ID sets the app's bundle id (com.mrsco.hotdvr by default). --archive BUILD makes the App Store archive and
 .ipa with that build number; --upload sends it to TestFlight. The account as for build_apple.py (nothing of it lives
-in this repository): HOTD_TEAM, HOTD_PROFILE (the visionOS App Store profile's name), HOTD_KEYCHAIN,
-HOTD_KEYCHAIN_PASS, and for the upload HOTD_ASC_KEY_DIR, HOTD_ASC_KEY_ID, HOTD_ASC_ISSUER.
+in this repository): HOTD_TEAM, HOTD_PROFILE (the App Store profile's name: the iPhone app's serves visionOS too),
+HOTD_KEYCHAIN, HOTD_KEYCHAIN_PASS, and for the upload HOTD_ASC_KEY_DIR, HOTD_ASC_KEY_ID, HOTD_ASC_ISSUER.
 """
 import argparse
 import glob

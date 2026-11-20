@@ -96,9 +96,9 @@ mouse or touch; VR-only rows (hands, cabinet room, comfort, physical reload) are
 | Android phone / tablet | APK flavor `mobile` | Flat | GLES 3.0, no multiview | none | Touch, gyro, pads | as Quest | Landscape; 16 KB page alignment |
 | Windows | One zip: `HOTDVR.exe` | VR (immersive) when a headset is found, else flat; `--flat` / `--vr` force one | GL 3.3 | OpenXR, any runtime (SteamVR, Link, Virtual Desktop) | Mouse, pads, light guns; VR controllers | Open dialog, or drop the zip on the window | Flat first, PCVR second |
 | iOS / iPadOS | IPA (Xcode project from xcodegen), installed with SideStore | Flat | ANGLE on Metal | none | Touch, gyro, MFi / Xbox / PS pads, iPad mouse | Document picker; Files shows the data folder | Built on the Mac; LAN discovery needs Apple's multicast entitlement, so iOS uses rooms and direct IP |
-| Vision Pro | visionOS app | VR | ANGLE on Metal, one pass per eye | Compositor Services + ARKit | Hand tracking (aim ray + pinch, as the Quest's hands), PSVR2 Sense controllers | Document picker | P5: builds (`scripts/build_visionos.py`), runs in the visionOS Simulator and plays online with Windows; the headset itself not tried yet, see P5 under Progress |
+| Vision Pro | visionOS app | VR | ANGLE on Metal, one pass per eye | Compositor Services + ARKit | Hand tracking (aim ray + pinch, as the Quest's hands), PSVR2 Sense controllers | Document picker | P5: builds (`scripts/build_visionos.py`), runs in the visionOS Simulator and plays online with Windows; on TestFlight from 0.5.0; the headset itself not tried yet, see P5 under Progress |
 | macOS | App (zip on GitHub) | Flat | ANGLE on Metal | none | Mouse, pads, light guns | Open dialog | Right after iOS, sharing its Apple layer and ANGLE |
-| Apple TV (tvOS 17+) | App (Xcode project from xcodegen), installed from Xcode with a developer account (TestFlight later, the user's call) | Flat | ANGLE on Metal (its tvOS slices) | none | Siri Remote (touch surface moves the sight, click shoots), MFi / Xbox / PS pads | A page on the LAN (address and QR code on the TV) | Files in Caches (tvOS may empty them): settings and saves also in the app's defaults; voice listens only |
+| Apple TV (tvOS 17+) | App (Xcode project from xcodegen): TestFlight (from 0.5.0), or installed from Xcode with a developer account | Flat | ANGLE on Metal (its tvOS slices) | none | Siri Remote (touch surface moves the sight, click shoots), MFi / Xbox / PS pads | A page on the LAN (address and QR code on the TV) | Files in Caches (tvOS may empty them): settings and saves also in the app's defaults; voice listens only |
 
 Linux is out of scope.
 
@@ -250,7 +250,7 @@ the Quest.
 **P5, Vision Pro (2026-11-19): built, checked in the visionOS Simulator, crossplay with Windows; its VR shell is
 `src/xr`'s, the Quest's and the PC's.** Made on branch `t3/visionos-vr-port`, merged beside PCVR and the Apple TV. On the PC
 `python scripts/apple_sync.py --dest <folder>`, then on the Mac `python3 scripts/build_visionos.py simulator|device
-[--app]` (`--archive BUILD [--upload]` as build_apple.py's, with HOTD_BUNDLE_ID; nothing uploaded). Both the
+[--app]` (`--archive BUILD [--upload]` as build_apple.py's, with HOTD_BUNDLE_ID; TestFlight below). Both the
 simulator app and the device app (unsigned) build with Xcode 27.2 against the visionOS 27.2 SDK, deployment target 26.0. ANGLE's visionOS
 slices: `~/angle/xcframeworks-visionos`, as GoldenEye VR's `tools/build_angle_apple.sh` makes them.
 - `src/visionos`: `VosApp.swift` opens straight into a full-immersion space (a CompositorLayer; the scene role
@@ -332,7 +332,17 @@ slices: `~/angle/xcframeworks-visionos`, as GoldenEye VR's `tools/build_angle_ap
   Center), the Sense controllers (aim pose, buttons by name, rumble), a file chosen in the picker by hand, the
   microphone and voice chat (the permission prompt shows over the game when an online game starts), and an online
   game with a Quest and a PC.
-- **Later:** an app icon (a layered solidimagestack); the cabinet room's PASSTHROUGH as mixed immersion; the display
+- **TestFlight (2026-11-20): 0.5.0 build 9** went up under the iPhone app's record (`com.mrsco.hotdvr`, which had
+  its visionOS platform already). The iPhone app's App Store profile serves visionOS too (an iOS App Store profile
+  lists iOS, xrOS and visionOS), so `HOTD_PROFILE` is that profile's name; the rest of the account as for
+  build_apple.py (`HOTD_TEAM`, `HOTD_KEYCHAIN`, `HOTD_KEYCHAIN_PASS`, `HOTD_ASC_KEY_DIR`, `HOTD_ASC_KEY_ID`,
+  `HOTD_ASC_ISSUER`), from the Mac's desktop session (a `.command` file opened there: the keychain). Validation
+  refused the first archive with no visionOS app icon (error 90970, CFBundleIcons.CFBundlePrimaryIcon), so the app
+  has one now: `src/visionos/Assets.xcassets`, a round solid image stack (`python scripts/make_icons.py visionos`:
+  the square icon as the opaque back layer, clear middle and front layers). Export compliance comes from
+  `ITSAppUsesNonExemptEncryption` = NO in Info.plist, as the iPhone app's. Build numbers rise per platform; the
+  Quest's versionCode is the default.
+- **Later:** the cabinet room's PASSTHROUGH as mixed immersion; the display
   rate (GRAPHICS' Hz row only shows the system's); foveation.
 
 **Since (2026-11-16):**
@@ -427,13 +437,22 @@ libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANG
 - **Install**: SideStore and AltStore don't sign for tvOS, so an Apple TV takes the app from Xcode with a developer
   account (`DEVELOPMENT_TEAM=<team> python3 scripts/build_tvos.py device --app --dest <the Apple TV's UDID>`, then
   `xcrun devicectl device install app --device <UDID> build_tvos/dd/Build/Products/Release-appletvos/HouseOfTheDeadVR.app`;
-  a free account's build lapses after 7 days, a paid one's after a year), or later through TestFlight under the iPhone
-  app's bundle id (`com.mrsco.hotdvr`, with its tvOS platform added in App Store Connect; nothing uploaded). On a Mac
+  a free account's build lapses after 7 days, a paid one's after a year), or through TestFlight (below). On a Mac
   with no account in Xcode, automatic signing takes the team's App Store Connect key (`HOTD_ASC_KEY_DIR`,
   `HOTD_ASC_KEY_ID`, `HOTD_ASC_ISSUER`, as build_apple.py's) and `--dest` registers that Apple TV with the team. The
   development identity's keychain must be unlocked, so run it from the Mac's desktop session (Terminal, or a
   `.command` file opened there), not over ssh ("No Accounts" / no profile otherwise). The home-screen icon (the wide
   banner, 5:3, as a layered stack) and the Top Shelf come from `python scripts/make_icons.py tvos`.
+- **TestFlight (2026-11-20): 0.5.0 build 9**, under the iPhone app's record and bundle id (`com.mrsco.hotdvr`), as
+  GoldenEye VR's Apple TV app is: `python3 scripts/build_tvos.py device --archive BUILD [--upload]` makes the App
+  Store archive and .ipa with that build number and sends it (altool, validated first), with the account as
+  build_apple.py's (`HOTD_TEAM`, `HOTD_KEYCHAIN`, `HOTD_KEYCHAIN_PASS`, `HOTD_ASC_KEY_DIR`, `HOTD_ASC_KEY_ID`,
+  `HOTD_ASC_ISSUER`), from the Mac's desktop session. Two things App Store Connect needed first, both done through
+  the API with the team's key: Apple TV as a platform of the app record (an App Store version for tvOS, `POST
+  /v1/appStoreVersions` with `platform: TV_OS`; it stays "Prepare for submission", nothing is sent for review), and a
+  tvOS App Store profile (`profileType: TVOS_APP_STORE`, the bundle id and the Apple Distribution certificate; named
+  "House of the Dead VR tvOS"; the iPhone app's profile doesn't sign tvOS), which `HOTD_PROFILE` names. Export
+  compliance comes from `ITSAppUsesNonExemptEncryption` = NO in Info.plist.
 - Test switches (env.txt in `Library/Caches/HOTDVR`, sent with `devicectl device copy to --domain-type
   appDataContainer --domain-identifier com.mrsco.hotdvr`): `FLAT_TEST_REMOTE="seconds action [args]; ..."` plays the
   remote through the same code (swipe DX DY [SECONDS], click, play, playhold, menu, up / down / left / right), logging

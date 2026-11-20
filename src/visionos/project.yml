@@ -40,6 +40,8 @@ targets:
       - path: VosApp.swift
       - path: VosControllers.swift
       - path: PrivacyInfo.xcprivacy
+      # the round layered icon (scripts/make_icons.py visionos)
+      - path: Assets.xcassets
       # the guns, the hands, the cabinet and the reload lines (xr_vos.m's qasset_open)
       - path: ../quest/assets
         type: folder
@@ -52,6 +54,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: "${HOTD_BUNDLE_ID}"
         PRODUCT_NAME: HouseOfTheDeadVR
         INFOPLIST_FILE: Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: vos_bridging.h
         MARKETING_VERSION: "${HOTD_VERSION}"
         CURRENT_PROJECT_VERSION: "${HOTD_BUILD}"

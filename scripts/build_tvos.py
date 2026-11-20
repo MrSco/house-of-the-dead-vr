@@ -2,6 +2,7 @@
 """The game on Apple TV, flat (docs/platforms.md, "Apple TV"), built on the Mac.
 
   python3 scripts/build_tvos.py simulator|device [--app] [--ipa] [--dest UDID]
+  python3 scripts/build_tvos.py device --archive BUILD [--upload]   (TestFlight)
 
 From the PC: python scripts/apple_sync.py first (the sources, the generated code and the libraries this needs), then
 this over ssh. As scripts/build_apple.py does for iPhone and iPad: CMake builds every part into static libraries
@@ -15,11 +16,18 @@ with automatic signing; on a Mac with no account in Xcode, the team's App Store 
 (HOTD_ASC_KEY_DIR with AuthKey_<id>.p8, HOTD_ASC_KEY_ID, HOTD_ASC_ISSUER: a file or the id, as build_apple.py), and
 --dest UDID builds for that paired Apple TV, registering it with the team if it isn't yet. Codesign needs the
 development identity's keychain unlocked: run it from the Mac's desktop session (Terminal), not over ssh.
+
+--archive BUILD makes the App Store archive and .ipa with that build number (above every tvOS build already sent to
+App Store Connect); --upload sends it to TestFlight. The account as for build_apple.py (nothing of it lives in this
+repository): HOTD_TEAM, HOTD_PROFILE (the tvOS App Store profile's name: a TVOS_APP_STORE profile, not the iPhone
+one), HOTD_KEYCHAIN, HOTD_KEYCHAIN_PASS, and for the upload HOTD_ASC_KEY_DIR, HOTD_ASC_KEY_ID, HOTD_ASC_ISSUER. The app
+record needs Apple TV as a platform first (an App Store version for tvOS), or App Store Connect refuses the upload.
 """
 import argparse
 import glob
 import os
 import re
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -39,6 +47,8 @@ def main():
     ap.add_argument('--app', action='store_true', help='make the Xcode project and build the app')
     ap.add_argument('--ipa', action='store_true', help='an unsigned IPA of the device app')
     ap.add_argument('--dest', metavar='UDID', help='a signed build for this paired Apple TV (registered if new)')
+    ap.add_argument('--archive', metavar='BUILD', help='the App Store archive and .ipa with this build number')
+    ap.add_argument('--upload', action='store_true', help='with --archive: send it to TestFlight')
     a = ap.parse_args()
     env = dict(os.environ)
     env['PATH'] = '/opt/homebrew/bin:/usr/local/bin:' + env.get('PATH', '')
@@ -61,14 +71,18 @@ def main():
     if os.path.exists(allib): os.remove(allib)
     run(['libtool', '-static', '-o', allib] + sorted(parts), env=env)
     print('[tvos] %s (%d libraries)' % (allib, len(parts)))
-    if not (a.app or a.ipa): return
+    if not (a.app or a.ipa or a.archive): return
     quest = open(os.path.join(ROOT, 'src', 'quest', 'AndroidManifest.xml'), encoding='utf-8').read()
     env['HOTD_VERSION'] = re.search(r'android:versionName="([^"]+)"', quest).group(1)
-    env['HOTD_BUILD'] = re.search(r'android:versionCode="([^"]+)"', quest).group(1)
+    env['HOTD_BUILD'] = a.archive or re.search(r'android:versionCode="([^"]+)"', quest).group(1)
     env['HOTD_LIBS'] = libs
     env.setdefault('DEVELOPMENT_TEAM', '')
     spec_dir = os.path.join(ROOT, 'src', 'flat', 'tvos')
     run(['xcodegen', 'generate', '--spec', os.path.join(spec_dir, 'project.yml'), '--project', spec_dir], env=env)
+    if a.archive:
+        if a.slice != 'device': sys.exit('build_tvos: --archive is for the device slice')
+        archive(a, env, spec_dir, libs)
+        return
     dd = os.path.join(libs, 'dd')
     sign = ['CODE_SIGN_IDENTITY=-'] if a.slice == 'simulator' else (
         ['CODE_SIGNING_ALLOWED=NO'] if not env['DEVELOPMENT_TEAM'] else ['-allowProvisioningUpdates', 'CODE_SIGN_STYLE=Automatic'])
@@ -91,6 +105,50 @@ def main():
                     full = os.path.join(dp, f)
                     z.write(full, os.path.join('Payload', 'HouseOfTheDeadVR.app', os.path.relpath(full, app)))
         print('[tvos] ipa: %s' % ipa)
+
+
+def archive(a, env, spec_dir, libs):
+    """The App Store archive, its .ipa (manual signing with HOTD_*), and with --upload TestFlight (altool)"""
+    need = ['HOTD_TEAM', 'HOTD_PROFILE', 'HOTD_KEYCHAIN', 'HOTD_KEYCHAIN_PASS'] + (
+        ['HOTD_ASC_KEY_DIR', 'HOTD_ASC_KEY_ID', 'HOTD_ASC_ISSUER'] if a.upload else [])
+    missing = [k for k in need if not env.get(k)]
+    if missing: sys.exit('build_tvos: --archive needs ' + ', '.join(missing))
+    out = os.path.join(libs, 'testflight-%s-%s' % (env['HOTD_VERSION'], a.archive))
+    shutil.rmtree(out, ignore_errors=True)
+    os.makedirs(out)
+    pw = open(env['HOTD_KEYCHAIN_PASS']).read().strip()
+    subprocess.check_call(['security', 'unlock-keychain', '-p', pw, env['HOTD_KEYCHAIN']])
+    xa = os.path.join(out, 'HouseOfTheDeadVR.xcarchive')
+    run(['xcodebuild', 'archive', '-project', os.path.join(spec_dir, 'HouseOfTheDeadVR.xcodeproj'), '-scheme',
+         'HouseOfTheDeadVR', '-configuration', 'Release', '-destination', 'generic/platform=tvOS', '-archivePath', xa,
+         '-derivedDataPath', os.path.join(libs, 'dd-archive'), 'CODE_SIGN_STYLE=Manual',
+         'DEVELOPMENT_TEAM=' + env['HOTD_TEAM'], 'CODE_SIGN_IDENTITY=Apple Distribution',
+         'PROVISIONING_PROFILE_SPECIFIER=' + env['HOTD_PROFILE'], 'OTHER_CODE_SIGN_FLAGS=--keychain ' + env['HOTD_KEYCHAIN']],
+        env=env)
+    opts = os.path.join(out, 'ExportOptions.plist')
+    open(opts, 'w').write('''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>method</key><string>app-store-connect</string>
+  <key>teamID</key><string>%s</string>
+  <key>signingStyle</key><string>manual</string>
+  <key>signingCertificate</key><string>Apple Distribution</string>
+  <key>provisioningProfiles</key><dict><key>%s</key><string>%s</string></dict>
+  <key>uploadSymbols</key><true/>
+</dict></plist>
+''' % (env['HOTD_TEAM'], 'com.mrsco.hotdvr', env['HOTD_PROFILE']))
+    run(['xcodebuild', '-exportArchive', '-archivePath', xa, '-exportPath', os.path.join(out, 'export'),
+         '-exportOptionsPlist', opts], env=env)
+    ipas = glob.glob(os.path.join(out, 'export', '*.ipa'))
+    if not ipas: sys.exit('build_tvos: the export made no .ipa')
+    print('[tvos] App Store ipa: %s' % ipas[0])
+    if not a.upload: return
+    iss = env['HOTD_ASC_ISSUER']
+    if os.path.isfile(iss): iss = open(iss).read().strip()
+    for step in ('--validate-app', '--upload-app'):
+        run(['xcrun', 'altool', step, '-f', ipas[0], '-t', 'appletvos', '--apiKey', env['HOTD_ASC_KEY_ID'], '--apiIssuer', iss],
+            env=dict(env, API_PRIVATE_KEYS_DIR=env['HOTD_ASC_KEY_DIR']))
+    print('[tvos] uploaded build %s to TestFlight (the archive stays in %s: its dSYMs)' % (a.archive, out))
 
 
 if __name__ == '__main__':
