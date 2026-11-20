@@ -1,0 +1,6 @@
+crash: signal 11 code 2 addr 0x8 thread 259
+  build-id 96eb6c86c22b3a1498d876874288e510
+  pc HouseOfTheDeadVR+0x1a2b3c (?)
+  lr HouseOfTheDeadVR+0x1a2a00 (?)
+  at HouseOfTheDeadVR+0x10f00 (?)
+  at libsystem_pthread.dylib+0x6f94 (_pthread_start)

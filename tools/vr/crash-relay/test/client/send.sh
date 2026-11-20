@@ -3,7 +3,7 @@
 # Linux (or WSL), against send_server.py.   sh tools/vr/crash-relay/test/client/send.sh /path/to/jdk
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
-root=$(cd "$here/../../../.." && pwd)
+root=$(cd "$here/../../../../.." && pwd)
 jdk=${1:-$JAVA_HOME}
 [ -f "$jdk/include/jni.h" ] || { echo "pass a JDK (its include/jni.h and lib/server/libjvm.so)"; exit 1; }
 tmp=$(mktemp -d)

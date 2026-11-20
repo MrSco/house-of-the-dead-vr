@@ -1,0 +1,8 @@
+crash: access violation (0xC0000005), writing 0x8 at HOTDVR.exe+0x1a2b3c, thread 1234
+build-id D64CB03B731E4F65B0DB15CF071F0205B
+backtrace:
+  #00 pc HOTDVR.exe+0x1a2b3c
+  #01 pc HOTDVR.exe+0x1a2a00
+  #02 pc HOTDVR.exe+0x10f00
+  #03 pc KERNEL32.DLL+0x1259d
+  #04 pc ntdll.dll+0x5af78

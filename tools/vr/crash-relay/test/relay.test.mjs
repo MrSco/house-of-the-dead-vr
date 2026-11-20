@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { handle, parseCrash, crashSignature, keyFrames, validateReport, HttpError } from '../src/relay.js';
+import { handle, parseCrash, crashSignature, keyFrames, validateReport, redact, HttpError } from '../src/relay.js';
 import worker from '../src/index.js';
 
 const fixture = (name) => readFileSync(new URL('./fixtures/' + name, import.meta.url), 'utf8');
@@ -44,6 +44,9 @@ function fakeGitHub() {
     if (method === 'PATCH' && (m = /^\/issues\/(\d+)$/.exec(path))) {
       const i = gh.issues[m[1] - 1]; Object.assign(i, body); return json(200, i);
     }
+    if (method === 'POST' && (m = /^\/issues\/(\d+)\/labels$/.exec(path))) {
+      const i = gh.issues[m[1] - 1]; i.labels = [...new Set([...i.labels, ...body.labels])]; return json(200, i.labels.map((name) => ({ name })));
+    }
     if (method === 'POST' && (m = /^\/issues\/(\d+)\/comments$/.exec(path))) {
       gh.comments.push({ issue: Number(m[1]), ...body }); return json(201, { id: gh.comments.length });
     }
@@ -52,7 +55,7 @@ function fakeGitHub() {
   return gh;
 }
 const env = (extra = {}) => ({ GITHUB_TOKEN: 'tok', GITHUB_REPO: 'o/r', GITHUB_API: 'https://gh.test', ...extra });
-const post = (body, headers = {}) => new Request('https://relay.test/report', {
+const post = (body, headers = {}, path = '/v1/reports') => new Request('https://relay.test' + path, {
   method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body), headers: { 'Content-Type': 'application/json', ...headers },
 });
 
@@ -94,8 +97,8 @@ test('first report opens an issue, the next ones are counted on it', async () =>
   assert.equal(r.status, 201);
   assert.equal(r.json.action, 'created');
   const issue = gh.issues[0];
-  assert.deepEqual(issue.labels, ['crash']);
-  assert.match(issue.title, /^Crash: SIGSEGV in libhotdvr:qmenu_update/);
+  assert.deepEqual(issue.labels, ['crash', 'platform:quest']);
+  assert.match(issue.title, /^Crash: SIGSEGV in libhotdvr:qmenu_update \(Meta Quest\)$/);
   assert.match(issue.body, new RegExp(`<!-- crash-sig: ${r.json.signature} -->`));
   // the log's fake marker is defanged, its backticks can't close the fence
   assert.equal([...issue.body.matchAll(/<!-- crash-sig: /g)].length, 1);
@@ -157,12 +160,73 @@ test('limits: key, size, rate, new issues per day', async () => {
 
 test('the Worker entry point answers JSON', async () => {
   let res = await worker.fetch(post(report()), {});
-  assert.equal(res.status, 503);
+  assert.equal(res.status, 503);                       // no token yet: the app keeps the report for later
+  assert.deepEqual(await res.json(), { ok: false, error: 'relay not configured' });
+  res = await worker.fetch(new Request('https://relay.test/'), {});
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { ok: true, service: 'hotdvr', reports: '/v1/reports', configured: false });
   res = await worker.fetch(new Request('https://relay.test/other'), env());
+  assert.equal(res.status, 404);
+  res = await worker.fetch(new Request('https://relay.test/v1/lobbies'), env());
   assert.equal(res.status, 404);
   res = await worker.fetch(post('{"schema":1}'), env());
   assert.equal(res.status, 400);
   assert.equal((await res.json()).ok, false);
+  res = await worker.fetch(post('{"schema":1}', {}, '/report'), env());   // (the first address)
+  assert.equal(res.status, 400);
+});
+
+test('Windows: the exception, frames by offset, the PDB build id', async () => {
+  const text = fixture('windows.txt');
+  const p = parseCrash(text, 'windows');
+  assert.equal(p.exception, 'access violation');
+  assert.equal(p.code, '0xC0000005');
+  assert.equal(p.addr, '0x8');
+  assert.equal(p.build_id, 'D64CB03B731E4F65B0DB15CF071F0205B');
+  assert.equal(p.frames.length, 5);
+  assert.deepEqual(keyFrames(p.frames, 'windows'), ['HOTDVR.exe+0x1a2b3c', 'HOTDVR.exe+0x1a2a00', 'HOTDVR.exe+0x10f00']);
+  // offsets belong to one build: another build is another signature (the digest merges them)
+  const other = parseCrash(text.replace(/build-id \w+/, 'build-id D64CB03B731E4F65B0DB15CF071F0205C'), 'windows');
+  assert.notEqual(await crashSignature(p), await crashSignature(other));
+  // flat and PC VR are the same exe: the same signature
+  assert.equal(await crashSignature(p), await crashSignature(parseCrash(text, 'pcvr')));
+  const gh = fakeGitHub();
+  const r = await handle(post(report({ platform: 'windows', build_id: p.build_id, running_build_id: p.build_id, crash: text,
+    device: { os: 'windows', windows: '10.0.26100', cpus: '16' }, build_info: { app: 'HOTDVR.exe', version: '0.6.0', commit: '386c1980c47f' } })), env(), gh.fetch);
+  assert.equal(r.status, 201);
+  assert.deepEqual(gh.issues[0].labels, ['crash', 'platform:windows']);
+  assert.equal(gh.issues[0].title, 'Crash: access violation 0xC0000005 in HOTDVR.exe+0x1a2b3c (Windows)');
+  assert.match(gh.issues[0].body, /\| Device \| os `windows`, windows `10\.0\.26100`, cpus `16` \|/);
+  assert.match(gh.issues[0].body, /HOTDVR-<build id>\.pdb\.gz/);
+  // the same crash from PC VR: counted there, and labelled
+  const r2 = await handle(post(report({ platform: 'pcvr', build_id: p.build_id, crash: text })), env(), gh.fetch);
+  assert.equal(r2.json.issue, 1);
+  assert.deepEqual(gh.issues[0].labels, ['crash', 'platform:windows', 'platform:pcvr']);
+});
+
+test('Apple: signals by Apple numbers, frames by offset, the UUID', async () => {
+  const text = fixture('apple.txt');
+  const p = parseCrash(text, 'ios');
+  assert.equal(p.signal, 11);
+  assert.equal(p.build_id, '96eb6c86c22b3a1498d876874288e510');
+  assert.deepEqual(keyFrames(p.frames, 'ios'), ['HouseOfTheDeadVR+0x1a2b3c', 'HouseOfTheDeadVR+0x1a2a00', 'HouseOfTheDeadVR+0x10f00']);
+  assert.equal(parseCrash(text.replace('signal 11', 'signal 10'), 'mac').signal, 10);
+  const gh = fakeGitHub();
+  const r = await handle(post(report({ platform: 'visionos', build_id: p.build_id, crash: text.replace('signal 11', 'signal 10'),
+    device: { os: 'visionOS 26.1', model: 'RealityDevice14,1' } })), env(), gh.fetch);
+  assert.equal(r.status, 201);
+  assert.equal(gh.issues[0].title, 'Crash: SIGBUS in HouseOfTheDeadVR+0x1a2b3c (Apple Vision Pro)');
+  assert.deepEqual(gh.issues[0].labels, ['crash', 'platform:visionos']);
+  await assert.rejects(handle(post(report({ platform: 'amiga' })), env(), gh.fetch), (e) => e.status === 400);
+});
+
+test('IP and e-mail addresses are redacted', async () => {
+  assert.equal(redact('peer 192.168.1.20:5000 and 127.0.0.1, v1.2.3, me@example.com'),
+    'peer [redacted address]:5000 and 127.0.0.1, v1.2.3, [redacted e-mail]');
+  const gh = fakeGitHub();
+  await handle(post(report({ log: 'online: host 192.0.2.26 joined\n' })), env(), gh.fetch);
+  assert.doesNotMatch(gh.issues[0].body, /192\.0\.2\.26/);
+  assert.match(gh.issues[0].body, /host \[redacted address\] joined/);
 });
 
 test('a report written by the Quest client is accepted', async (t) => {

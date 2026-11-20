@@ -13,7 +13,7 @@ http.createServer(async (req, res) => {
   const send = (status, j) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(j)); };
   console.log(req.method, u.pathname + u.search, req.headers.authorization ? '(token)' : '(NO TOKEN)');
   if (u.pathname === '/_issues') return send(200, { issues, comments });
-  const m = /^\/repos\/[^/]+\/[^/]+(\/issues(?:\/(\d+)(\/comments)?)?)$/.exec(u.pathname);
+  const m = /^\/repos\/[^/]+\/[^/]+(\/issues(?:\/(\d+)(\/comments|\/labels)?)?)$/.exec(u.pathname);
   if (!m) return send(404, { message: 'Not Found' });
   const [, , num, isComments] = m;
   const data = body ? JSON.parse(body) : null;
@@ -28,6 +28,11 @@ http.createServer(async (req, res) => {
     return send(201, i);
   }
   if (req.method === 'PATCH' && num && !isComments) { Object.assign(issues[num - 1], data); return send(200, issues[num - 1]); }
+  if (req.method === 'POST' && isComments === '/labels') {
+    const i = issues[num - 1];
+    for (const name of data.labels) if (!i.labels.some((l) => l.name === name)) i.labels.push({ name });
+    return send(200, i.labels);
+  }
   if (req.method === 'POST' && isComments) { comments.push({ issue: Number(num), ...data }); return send(201, { id: comments.length }); }
   send(404, { message: 'Not Found' });
 }).listen(port, '127.0.0.1', () => console.log('mock GitHub on http://127.0.0.1:' + port));

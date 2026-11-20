@@ -49,8 +49,6 @@ int main(int argc, char **argv) {
     ANativeActivity act = { .vm = NULL, .assetManager = (AAssetManager *)&act };   // (any non-null: the stub ignores it; no vm: nothing is sent)
     struct stat st;
     snprintf(p, sizeof p, "%s/crash.txt", dir);
-    qreport_start(&act, dir, opt);                                // no relay address: nothing happens
-    if (stat(p, &st) || st.st_size == 0) fail("crash.txt touched without a relay");
     opt[QOPT_CRASH_REPORTS] = 0;
     setenv("QUEST_CRASH_URL", "http://127.0.0.1:9/report", 1);   // (no vm: nothing is sent)
     qreport_start(&act, dir, opt);                                // reports off: nothing happens
@@ -73,6 +71,7 @@ int main(int argc, char **argv) {
     if (!strstr(rep, "qmenu_update")) fail("crash missing");
     if (strstr(rep, dir)) fail("files path not scrubbed");
     if (!strstr(rep, "line 300:") || !strstr(rep, "line 101:") || strstr(rep, "line 100:")) fail("log tail not the last 200 lines");
+    if (!strstr(rep, "\"platform\":\"quest\"")) fail("platform");
     if (!strstr(rep, "\"crash_reports\":1") || !strstr(rep, "\"model\":\"Quest 3\"") || !strstr(rep, "\"commit\":\"8349ba5e61ee-dirty\""))
         fail("fields");
     for (const unsigned char *c = (const unsigned char *)rep; *c; c++) if (*c >= 0x80) fail("non-ASCII byte");

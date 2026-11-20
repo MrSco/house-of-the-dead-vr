@@ -4,7 +4,7 @@
 #   sh tools/vr/crash-relay/test/client/run.sh [path to the NDK's jni.h]
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
-root=$(cd "$here/../../../.." && pwd)
+root=$(cd "$here/../../../../.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 jni=${1:-$(ls "${ANDROID_NDK_HOME:-/nonexistent}"/toolchains/llvm/prebuilt/*/sysroot/usr/include/jni.h 2>/dev/null | head -1)}

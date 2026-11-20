@@ -1,11 +1,14 @@
-// The crash relay (README.md). Deploy: npx wrangler deploy; secrets: npx wrangler secret put GITHUB_TOKEN (and
-// optionally REPORT_KEY).
+// House of the Dead VR's Worker (README.md): the crash relay today, at https://hotdvr.roccojuliano.com/v1/reports.
+// Deploy: npx wrangler deploy (the account is the logged-in one: no account id here); secrets:
+// npx wrangler secret put GITHUB_TOKEN (and optionally REPORT_KEY).
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hotd-crash-relay",
   "main": "src/index.js",
   "compatibility_date": "2025-09-01",
-  "workers_dev": true,
+  // its own subdomain of the user's zone (Cloudflare makes the DNS record and the certificate)
+  "routes": [{ "pattern": "hotdvr.roccojuliano.com", "custom_domain": true }],
+  "workers_dev": false,
   "observability": { "enabled": true },
   "vars": {
     // the private repository the crash issues go to
@@ -13,7 +16,7 @@
     // new crash issues (new signatures) accepted per 24 hours; occurrences of known crashes are always counted
     "NEW_ISSUES_PER_DAY": "20"
   },
-  // per-address and overall limits (period: 10 or 60 seconds). A headset sends at most 5 reports per start.
+  // per-address and overall limits (period: 10 or 60 seconds). An app sends at most 5 reports per start.
   "ratelimits": [
     { "name": "LIMITER", "namespace_id": "4711", "simple": { "limit": 6, "period": 60 } },
     { "name": "GLOBAL_LIMITER", "namespace_id": "4712", "simple": { "limit": 30, "period": 60 } }
