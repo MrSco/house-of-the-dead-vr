@@ -48,6 +48,7 @@ static QMenuHost host(void) {
     h.touch = flat_os_touch() != 0;
     h.tv = M.tv != 0;
     h.reports = flat_os_has_reports() != 0;
+    h.local_p2 = flat_player2_in() != 0;
 #ifdef _WIN32
     h.pc_switch = 1;                     // HOTDVR.exe: PLAY IN VR (the SYSTEM tab)
 #endif

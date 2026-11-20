@@ -80,13 +80,13 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         static int last_x = -1, last_y = -1;
         if (x != last_x || y != last_y) { last_x = x; last_y = y; pad_mouse_moved(); }
         flat_menu_mouse(x, y, down);
-        if (flat_menu_is_open()) { if (W.trigger) { W.trigger = 0; flat_trigger(0); } return 0; }
-        flat_pointer(x, y);
-        if (msg != WM_MOUSEMOVE && down != W.trigger) { W.trigger = down; flat_trigger(down); }
+        if (flat_menu_is_open()) { if (W.trigger) { W.trigger = 0; flat_dev_trigger(FLAT_DEV_KBM, 0); } return 0; }
+        flat_dev_pointer(FLAT_DEV_KBM, x, y);
+        if (msg != WM_MOUSEMOVE && down != W.trigger) { W.trigger = down; flat_dev_trigger(FLAT_DEV_KBM, down); }
         return 0;
     }
-    case WM_RBUTTONDOWN: if (!flat_menu_is_open()) flat_reload(1); return 0;
-    case WM_RBUTTONUP: flat_reload(0); return 0;
+    case WM_RBUTTONDOWN: if (!flat_menu_is_open()) flat_dev_reload(FLAT_DEV_KBM, 1); return 0;
+    case WM_RBUTTONUP: flat_dev_reload(FLAT_DEV_KBM, 0); return 0;
     case WM_SETCURSOR:
         if (LOWORD(lp) == HTCLIENT) {
             POINT p;
@@ -118,7 +118,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
         }
-        if (wp == VK_SPACE || wp == VK_RETURN) { if (!repeat) flat_start(down); return 0; }
+        if (wp == VK_SPACE || wp == VK_RETURN) { if (!repeat) flat_dev_start(FLAT_DEV_KBM, down); return 0; }
         if (wp == 'T') { online_talk_key(down != 0); return 0; }   // online, PUSH TO TALK
         if (down && !repeat && wp == VK_ESCAPE) { flat_menu_set_open(1); return 0; }
         break;

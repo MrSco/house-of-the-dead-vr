@@ -190,6 +190,14 @@ the mouse and touch point at it.
 
 In the menu: the ring (or a swipe on the older remote) moves, a click chooses, Play/Pause goes back to the game.
 
+**Two players on one screen** (Windows, Mac, iPhone and iPad, Apple TV, Android; not online, where player 2 is your
+partner): the arcade's two guns, each on its own device. Alone, everything you hold is player 1's gun. While player 1
+is playing, a second player presses Start (A / Cross or Start on a pad, START on a touch screen, Space on the
+keyboard, or Play/Pause held on the Siri Remote) on another device and joins as player 2, at any moment, as at the
+cabinet: that device is then player 2's (the blue sight), and Start on it continues player 2. On the continue screen,
+in a scene or on the title, Start is always player 1's. The keyboard and mouse count as one device, touch as one,
+the Siri Remote as one, each pad as one.
+
 ## Building from source
 
 The PC recompiles the game and builds the Quest, Android and Windows apps; the Apple apps are built on a Mac from the

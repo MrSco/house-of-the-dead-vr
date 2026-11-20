@@ -681,6 +681,7 @@ static void online_offline(void) {
     on_item(ON_BROWSE, CX0, &y, I_LIST, "BROWSE GAMES", "Open rooms and games on your network", "Lists open rooms on the lobby server and games hosted on your network.", 0);
     on_item(ON_QUICK, CX0, &y, I_BOLT, "QUICK MATCH", "Join anyone who is waiting", "Joins the first open room on the lobby server.", 0);
     on_item(ON_LAN, CX0, &y, I_SWAP, "LOCAL NETWORK\xE2\x80\xA6", "Host here, or join by IP", "Host or join on your own network, without the lobby server.", 0);
+    if (H->local_p2) para(UI_M17, CX0 + 8, y + 22, COLW - 16, 23, "Two players here: playing online, player 2 here leaves the game (the partner is P2).", WARN, 2);
     // right column: you, voice
     frow = 1;   // beside the left column's rows: up / down walks each column
     float ry = CY0;
@@ -899,11 +900,12 @@ static void confirm(void) {
         title = modal == M_HOST ? "HOST A ROOM?" : "HOST ON THIS NETWORK?";
         body = "The app restarts into an online game (about 10 s): the game starts from its title, and you play P1.";
         note = modal == M_HOST ? "Your room's code shows on this tab. Friends join with it at any time." : "Friends on your network find your game in LOCAL NETWORK.";
+        if (H->local_p2) note = "Player 2 here leaves the game: online, player 2 is your partner.";
         ok = "HOST";
     } else if (modal == M_QUICK) {
         title = "QUICK MATCH?";
         body = "Joins the first open room on the lobby server: the app restarts and catches up with that game. You play P2.";
-        note = "The game in progress here is lost.";
+        note = H->local_p2 ? "The game in progress here is lost, and player 2 here with it." : "The game in progress here is lost.";
         ok = "JOIN";
     } else if (modal == M_LEAVE) {
         title = V.host ? "STOP PLAYING ONLINE?" : "LEAVE THE ONLINE GAME?";
@@ -945,6 +947,7 @@ static void controls_page_flat(void) {
         controls_row(rx, &ry, rw, "L2 / L1 / X", "Reload");
         controls_row(rx, &ry, rw, "A / Menu", "Coins and Start");
         controls_row(rx, &ry, rw, "Options", "This menu");
+        controls_row(rx, &ry, rw, "Two players", "While P1 plays, A on another pad (or Play/Pause held on the remote): P2, the blue sight");
         const float bw = 180;
         if (button(ID(K_MBTN, 1), x + w - 32 - bw, y + h - 26 - 52, bw, 52, "CLOSE", UI_B22, 1, NULL)) modal = M_NONE;
         focusable(ID(K_MBTN, 1), F_BUTTON, (int)(x + w - 32 - bw / 2));
@@ -964,6 +967,7 @@ static void controls_page_flat(void) {
         controls_row(rx, &ry, rw, "L2 / L1 / X", "Reload");
         controls_row(rx, &ry, rw, "A / Start", "Coins and Start");
         controls_row(rx, &ry, rw, "Select / Back", "This menu");
+        controls_row(rx, &ry, rw, "Two players", "While P1 plays, A on another pad (or START on the screen): P2, the blue sight");
         const float bw = 180;
         if (button(ID(K_MBTN, 1), x + w - 32 - bw, y + h - 26 - 52, bw, 52, "CLOSE", UI_B22, 1, NULL)) modal = M_NONE;
         focusable(ID(K_MBTN, 1), F_BUTTON, (int)(x + w - 32 - bw / 2));
@@ -982,6 +986,10 @@ static void controls_page_flat(void) {
     controls_row(rx, &ry, rw, "Click", "Choose what the pointer is on");
     controls_row(rx, &ry, rw, "Arrows, Enter, Esc", "Move, choose, back");
     controls_row(rx, &ry, rw, "Tab", "The next tab (Shift: the one before)");
+    ry += 16;
+    text(UI_B20, rx, ry, "GAME PADS, TWO PLAYERS", ACCENT); ry += 12;
+    controls_row(rx, &ry, rw, "Stick, R2, L2, A / Start", "Aim, shoot, reload, coins and Start");
+    controls_row(rx, &ry, rw, "A / Start on a second device", "While P1 plays: player 2 joins on it (the blue sight)");
     const float bw = 180;
     if (button(ID(K_MBTN, 1), x + w - 32 - bw, y + h - 26 - 52, bw, 52, "CLOSE", UI_B22, 1, NULL)) modal = M_NONE;
     focusable(ID(K_MBTN, 1), F_BUTTON, (int)(x + w - 32 - bw / 2));
@@ -1307,12 +1315,12 @@ bool qmenu_render(const QMenuHost *host, uint8_t *pixels, double now, int dirty[
     (void)now;
     H = host;
     // what is shown, minus the pointer / highlight
-    struct { int tab, modal, stick, opt[QOPT_COUNT], boot_r, hz; unsigned aw, ah; bool saved, lower; int screen, page, ngames; char kbuf[64]; } s;
+    struct { int tab, modal, stick, opt[QOPT_COUNT], boot_r, hz; unsigned aw, ah; bool saved, lower, p2; int screen, page, ngames; char kbuf[64]; } s;
     memset(&s, 0, sizeof s);
     s.tab = tab; s.modal = modal; s.stick = stick_mode;
     s.screen = screen; s.page = page; s.ngames = game_count; snprintf(s.kbuf, sizeof s.kbuf, "%s", kbuf); s.lower = modal == M_SERVER && klower;
     for (int i = 0; i < QOPT_COUNT; i++) s.opt[i] = H->get(i);
-    s.boot_r = H->boot_resolution; s.hz = H->hz_now; s.aw = H->active_w; s.ah = H->active_h; s.saved = H->saved;
+    s.boot_r = H->boot_resolution; s.hz = H->hz_now; s.aw = H->active_w; s.ah = H->active_h; s.saved = H->saved; s.p2 = H->local_p2;
     uint32_t h = mix(2166136261u, &s, sizeof s);
     if (modal == M_SERVER && kerror) h = mix(h, kerror, strlen(kerror));
     if (H->update) h = mix(h, H->update, strlen(H->update));   // (the SYSTEM tab's update line and its dot)

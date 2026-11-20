@@ -33,12 +33,25 @@ void flat_redraw(void);                 // draw the picture again (a setting cha
 void flat_draw(int w, int h, unsigned framebuffer);
 
 // ---- input, in window pixels (y down)
-void flat_pointer(int x, int y);        // the gun's aim
 int flat_pointer_in_view(int x, int y); // over the game's picture (the front end hides the system pointer there)
 void flat_view_rect(int *x, int *y, int *w, int *h);   // where the picture is in the window (pixels, y down)
-void flat_trigger(int down);            // shoot (the left mouse button, a tap, a pad's trigger)
-void flat_reload(int down);             // reload (the right mouse button; shooting off the picture also reloads)
-void flat_start(int down);              // coins and Start, skipping (Space, Enter, a pad's Start)
+
+// ---- the players (flat.c): the game's two guns, as on the cabinet. Each input comes from a device: the keyboard
+// and mouse (one device: a light gun that is a mouse too), touch, the Siri Remote, each pad. Alone, every device is
+// player 1's (the last one moved aims). Player 2 joins with Start on another device while player 1 plays: that
+// device is player 2's gun from then on (flat_dev_start says exactly when). Not online: player 2 is the partner.
+enum { FLAT_DEV_KBM = 1, FLAT_DEV_TOUCH, FLAT_DEV_REMOTE, FLAT_DEV_PAD = 16 };   // pads: flat_pad_attach's
+void flat_dev_pointer(int dev, int x, int y);   // the device's aim (a pad's sight: sent every frame is fine)
+void flat_dev_trigger(int dev, int down);       // shoot (the left mouse button, a tap, a pad's trigger)
+void flat_dev_reload(int dev, int down);        // reload (the right mouse button; shooting off the picture too)
+void flat_dev_start(int dev, int down);         // coins and Start, skipping (Space, Enter, a pad's A or Start)
+int flat_dev_player(int dev);                   // the player (0, 1) the device drives now
+int flat_player2_in(void);                      // a player 2 here (a device holds the seat)
+void flat_players_frame(void);                  // (flat_app_frame)
+// a pad connected: its device id (one that went comes back with its id: player 2's stays player 2's); gone: its
+// trigger and reload let go
+int flat_pad_attach(void);
+void flat_pad_detach(int dev);
 
 // ---- the menu (flat_menu.c): the VR app's menu (quest_menu.c) as a panel over the game, which pauses (not online)
 void flat_menu_set_open(int open);

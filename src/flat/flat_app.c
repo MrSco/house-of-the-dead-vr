@@ -8,7 +8,7 @@
 // shots round the screen, every eighth off it; FLAT_TEST_TALK=1 talks: push to talk, held the whole time (voice frames
 // sent without a voice); FLAT_QUIT_AT=seconds closes the app then; FLAT_MENU_AT=seconds[,tab] opens the menu then (on
 // that tab: quest_menu.h's QMENU_TAB_*; QMENU_TEST_SCREEN=browse|lan then opens that page of the ONLINE tab);
-// FLAT_SHOT=seconds writes the picture to flat_shot.ppm (flat.c); FLAT_TEST_HIDDEN=1
+// FLAT_SHOT=seconds[,...] writes the picture to flat_shot.ppm (flat.c); FLAT_TEST_HIDDEN=1
 // (Windows) never shows the window: the picture is still drawn, for M2_SHOTS and FLAT_SHOT; FLAT_TEST_LOOK (flat.c)
 // looks round as a headset does (with M2_GL_ORDER=0, the headset's depth: the app's own is the arcade's order;
 // FLAT_TEST_NEARFAR=1.818,9091 its depth planes, the Quest's); M2_TEST_RESTART_AT=frame presses RESTART then
@@ -75,7 +75,7 @@ void flat_gyro(float rate_right, float rate_up, double dt) {
     if (gyro_x > vx + vw * 1.06f) gyro_x = vx + vw * 1.06f;
     if (gyro_y < vy - vh * 0.06f) gyro_y = vy - vh * 0.06f;
     if (gyro_y > vy + vh * 1.06f) gyro_y = vy + vh * 1.06f;
-    flat_pointer((int)gyro_x, (int)gyro_y);
+    flat_dev_pointer(FLAT_DEV_TOUCH, (int)gyro_x, (int)gyro_y);
 }
 void flat_opt_set(int o, int v) {
     if (o < 0 || o >= QOPT_COUNT) return;
@@ -250,6 +250,7 @@ static void test_hooks(void) {
 
 void flat_app_frame(int minimized) {
     test_hooks();
+    flat_players_frame();
     extern int port_draw_crosshairs;
     extern volatile int arcade_view_cabinet;
     // the game's own sights: yours where you aim (Crosshair ON) and, online, the partner's regardless

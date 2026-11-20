@@ -21,6 +21,7 @@ typedef struct QMenuHost {
     bool touch;                          // ...on a touch screen (no window to size; taps, Back)
     bool tv;                             // ...on Apple TV (the Siri Remote: swipes move the focus, a click selects)
     bool reports;                        // ...that sends crash reports (the SYSTEM tab's row)
+    bool local_p2;                       // ...with a player 2 here now (online drops them: the ONLINE tab says so)
     // the app's updates from the project's GitHub releases (the SYSTEM tab; quest_xr.c: Updater.java's status line,
     // "state \t offered \t - \t message \t test builds 0/1 \t installed"; NULL: no updater in this app)
     const char *update;

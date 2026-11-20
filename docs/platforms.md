@@ -87,6 +87,44 @@ Touch is the natural fit: a tap is a light-gun shot at that point. Gyro aim on p
 as GoldenEye's iOS build has it. The menu is the same tabs as the VR one, drawn on the same canvas, pointed at by
 mouse or touch; VR-only rows (hands, cabinet room, comfort, physical reload) are hidden in flat mode.
 
+## Two players on one screen (the flat apps, offline)
+
+The game has the cabinet's two guns; online, player 2 is the partner. Offline, the flat apps (Windows, Mac, iOS,
+Apple TV, Android) give player 2 to a second device here, as GoldenEye VR's split screen gives a pad to each player.
+The rules are flat.c's (`flat_dev_*`, `flat_pad_attach`); each front end only says which device each input came
+from.
+
+- **A device** is the keyboard and mouse (one, with a light gun that is a mouse), touch, the Siri Remote, or a pad
+  (each pad its own).
+- **Alone** every device is player 1's, the last one moved aims, as before. A pad that connects does nothing until it
+  is used.
+- **Player 2 joins** with a Start press (Space / Enter, a pad's A / Cross or Start, touch's START, the Siri Remote's
+  Play/Pause held) when all of these hold: not online; player 1 is playing (`host_player_playing(0)`: in a stage,
+  not the continue countdown, a scene, the title or the demo); player 2 isn't in the game (`host_player_state(1)`:
+  never joined, or out on their continue countdown or after it); and the device isn't player 1's. A device is player 1's once a Start of its has gone to player 1 this game: the one that
+  started the game, continued it or skipped a scene. The press is player 2's coins and Start, and the device is
+  player 2's from then on: its sight (the blue crosshair), shoot, reload, and its Start (player 2's continues).
+  Every other Start is player 1's, so a pad picked up to continue player 1 continues player 1.
+- **Player 2's seat** stays with that device while the game runs: Start on it is always player 2's. When player 2 is
+  out (the countdown, or their game over), Start on another device that isn't player 1's takes the seat over and
+  continues player 2. The game over (neither player in the game nor on a countdown: the ranking, then the title)
+  frees the seat and forgets which devices were player 1's.
+- **A pad that disconnects** lets go of its trigger and reload (player 2 just stops shooting); a pad that connects
+  again gets a gone pad's id, player 2's first, so it is player 2's again (Windows: SDL3 or XInput; Apple:
+  GameController; Android: the input device id, a gone one found once a second through `InputDevice.getDevice`).
+- **Online**: starting online play drops a local player 2 (the app restarts into the online game); the ONLINE tab
+  says so while a player 2 is here, as do the HOST and QUICK MATCH confirmations. In an online game every device is
+  the local player's, as before.
+- **The game's side** (arcade.cpp): player 2's inputs travel the same event queue as player 1's (the mouse events'
+  `which` 1, the 2 key as its Start, a user event for in and out), read once per frame as player 1's are, and
+  `arcade_net::frame` gets them as a second local gun only when not online, where they fill the inputs a guest's gun
+  fills online (gun 2's aim, trigger bit, Start). Alone with no player 2 the inputs are exactly as before, so the
+  determinism tests and online play don't change. `draw_crosshairs` draws player 2's crosshair too (blue; a TV's
+  larger style on Apple TV).
+- **Tests** (Windows): `FLAT_TEST_PAD=n` plugs in n virtual SDL pads and `FLAT_TEST_PAD_SCRIPT` drives them and the
+  keyboard and mouse (pad_win.c: `2@40:A,1@45:RT,K@50:0.3;0.4,2@60:OFF,2@65:ON`, ...), logging each pad's player
+  and sight a second after each step.
+
 ## Per platform
 
 | Platform | Package | Mode | Graphics | XR | Input | ROM import | Notes |

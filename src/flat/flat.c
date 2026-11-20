@@ -8,8 +8,10 @@
 #include "quest.h"
 #include "d3d_vr.h"
 #include "m2_vr.h"
+#include "online.h"
 #include <SDL.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -437,14 +439,23 @@ void flat_draw(int w, int h, unsigned framebuffer) {
             arcade_shot_serial = 0;
         }
     }
-    {   // FLAT_SHOT=seconds (tests): the picture as flat_shot.ppm in the files folder, that long after the first frame
-        static double at = -2;
+    {   // FLAT_SHOT=seconds[,seconds...] (tests): the picture as flat_shot.ppm in the files folder, that long after the
+        // first frame (the later ones flat_shot_2.ppm, flat_shot_3.ppm, ...)
+        static double at[8] = { -2 };
+        static int n, next;
         static uint64_t t0;
-        if (at == -2) { const char *e = getenv("FLAT_SHOT"); at = e && *e ? atof(e) : -1; t0 = plat_now_ns(); }
-        if (at >= 0 && (double)(plat_now_ns() - t0) * 1e-9 >= at) {
-            at = -1;
+        if (at[0] == -2) {
+            const char *e = getenv("FLAT_SHOT");
+            at[0] = -1;
+            for (const char *p = e; p && *p && n < 8; p = strchr(p, ',') ? strchr(p, ',') + 1 : NULL) at[n++] = atof(p);
+            t0 = plat_now_ns();
+        }
+        if (next < n && (double)(plat_now_ns() - t0) * 1e-9 >= at[next]) {
+            char name[32] = "flat_shot.ppm";
+            if (next) snprintf(name, sizeof name, "flat_shot_%d.ppm", next + 1);
+            next++;
             unsigned char *px = malloc((size_t)w * h * 4);
-            FILE *f = px ? fopen("flat_shot.ppm", "wb") : NULL;
+            FILE *f = px ? fopen(name, "wb") : NULL;
             if (f) {
                 glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
                 glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
@@ -452,7 +463,7 @@ void flat_draw(int w, int h, unsigned framebuffer) {
                 for (int y = h - 1; y >= 0; y--)
                     for (int x = 0; x < w; x++) fwrite(px + ((size_t)y * w + x) * 4, 1, 3, f);
                 fclose(f);
-                LOGI("flat_shot.ppm: %dx%d", w, h);
+                LOGI("%s: %dx%d", name, w, h);
             }
             free(px);
         }
@@ -460,7 +471,6 @@ void flat_draw(int w, int h, unsigned framebuffer) {
 }
 
 // ---------------------------------------------------------------- input
-static int last_x, last_y;
 // window pixels -> the game's frame pixels (outside the picture: outside the frame, which reloads)
 static void to_frame(int x, int y, int *fx, int *fy) {
     int w, h;
@@ -469,14 +479,122 @@ static void to_frame(int x, int y, int *fx, int *fy) {
     *fx = F.vw ? (int)floorf((float)(x - F.vx) * (float)w / (float)F.vw) : -1;
     *fy = F.vh ? (int)floorf((float)(y - F.vy) * (float)h / (float)F.vh) : -1;
 }
-void flat_pointer(int x, int y) {
-    last_x = x; last_y = y;
-    int fx, fy;
-    to_frame(x, y, &fx, &fy);
-    quest_pointer(fx, fy);
-}
 int flat_pointer_in_view(int x, int y) { return x >= F.vx && x < F.vx + F.vw && y >= F.vy && y < F.vy + F.vh; }
 void flat_view_rect(int *x, int *y, int *w, int *h) { *x = F.vx; *y = F.vy; *w = F.vw; *h = F.vh; }
-void flat_trigger(int down) { flat_pointer(last_x, last_y); quest_mouse_button(SDL_BUTTON_LEFT, down); }
-void flat_reload(int down) { quest_mouse_button(SDL_BUTTON_RIGHT, down); }
-void flat_start(int down) { quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, down); }
+
+// ---- the players (flat.h): which player each device drives
+#define MAX_DEVS 32
+static struct {
+    struct { int dev, x, y, aimed, fire, reload, p1, pad_gone; } d[MAX_DEVS];   // the devices seen
+    int n;
+    int p2;            // player 2's device (0: none)
+    int game_on;       // a game on (flat_players_frame), as last seen
+    int pads;          // pad ids handed out (FLAT_DEV_PAD + 0 .. pads - 1)
+} P;
+static int dev_slot(int dev) {
+    for (int i = 0; i < P.n; i++) if (P.d[i].dev == dev) return i;
+    if (P.n == MAX_DEVS) return MAX_DEVS - 1;   // (never: a few devices)
+    memset(&P.d[P.n], 0, sizeof P.d[P.n]);
+    P.d[P.n].dev = dev;
+    return P.n++;
+}
+static int seat_open(void) { return !online_session(); }   // online, player 2 is the partner
+int flat_dev_player(int dev) { return P.p2 && dev == P.p2 && seat_open() ? 1 : 0; }
+int flat_player2_in(void) { return P.p2 && seat_open(); }
+
+// a player's gun (0: quest_*, 1: quest_*2)
+static void gun_aim(int pl, int x, int y) {
+    int fx, fy;
+    to_frame(x, y, &fx, &fy);
+    if (pl) quest_pointer2(fx, fy); else quest_pointer(fx, fy);
+}
+static void gun_button(int pl, int button, int down) { if (pl) quest_mouse_button2(button, down); else quest_mouse_button(button, down); }
+
+static void p2_leave(const char *why) {
+    if (!P.p2) return;
+    LOGI("players: player 2 (device %d) leaves: %s", P.p2, why);
+    const int i = dev_slot(P.p2);
+    P.d[i].fire = P.d[i].reload = 0;
+    P.p2 = 0;
+    quest_player2(0);
+}
+// every frame (flat_app_frame): online, or the game over (the ranking, the title), ends player 2's seat and forgets
+// which devices were player 1's
+void flat_players_frame(void) {
+    if (P.p2 && online_session()) p2_leave("online play");
+    // a game on: either player in it, coming in (the states between: 1 and 3 seen), or on the continue countdown; the
+    // ranking ends it (0: the game's boot)
+    const int s1 = host_player_state(0), s2 = host_player_state(1);
+    const int on = (s1 && s1 != HOST_P_RANKING && s1 != HOST_P_NONE) || (s2 && s2 != HOST_P_RANKING && s2 != HOST_P_NONE);
+    {   // (the log: each player's state and play, for the tests)
+        static int was = -1;
+        const int now = s1 | s2 << 8 | host_player_playing(0) << 16 | on << 17;
+        if (now != was) LOGI("players: game %s; player 1 state %d%s, player 2 state %d", on ? "on" : "off", s1,
+                             host_player_playing(0) ? " (playing)" : "", s2);
+        was = now;
+    }
+    if (P.game_on && !on) {
+        p2_leave("the game is over");
+        for (int i = 0; i < P.n; i++) P.d[i].p1 = 0;
+    }
+    P.game_on = on;
+}
+
+void flat_dev_pointer(int dev, int x, int y) {
+    const int i = dev_slot(dev);
+    // a device aims when it moves (a pad's sight sent every frame doesn't take the aim from the mouse)
+    if (P.d[i].aimed && P.d[i].x == x && P.d[i].y == y) return;
+    P.d[i].x = x; P.d[i].y = y; P.d[i].aimed = 1;
+    gun_aim(flat_dev_player(dev), x, y);
+}
+void flat_dev_trigger(int dev, int down) {
+    const int i = dev_slot(dev), pl = flat_dev_player(dev);
+    if (down && P.d[i].aimed) gun_aim(pl, P.d[i].x, P.d[i].y);   // the shot goes where this device aims
+    P.d[i].fire = down;
+    gun_button(pl, SDL_BUTTON_LEFT, down);
+}
+void flat_dev_reload(int dev, int down) {
+    const int i = dev_slot(dev);
+    P.d[i].reload = down;
+    gun_button(flat_dev_player(dev), SDL_BUTTON_RIGHT, down);
+}
+// Start: player 2's on player 2's device. While player 1 plays (host_player_playing: not the continue countdown, a
+// scene, the title) and player 2 isn't in the game (never joined, or out: their countdown, their game over), alone
+// (not online), a Start on a device that isn't player 1's joins: that device is player 2's from then on. Every other
+// Start is player 1's, and makes its device player 1's for the rest of this game (starting, continuing, skipping a
+// scene).
+void flat_dev_start(int dev, int down) {
+    const int i = dev_slot(dev);
+    if (!down) { if (!flat_dev_player(dev)) quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, 0); return; }
+    if (flat_dev_player(dev)) { quest_start2(); return; }
+    if (seat_open() && !P.d[i].p1 && host_player_playing(0) && host_player_state(1) != HOST_P_IN) {
+        if (P.p2) p2_leave("another device's Start");
+        P.p2 = dev;
+        LOGI("players: device %d joins as player 2", dev);
+        quest_player2(1);
+        if (P.d[i].aimed) gun_aim(1, P.d[i].x, P.d[i].y);
+        quest_start2();
+        return;
+    }
+    P.d[i].p1 = 1;
+    quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, 1);
+}
+
+// pads: an id each; a pad that comes back gets a gone pad's (player 2's first), so it drives the same player
+int flat_pad_attach(void) {
+    int id = 0;
+    for (int i = 0; i < P.n && !id; i++) if (P.d[i].pad_gone && P.d[i].dev == P.p2) id = P.d[i].dev;
+    for (int i = 0; i < P.n && !id; i++) if (P.d[i].pad_gone) id = P.d[i].dev;
+    if (!id) id = FLAT_DEV_PAD + P.pads++;
+    P.d[dev_slot(id)].pad_gone = 0;
+    LOGI("players: pad %d connected%s", id - FLAT_DEV_PAD + 1, flat_dev_player(id) ? " (player 2's)" : "");
+    return id;
+}
+void flat_pad_detach(int dev) {
+    const int i = dev_slot(dev);
+    if (P.d[i].fire) flat_dev_trigger(dev, 0);
+    if (P.d[i].reload) flat_dev_reload(dev, 0);
+    P.d[i].pad_gone = 1;
+    P.d[i].aimed = 0;
+    LOGI("players: pad %d gone%s", dev - FLAT_DEV_PAD + 1, flat_dev_player(dev) ? " (player 2's: back when it reconnects)" : "");
+}
