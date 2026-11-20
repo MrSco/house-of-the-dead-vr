@@ -1,0 +1,2 @@
+# Shell scripts run on the Mac and Linux (scripts/apple_sync.py sends the working tree as it is): LF everywhere
+*.sh text eol=lf

@@ -84,6 +84,10 @@ Then, on the Mac, in the copy it made (`~/src/house-of-the-dead-vr` by default):
     python3 scripts/build_apple.py device --ipa        # an unsigned IPA for SideStore
     python3 scripts/build_apple.py mac                 # House of the Dead VR.app
 
+Apple TV and Vision Pro build the same way (`scripts/build_tvos.py`, `scripts/build_visionos.py`). TestFlight and
+installs on a paired Apple TV, signed with your own account, go through `scripts/apple/` (its README.md lists the
+settings file the scripts read: nothing of the account is kept in the repository).
+
 ## 5. Check crossplay
 
 Online play is a lockstep: every app must compute the same game, bit for bit. After any change to the compiler, its

@@ -229,7 +229,8 @@ PC's checkout. [docs/getting-started.md](docs/getting-started.md) goes through i
 | iPhone, iPad, Mac | `python scripts/apple_sync.py` on the PC, then `python3 scripts/build_apple.py simulator`, `device` or `mac` on the Mac (`--app`, `--ipa`) | Xcode, xcodegen, and ANGLE built in `~/angle` |
 | Apple TV, Vision Pro | As above, then `python3 scripts/build_tvos.py` or `python3 scripts/build_visionos.py`, `simulator` or `device` (`--app`) | As above, with ANGLE's tvOS and visionOS slices |
 
-`python scripts/release.py` builds every platform's download from one commit for a release, and
+`python scripts/release.py` builds every platform's download from one commit for a release (`--testflight`: the
+iPhone, Apple TV and Vision Pro apps to TestFlight too, through the Mac's `scripts/apple/`), and
 `python scripts/crossplay_check.py` checks that the PC and the Quest compute the same game, bit for bit (run it after
 any compiler, flag or runtime change).
 

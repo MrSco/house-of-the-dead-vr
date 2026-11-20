@@ -280,7 +280,12 @@ atomics) and `HOTDVR-<version>-windows.zip`.
 **P3, iPhone / iPad and the Mac (2026-11-16): done but for devices.** Built on a Mac (Xcode 27.2,
 ANGLE in `~/angle` as GoldenEye VR's): `python scripts/apple_sync.py [--images]` on the PC sends the checkout, the
 generated code and the fetched libraries over ssh; `python3 scripts/build_apple.py simulator|device|mac [--app]
-[--ipa]` builds there.
+[--ipa]` builds there. TestFlight (iPhone and iPad, Apple TV, Vision Pro), Apple TV dev installs and test runs go
+through `scripts/apple/` (its README.md): `testflight.sh ios|tvos|visionos BUILD [--upload]`, `dev-install.sh`,
+`cycle.sh`, `run-env.sh`, `desktop.sh` (a command in the Mac's desktop session, from ssh). They build from whichever
+synced copy they run in, and take the account (team, keychain, App Store Connect key, profiles, device names) from a
+settings file on the Mac, outside the repository (`HOTD_TOOLS_ENV`); uploaded archives, with their dSYMs, are kept
+there by platform and build.
 - `src/platform/apple/apple.m`: platform.h's log (the unified log and stderr), sound out and the microphone through
   CoreAudio (RemoteIO; the Mac's microphone is not done yet: the Mac app hears voice chat but sends none), the iOS
   microphone permission. `posix.c` does the rest. GL ES 3 is ANGLE's on Metal.
@@ -431,12 +436,14 @@ slices: `~/angle/xcframeworks-visionos`, as GoldenEye VR's `tools/build_angle_ap
   its visionOS platform already). The iPhone app's App Store profile serves visionOS too (an iOS App Store profile
   lists iOS, xrOS and visionOS), so `HOTD_PROFILE` is that profile's name; the rest of the account as for
   build_apple.py (`HOTD_TEAM`, `HOTD_KEYCHAIN`, `HOTD_KEYCHAIN_PASS`, `HOTD_ASC_KEY_DIR`, `HOTD_ASC_KEY_ID`,
-  `HOTD_ASC_ISSUER`), from the Mac's desktop session (a `.command` file opened there: the keychain). Validation
+  `HOTD_ASC_ISSUER`), from the Mac's desktop session (the keychain): `scripts/apple/testflight.sh visionos BUILD
+  --upload`, which over ssh runs there through `desktop.sh`. Validation
   refused the first archive with no visionOS app icon (error 90970, CFBundleIcons.CFBundlePrimaryIcon), so the app
   has one now: `src/visionos/Assets.xcassets`, a round solid image stack (`python scripts/make_icons.py visionos`:
   the square icon as the opaque back layer, clear middle and front layers). Export compliance comes from
-  `ITSAppUsesNonExemptEncryption` = NO in Info.plist, as the iPhone app's. Build numbers rise per platform; the
-  Quest's versionCode is the default.
+  `ITSAppUsesNonExemptEncryption` = NO in Info.plist, as the iPhone app's. Build numbers rise per platform
+  (`testflight.sh visionos next` asks App Store Connect for the next); `release.py --testflight` takes the Quest's
+  versionCode, or that when it is higher.
 - **Later:** the cabinet room's PASSTHROUGH as mixed immersion; the display
   rate (GRAPHICS' Hz row only shows the system's); foveation.
 
@@ -536,13 +543,16 @@ libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANG
   with no account in Xcode, automatic signing takes the team's App Store Connect key (`HOTD_ASC_KEY_DIR`,
   `HOTD_ASC_KEY_ID`, `HOTD_ASC_ISSUER`, as build_apple.py's) and `--dest` registers that Apple TV with the team. The
   development identity's keychain must be unlocked, so run it from the Mac's desktop session (Terminal, or a
-  `.command` file opened there), not over ssh ("No Accounts" / no profile otherwise). The home-screen icon (the wide
+  `.command` file opened there), not over ssh ("No Accounts" / no profile otherwise). `scripts/apple/dev-install.sh
+  [--launch] DEVICE` does all this from ssh (the build through `desktop.sh`), and `cycle.sh` / `run-env.sh` run the
+  tests below (env.txt in, screenshots and port.log out). The home-screen icon (the wide
   banner, 5:3, as a layered stack) and the Top Shelf come from `python scripts/make_icons.py tvos`.
 - **TestFlight (2026-11-20): 0.5.0 build 9**, under the iPhone app's record and bundle id (`com.mrsco.hotdvr`), as
   GoldenEye VR's Apple TV app is: `python3 scripts/build_tvos.py device --archive BUILD [--upload]` makes the App
   Store archive and .ipa with that build number and sends it (altool, validated first), with the account as
   build_apple.py's (`HOTD_TEAM`, `HOTD_KEYCHAIN`, `HOTD_KEYCHAIN_PASS`, `HOTD_ASC_KEY_DIR`, `HOTD_ASC_KEY_ID`,
-  `HOTD_ASC_ISSUER`), from the Mac's desktop session. Two things App Store Connect needed first, both done through
+  `HOTD_ASC_ISSUER`), from the Mac's desktop session (`scripts/apple/testflight.sh tvos BUILD --upload`, through
+  `desktop.sh` over ssh). Two things App Store Connect needed first, both done through
   the API with the team's key: Apple TV as a platform of the app record (an App Store version for tvOS, `POST
   /v1/appStoreVersions` with `platform: TV_OS`; it stays "Prepare for submission", nothing is sent for review), and a
   tvOS App Store profile (`profileType: TVOS_APP_STORE`, the bundle id and the Apple Distribution certificate; named

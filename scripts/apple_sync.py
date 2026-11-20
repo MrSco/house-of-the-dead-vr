@@ -31,6 +31,12 @@ def files():
     return [f for f in out.splitlines() if os.path.isfile(os.path.join(ROOT, f))]
 
 
+def executables():
+    """The tracked files git marks executable (scripts/apple/*.sh): Windows doesn't keep the bit, git's index does"""
+    out = subprocess.run(['git', 'ls-files', '-s'], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    return {l.split('	', 1)[1] for l in out.splitlines() if l.startswith('100755 ')}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--host', default=os.environ.get('HOTD_MAC'), help='user@host of the Mac (default: $HOTD_MAC)')
@@ -44,9 +50,11 @@ def main():
     p = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', a.host, 'mkdir -p "$HOME/%s" && tar -xf - -C "$HOME/%s"' % (a.dest, a.dest)],
                          stdin=subprocess.PIPE)
     n = 0
+    exe = executables()
     with tarfile.open(fileobj=p.stdin, mode='w|') as t:
         for f in files():
-            t.add(os.path.join(ROOT, f), f, recursive=False)
+            t.add(os.path.join(ROOT, f), f, recursive=False,
+                  filter=(lambda ti: (setattr(ti, 'mode', 0o755), ti)[1]) if f in exe else None)
             n += 1
         for d in extra:
             # (through junctions: the worktree may link these from the main checkout)

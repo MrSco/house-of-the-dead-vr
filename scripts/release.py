@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """A release's downloads, every platform from the same commit (as GoldenEye VR's releases), and their table.
 
-  python scripts/release.py [--apple] [--testflight] [--only quest,frame,phone,windows,mac,ios] [--publish] [--no-build]
+  python scripts/release.py [--apple] [--testflight [ios,tvos,visionos]] [--build N|ios=N,tvos=N,...]
+                            [--only quest,frame,phone,windows,mac,ios] [--publish] [--no-build]
 
 From a clean checkout (no uncommitted changes to tracked files: the builds stamp the commit), the version being
 src/quest/AndroidManifest.xml's versionName. Builds into build_release/<version>/, with the names the in-app updater
@@ -18,9 +19,13 @@ Then their SHA-256 into docs/releases/v<version>.md's "## Downloads" (the notes,
 Quest's crash symbols to the private repo. --publish: the GitHub release (tag v<version>, the notes as its text; a
 pre-release for a version with a suffix, 0.4.1-test.1), created, or its assets replaced when it exists. Publishing a
 release also announces it on Discord (.github/workflows/discord-release.yml). --no-build: what build_release/<version>
-already holds (build, check the downloads, then publish them). --testflight: the iPhone and iPad app to TestFlight
-too, signed for the App Store, its build number the versionCode (the Mac's ~/src/hotd-testflight.sh, which holds the
-account's signing: scripts/build_apple.py --archive).
+already holds (build, check the downloads, then publish them).
+
+--testflight: the iPhone and iPad, Apple TV and Vision Pro apps to TestFlight too (or the platforms listed), signed
+for the App Store on the Mac: scripts/apple/testflight.sh in the copy apple_sync.py made, with the account's settings
+the Mac keeps outside the repository (scripts/apple/README.md). Build numbers rise per platform: each one's is the
+versionCode, or the one after the highest App Store Connect has for that platform when that is higher
+(testflight.sh <platform> next); --build gives them (one number for all, or ios=11,tvos=12,visionos=12).
 """
 import argparse
 import hashlib
@@ -33,7 +38,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = 'MrSco/house-of-the-dead-vr'
 MAC = os.environ.get('HOTD_MAC')  # user@host of the Mac that builds the Apple apps (ssh)
-MAC_DIR = 'src/house-of-the-dead-vr'
+MAC_DIR = 'src/house-of-the-dead-vr'   # (under the Mac's home folder: apple_sync.py --dest)
+TESTFLIGHT = ['ios', 'tvos', 'visionos']
 # (key, file suffix, what it is for, how to say it in the table)
 PLATFORMS = [
     ('quest', '.apk', 'Meta Quest 3 (and 3S)'),
@@ -89,6 +95,31 @@ def build(key, out, name):
             run(['scp', MAC + ':%s/build_ios/HouseOfTheDeadVR-%s.ipa' % (remote, version()), os.path.join(out, name)])
 
 
+def testflight_builds(a):
+    """{platform: build number} for --testflight, the explicit --build's or each platform's next"""
+    plats = [p for p in a.testflight.split(',') if p]
+    bad = [p for p in plats if p not in TESTFLIGHT]
+    if bad: sys.exit('release: --testflight takes %s (not %s)' % (','.join(TESTFLIGHT), ','.join(bad)))
+    given = {}
+    if a.build:
+        if '=' not in a.build: given = {p: a.build for p in plats}
+        else: given = dict(kv.split('=', 1) for kv in a.build.split(','))
+    man = open(os.path.join(ROOT, 'src', 'quest', 'AndroidManifest.xml'), encoding='utf-8').read()
+    code = int(re.search(r'android:versionCode="([^"]+)"', man).group(1))
+    out = {}
+    for p in plats:
+        if p in given:
+            out[p] = int(given[p])
+            continue
+        nxt = subprocess.run(['ssh', MAC, 'cd ~/%s && bash scripts/apple/testflight.sh %s next' % (MAC_DIR, p)],
+                             capture_output=True, text=True)
+        if nxt.returncode or not nxt.stdout.strip().isdigit():
+            sys.exit('release: no next %s build number from App Store Connect (%s); give it: --build %s=N'
+                     % (p, (nxt.stderr or nxt.stdout).strip()[-300:], p))
+        out[p] = max(code, int(nxt.stdout.strip()))
+    return out
+
+
 def version():
     man = open(os.path.join(ROOT, 'src', 'quest', 'AndroidManifest.xml'), encoding='utf-8').read()
     return re.search(r'android:versionName="([^"]+)"', man).group(1)
@@ -111,7 +142,9 @@ def main():
     ap.add_argument('--only', help='these platforms only (comma-separated keys)')
     ap.add_argument('--publish', action='store_true', help='create or update the GitHub release')
     ap.add_argument('--no-build', action='store_true', help='the downloads already in build_release/<version>')
-    ap.add_argument('--testflight', action='store_true', help='also upload the iPhone/iPad app to TestFlight')
+    ap.add_argument('--testflight', nargs='?', const=','.join(TESTFLIGHT), metavar='PLATFORMS',
+                    help='also upload to TestFlight: %s (default all)' % ','.join(TESTFLIGHT))
+    ap.add_argument('--build', help='the TestFlight build number: N for all, or ios=N,tvos=N,visionos=N')
     a = ap.parse_args()
     if (a.apple or a.testflight) and not a.no_build and not MAC:
         sys.exit('release: --apple and --testflight build on the Mac: set HOTD_MAC to its user@host')
@@ -129,16 +162,19 @@ def main():
     os.makedirs(out, exist_ok=True)
     log('v%s at %s: %s' % (v, commit, ', '.join(keys)))
     if not a.no_build:
-        if 'mac' in keys or 'ios' in keys: run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py')])
+        if 'mac' in keys or 'ios' in keys:
+            run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py'), '--dest', MAC_DIR])
         for key, suffix, _ in PLATFORMS:
             if key in keys: build(key, out, 'house-of-the-dead-vr-%s%s' % (v, suffix))
         if 'quest' in keys: run([sys.executable, os.path.join(ROOT, 'scripts', 'quest_tools.py'), 'symbols'])
     if a.testflight and not a.no_build:
-        if not ('mac' in keys or 'ios' in keys): run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py')])
-        man = open(os.path.join(ROOT, 'src', 'quest', 'AndroidManifest.xml'), encoding='utf-8').read()
-        build_no = re.search(r'android:versionCode="([^"]+)"', man).group(1)
-        run(['ssh', MAC, '~/src/hotd-testflight.sh %s --upload' % build_no])
-        log('TestFlight: v%s build %s uploaded (App Store Connect processes it, then it reaches the testers)' % (v, build_no))
+        if not ('mac' in keys or 'ios' in keys):
+            run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py'), '--dest', MAC_DIR])
+        builds = testflight_builds(a)
+        log('TestFlight: ' + ', '.join('%s build %d' % kv for kv in builds.items()))
+        for p, b in builds.items():   # (Apple TV and Vision Pro in the Mac's desktop session: testflight.sh sees to it)
+            run(['ssh', MAC, 'cd ~/%s && bash scripts/apple/testflight.sh %s %d --upload' % (MAC_DIR, p, b)])
+            log('TestFlight: v%s %s build %d uploaded (App Store Connect processes it, then it reaches the testers)' % (v, p, b))
     # the notes' downloads table (written over the old one)
     notes = os.path.join(ROOT, 'docs', 'releases', 'v%s.md' % v)
     os.makedirs(os.path.dirname(notes), exist_ok=True)
