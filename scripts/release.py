@@ -15,8 +15,10 @@ looks for (src/quest/java/.../UpdateVersion.java: the Quest's APK any name, the 
   house-of-the-dead-vr-<v>-mac.zip          Mac, Apple silicon (--apple: scripts/apple_sync.py, build_apple.py mac)
   house-of-the-dead-vr-<v>-ios.ipa          iPhone and iPad, unsigned for SideStore (--apple: build_apple.py device)
 
-Then their SHA-256 into docs/releases/v<version>.md's "## Downloads" (the notes, written by hand above it), and the
-Quest's crash symbols to the private repo. --publish: the GitHub release (tag v<version>, the notes as its text; a
+Then their SHA-256 into docs/releases/v<version>.md's "## Downloads" (the notes, written by hand above it), and every
+build's crash symbols to the private repo (scripts/quest_tools.py symbols: the Quest's, Frame's and phone's
+libhotdvr.so, Windows' PDB and exe, and with --apple or --testflight the Mac's dSYMs, the iPhone app's and the
+TestFlight archives' of iPhone, Apple TV and Vision Pro: scripts/apple_symbols.py on the Mac). --publish: the GitHub release (tag v<version>, the notes as its text; a
 pre-release for a version with a suffix, 0.4.1-test.1), created, or its assets replaced when it exists. Publishing a
 release also announces it on Discord (.github/workflows/discord-release.yml). --no-build: what build_release/<version>
 already holds (build, check the downloads, then publish them).
@@ -166,7 +168,6 @@ def main():
             run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py'), '--dest', MAC_DIR])
         for key, suffix, _ in PLATFORMS:
             if key in keys: build(key, out, 'house-of-the-dead-vr-%s%s' % (v, suffix))
-        if 'quest' in keys: run([sys.executable, os.path.join(ROOT, 'scripts', 'quest_tools.py'), 'symbols'])
     if a.testflight and not a.no_build:
         if not ('mac' in keys or 'ios' in keys):
             run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py'), '--dest', MAC_DIR])
@@ -175,6 +176,9 @@ def main():
         for p, b in builds.items():   # (Apple TV and Vision Pro in the Mac's desktop session: testflight.sh sees to it)
             run(['ssh', MAC, 'cd ~/%s && bash scripts/apple/testflight.sh %s %d --upload' % (MAC_DIR, p, b)])
             log('TestFlight: v%s %s build %d uploaded (App Store Connect processes it, then it reaches the testers)' % (v, p, b))
+    if not a.no_build:   # every build's crash symbols (the TestFlight archives' dSYMs too) to the private repository
+        apple = 'mac' in keys or 'ios' in keys or bool(a.testflight)
+        run([sys.executable, os.path.join(ROOT, 'scripts', 'quest_tools.py'), 'symbols'] + (['--apple'] if apple else []))
     # the notes' downloads table (written over the old one)
     notes = os.path.join(ROOT, 'docs', 'releases', 'v%s.md' % v)
     os.makedirs(os.path.dirname(notes), exist_ok=True)

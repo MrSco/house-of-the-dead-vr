@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The Quest app's build helpers (build_quest.py): the Android SDK, the OpenXR loader, SDL2's headers and the voice
 libraries (fetched once into third_party/quest), compiling, packaging and signing the APK, installing it, and the
-crash reports' symbols.
+crash reports' symbols (every platform's).
 
-    python scripts/quest_tools.py symbols      # upload the builds' symbols for crash reports (private repository)
+    python scripts/quest_tools.py symbols [--apple]   # upload the builds' symbols for crash reports (private repository)
     python scripts/quest_tools.py release-key  # make the app's release key (once; outside the repository)
 
 Paths are relative to the repository's root (build_quest.py works there).
@@ -18,9 +18,10 @@ OPENXR_VER = '1.1.53'
 OPENXR_AAR = ('https://repo1.maven.org/maven2/org/khronos/openxr/openxr_loader_for_android/%s/'
               'openxr_loader_for_android-%s.aar' % (OPENXR_VER, OPENXR_VER))
 QUEST_API = 29          # the APK's minimum (Quest 2 and later run Android 10+)
-# Crash reports (src/quest/quest_report.c, tools/vr/crash-relay): the private repository whose issues they land in, and
-# the release there that holds each build's unstripped libhotdvr.so, named by its GNU build id. The library holds the
-# recompiled game, so it only ever goes to that private repository.
+# Crash reports (tools/vr/crash-relay): the private repository whose issues they land in, and the release there that
+# holds every build's symbols, named by its build id: the unstripped libhotdvr.so (Quest, Steam Frame, phones: the
+# GNU build id), HOTDVR.pdb and .exe (Windows: the PDB's GUID and age), the dSYM's DWARF file (Apple: the LC_UUID).
+# They hold the recompiled game, so they only ever go to that private repository.
 CRASH_REPO = os.environ.get('HOTD_CRASH_REPO', 'MrSco/house-of-the-dead-vr-crashes')
 SYMBOLS_TAG = 'crash-symbols'
 SYMBOLS_KEEP = 30       # builds kept in build_quest/symbols
@@ -368,38 +369,84 @@ def keep_symbols(so):
     log('build id %s (symbols kept in build_quest/symbols; python scripts/quest_tools.py symbols uploads them)' % bid)
 
 
-def quest_symbols():
-    """Upload build_quest/symbols/* as gzipped assets libhotdvr-<build id>.so.gz of the release SYMBOLS_TAG in the
-    private CRASH_REPO (the gh CLI, logged in), where the crash triage workflow finds them."""
+def symbol_files():
+    """[(asset name, file)]: every build's crash symbols kept here. build_quest/symbols/<id>/libhotdvr.so (keep_symbols),
+    build_windows/symbols/<id>/HOTDVR.pdb and HOTDVR.exe (build_windows.py), build_symbols/apple/*.dwarf
+    (scripts/apple_symbols.py on the Mac, fetched by fetch_apple_symbols)."""
+    out = []
+    root = os.path.join(ROOT, 'build_quest', 'symbols')
+    for b in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        if os.path.exists(os.path.join(root, b, 'libhotdvr.so')):
+            out.append(('libhotdvr-%s.so.gz' % b, os.path.join(root, b, 'libhotdvr.so')))
+    root = os.path.join(ROOT, 'build_windows', 'symbols')
+    for b in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        if os.path.exists(os.path.join(root, b, 'HOTDVR.pdb')) and os.path.exists(os.path.join(root, b, 'HOTDVR.exe')):
+            out += [('HOTDVR-%s.pdb.gz' % b, os.path.join(root, b, 'HOTDVR.pdb')),
+                    ('HOTDVR-%s.exe.gz' % b, os.path.join(root, b, 'HOTDVR.exe'))]
+    root = os.path.join(ROOT, 'build_symbols', 'apple')
+    for f in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        if f.endswith('.dwarf'): out.append((f + '.gz', os.path.join(root, f)))
+    return out
+
+
+def fetch_apple_symbols(mac, mac_dir):
+    """The Apple apps' dSYMs from the Mac (ssh mac, user@host: scripts/apple_symbols.py in its copy ~/mac_dir, which
+    also reads $HOTD_ARCHIVES, the TestFlight archives) into build_symbols/apple."""
+    import io, tarfile
+    remote = '$HOME/%s/build_symbols/apple' % mac_dir
+    # (the account's settings file, when there is one, says where the archives are: scripts/apple/README.md)
+    env = '${HOTD_TOOLS_ENV:-$HOME/src/hotd-tools/env.sh}'
+    run(['ssh', mac, '[ -f "%s" ] && . "%s"; cd "$HOME/%s" && python3 scripts/apple_symbols.py --out "%s"'
+         % (env, env, mac_dir, remote)])
+    data = subprocess.run(['ssh', mac, 'tar -cf - -C "%s" .' % remote], capture_output=True, check=True).stdout
+    dest = os.path.join(ROOT, 'build_symbols', 'apple')
+    os.makedirs(dest, exist_ok=True)
+    n = 0
+    with tarfile.open(fileobj=io.BytesIO(data)) as t:
+        for m in t.getmembers():
+            name = os.path.basename(m.name)
+            if m.isfile() and name.endswith('.dwarf') and not os.path.exists(os.path.join(dest, name)):
+                with t.extractfile(m) as f, open(os.path.join(dest, name), 'wb') as g: shutil.copyfileobj(f, g)
+                n += 1
+    log('apple symbols: %d new in build_symbols/apple' % n)
+
+
+def crash_symbols(apple=False, mac=None, mac_dir='src/house-of-the-dead-vr'):
+    """Upload every build's symbols (symbol_files) that is not there yet, gzipped, to the release SYMBOLS_TAG of the
+    private CRASH_REPO (the gh CLI, logged in), where the crash triage workflow finds them. apple: the Mac's first
+    (mac: user@host, else $HOTD_MAC; mac_dir: its copy of the repository, under its home folder)."""
     import gzip
     gh = shutil.which('gh')
     if not gh: sys.exit('the GitHub CLI (gh) is needed: https://cli.github.com, then gh auth login')
-    root = os.path.join(ROOT, 'build_quest', 'symbols')
-    ids = sorted(n for n in os.listdir(root) if os.path.exists(os.path.join(root, n, 'libhotdvr.so'))) if os.path.isdir(root) else []
-    if not ids: sys.exit('no symbols yet: build with python scripts/build_quest.py first')
     vis = subprocess.run([gh, 'repo', 'view', CRASH_REPO, '--json', 'visibility', '-q', '.visibility'],
                          capture_output=True, text=True).stdout.strip()
     if vis != 'PRIVATE':
         sys.exit("%s is not a private repository you can reach (%r): the symbols are made from the game's code and "
                  "must stay private" % (CRASH_REPO, vis))
+    if apple:
+        mac = mac or os.environ.get('HOTD_MAC')
+        if not mac: sys.exit('symbols --apple: which Mac? set HOTD_MAC to its user@host')
+        fetch_apple_symbols(mac, mac_dir)
+    files = symbol_files()
+    if not files: sys.exit('no symbols yet: build first (build_quest.py, build_windows.py; Apple: symbols --apple)')
     r = subprocess.run([gh, 'release', 'view', SYMBOLS_TAG, '--repo', CRASH_REPO, '--json', 'assets', '-q', '.assets[].name'],
                        capture_output=True, text=True)
     if r.returncode:
         run([gh, 'release', 'create', SYMBOLS_TAG, '--repo', CRASH_REPO, '--prerelease', '--title', 'Crash symbols',
-             '--notes', 'Unstripped libhotdvr.so of each Quest build, named by GNU build id, for symbolizing crash '
-                        "reports (python scripts/quest_tools.py symbols). Private: made from the game's code."])
+             '--notes', "Every build's crash symbols, named by build id, for symbolizing crash reports "
+                        "(python scripts/quest_tools.py symbols). Private: made from the game's code."])
         have = set()
     else:
         have = set(r.stdout.split())
-    out = os.path.join(ROOT, 'build_quest', 'symbols-upload')
+    out = os.path.join(ROOT, 'build_symbols', 'upload')
     os.makedirs(out, exist_ok=True)
-    todo = [b for b in ids if 'libhotdvr-%s.so.gz' % b not in have]
-    for b in todo:
-        gz = os.path.join(out, 'libhotdvr-%s.so.gz' % b)
-        with open(os.path.join(root, b, 'libhotdvr.so'), 'rb') as f, gzip.open(gz, 'wb', 9) as g: shutil.copyfileobj(f, g)
+    todo = [(n, f) for n, f in files if n not in have]
+    for name, src in todo:
+        gz = os.path.join(out, name)
+        with open(src, 'rb') as f, gzip.open(gz, 'wb', 9) as g: shutil.copyfileobj(f, g)
         run([gh, 'release', 'upload', SYMBOLS_TAG, gz, '--repo', CRASH_REPO, '--clobber'])
         os.remove(gz)
-    log('symbols: %d uploaded, %d already there (%s, release %s)' % (len(todo), len(ids) - len(todo), CRASH_REPO, SYMBOLS_TAG))
+    log('symbols: %d uploaded, %d already there (%s, release %s)' % (len(todo), len(files) - len(todo), CRASH_REPO, SYMBOLS_TAG))
 
 
 def quest_deploy(tools, apk, pkg, launch=True):
@@ -419,6 +466,6 @@ def quest_deploy(tools, apk, pkg, launch=True):
 
 
 if __name__ == '__main__':
-    if sys.argv[1:] == ['symbols']: quest_symbols()
+    if sys.argv[1:2] == ['symbols'] and set(sys.argv[2:]) <= {'--apple'}: crash_symbols(apple='--apple' in sys.argv)
     elif sys.argv[1:] == ['release-key']: make_release_key()
     else: sys.exit(__doc__)
