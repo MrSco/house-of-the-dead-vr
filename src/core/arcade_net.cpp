@@ -190,7 +190,7 @@ int catching_up() {
     return nqueued > 30 ? 2 : nqueued > 3 ? 1 : 0;
 }
 
-bool frame(const Local &local, rt::Inputs &out, uint32_t (*state_crc)()) {
+bool frame(const Local &local, rt::Inputs &out, uint32_t (*state_crc)(), const Local *second) {
     if (mode_ == Guest) {
         // this player's gun to the host (online.c counts the presses)
         if (net_guest_out)
@@ -257,6 +257,12 @@ bool frame(const Local &local, rt::Inputs &out, uint32_t (*state_crc)()) {
             b.guest[0] = g;
             for (; guest_skips > 0; guest_skips--) coins.press(1);
         }
+    }
+    if (second && mode_ == Off) { // alone, a second player here: player 2's gun (no guest's: that is online play)
+        bool p2 = false;
+        aim(second->fire, second->reload, second->on_screen, float(second->x), float(second->y), in.gun2_x, in.gun2_y, p2);
+        if (p2) in.in1 &= uint8_t(~0x02);
+        if (second->skip) coins.press(1);
     }
     coins.apply(in);
     Packed p;

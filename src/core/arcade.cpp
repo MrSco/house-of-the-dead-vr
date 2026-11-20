@@ -90,6 +90,9 @@ int host_gun_live_rect(int *x0, int *y0, int *x1, int *y1) {
 }
 static std::atomic<int> g_playing[2] = {0, 0};
 int host_player_playing(int p) { return p >= 0 && p < 2 ? g_playing[p].load() : 0; }
+// Player p's place in the game (docs/vr.md, "In play or not"): the byte at 0x51f284, player 2's 0xcc on (0x51f350).
+static std::atomic<int> g_state[2] = {0, 0};
+int host_player_state(int p) { return p >= 0 && p < 2 ? g_state[p].load() : 0; }
 void host_log(const char *fmt, ...) {
     va_list a;
     va_start(a, fmt);
@@ -726,39 +729,53 @@ struct Controls {
     int mx = -1, my = -1;
     bool fire = false, reload = false;
     bool skip = false; // the skip button went down (coins and Start: arcade_net)
-} ctl;
+};
+// this player's gun; ctl2: a second player's here (the flat apps' local player 2: its events are the mouse's `which`
+// 1, its Start the 2 key; in from its first event to quest_player2(0)), alone only (online, player 2 is the partner)
+Controls ctl, ctl2;
+bool ctl2_in = false;
 
 void poll_events(bool &quit) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
         case SDL_QUIT: quit = true; break;
-        case SDL_MOUSEMOTION: ctl.mx = e.motion.x, ctl.my = e.motion.y; break;
+        case SDL_MOUSEMOTION: {
+            Controls &c = e.motion.which == 1 ? (ctl2_in = true, ctl2) : ctl;
+            c.mx = e.motion.x, c.my = e.motion.y;
+            break;
+        }
         case SDL_MOUSEBUTTONDOWN:
         case SDL_MOUSEBUTTONUP: {
+            Controls &c = e.button.which == 1 ? (ctl2_in = true, ctl2) : ctl;
             const bool down = e.type == SDL_MOUSEBUTTONDOWN;
-            if (e.button.button == SDL_BUTTON_LEFT) ctl.fire = down;
-            else if (e.button.button == SDL_BUTTON_RIGHT) ctl.reload = down;
-            if (down) ctl.mx = e.button.x, ctl.my = e.button.y;
+            if (e.button.button == SDL_BUTTON_LEFT) c.fire = down;
+            else if (e.button.button == SDL_BUTTON_RIGHT) c.reload = down;
+            if (down) c.mx = e.button.x, c.my = e.button.y;
             break;
         }
         case SDL_KEYDOWN:
             if (e.key.keysym.scancode == SDL_SCANCODE_SPACE && !e.key.repeat) ctl.skip = true;
+            if (e.key.keysym.scancode == SDL_SCANCODE_2 && !e.key.repeat) ctl2_in = true, ctl2.skip = true;
+            break;
+        case SDL_USEREVENT:
+            if (e.user.code == 2) ctl2_in = true;
+            if (e.user.code == 3) ctl2_in = false, ctl2 = Controls{};
             break;
         default: break;
         }
     }
 }
 
-// this player's controls for arcade_net::frame (it makes the cabinet's input, alone or online)
-arcade_net::Local local_controls() {
+// a player's controls for arcade_net::frame (it makes the cabinet's input, alone or online)
+arcade_net::Local local_controls(Controls &c) {
     arcade_net::Local l;
-    l.fire = ctl.fire;
-    l.reload = ctl.reload;
-    l.x = ctl.mx, l.y = ctl.my;
-    l.on_screen = ctl.mx >= 0 && ctl.mx < rt::Video::W && ctl.my >= 0 && ctl.my < rt::Video::H;
-    l.skip = ctl.skip;
-    ctl.skip = false;
+    l.fire = c.fire;
+    l.reload = c.reload;
+    l.x = c.mx, l.y = c.my;
+    l.on_screen = c.mx >= 0 && c.mx < rt::Video::W && c.my >= 0 && c.my < rt::Video::H;
+    l.skip = c.skip;
+    c.skip = false;
     return l;
 }
 
@@ -1033,7 +1050,7 @@ void draw_crosshairs(std::vector<uint16_t> &px, const rt::Inputs &in) {
     const int me = online ? arcade_net::local_slot() : 0;
     for (int p = 0; p < 2; p++) {
         if (p == me && online && port_draw_crosshairs < 2) continue;   // online, the cabinet's: only the partner's
-        if (p != me && !online) continue;                               // alone: your own
+        if (p != me && !online && !(p == 1 && ctl2_in)) continue;      // alone: your own (and a player 2's here)
         const uint16_t colour = p ? 0x237f : 0xf8a3;
         if (p == me && online) {   // your own, online: where you aim now (the inputs come back a round trip late)
             if (ctl.mx < 0 || ctl.my < 0 || ctl.mx >= rt::Video::W || ctl.my >= rt::Video::H) continue;
@@ -1150,6 +1167,7 @@ void update_ammo(rt::GameLoop &game) {
         // trigger pulls the game takes (m2probe RAM dumps, docs/vr.md).
         const uint8_t mode = b.read_byte(0x0051f4a0), phase = b.read_byte(p ? 0x0051f4b5 : 0x0051f4b4);
         g_playing[p] = mode == 1 && phase >= 1 && phase <= 3 && lives > 0;
+        g_state[p] = b.read_byte(p ? 0x0051f350 : 0x0051f284);
     }
 }
 
@@ -1403,7 +1421,10 @@ extern "C" int SDL_main(int argc, char **argv) {
         }
         // this frame's cabinet input: made here (alone, or hosting: and sent), or the host's (a guest waits for it)
         rt::Inputs in;
-        if (!arcade_net::frame(local_controls(), in, game_crc)) continue;
+        const bool second = ctl2_in && arcade_net::mode() == arcade_net::Off;
+        arcade_net::Local local2;
+        if (second) local2 = local_controls(ctl2);
+        if (!arcade_net::frame(local_controls(ctl), in, game_crc, second ? &local2 : nullptr)) continue;
         if (input_script && arcade_net::mode() == arcade_net::Off) {
             in = input_script->at(game->frames());
             input_script->pokes(game->frames(), game->board());

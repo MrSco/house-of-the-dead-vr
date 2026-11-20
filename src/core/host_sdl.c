@@ -69,13 +69,14 @@ static void wait_unpaused(void) {
 static SDL_Event evq[EVQ];
 static int ev_head, ev_tail;
 static plat_lock ev_mu = PLAT_LOCK_INIT;
-static int ptr_x, ptr_y, ptr_buttons;
+// the pointer, player 1's (the mouse's `which` 0) and player 2's (1: the flat apps' second player)
+static int ptr_x[2], ptr_y[2], ptr_buttons[2];
 
 static void push_locked(const SDL_Event *e) {
-    // a stream of pointer moves collapses into the newest one
+    // a stream of pointer moves collapses into the newest one (each player's)
     if (e->type == SDL_MOUSEMOTION && ev_head != ev_tail) {
         SDL_Event *last = &evq[(ev_tail + EVQ - 1) % EVQ];
-        if (last->type == SDL_MOUSEMOTION) { *last = *e; return; }
+        if (last->type == SDL_MOUSEMOTION && last->motion.which == e->motion.which) { *last = *e; return; }
     }
     int n = (ev_tail + 1) % EVQ;
     if (n == ev_head) return;
@@ -90,34 +91,53 @@ int SDL_PollEvent(SDL_Event *e) {
     return have;
 }
 
-void quest_pointer(int x, int y) {
+static void pointer(int p, int x, int y) {
     plat_lock_take(&ev_mu);
-    if (x != ptr_x || y != ptr_y) {
+    if (x != ptr_x[p] || y != ptr_y[p]) {
         SDL_Event e;
         memset(&e, 0, sizeof e);
         e.type = SDL_MOUSEMOTION;
         e.motion.timestamp = SDL_GetTicks();
         e.motion.windowID = 1;
-        e.motion.state = (Uint32)ptr_buttons;
+        e.motion.which = (Uint32)p;
+        e.motion.state = (Uint32)ptr_buttons[p];
         e.motion.x = x; e.motion.y = y;
-        e.motion.xrel = x - ptr_x; e.motion.yrel = y - ptr_y;
-        ptr_x = x; ptr_y = y;
+        e.motion.xrel = x - ptr_x[p]; e.motion.yrel = y - ptr_y[p];
+        ptr_x[p] = x; ptr_y[p] = y;
         push_locked(&e);
     }
     plat_lock_give(&ev_mu);
 }
-void quest_mouse_button(int button, int down) {
+static void mouse_button(int p, int button, int down) {
     plat_lock_take(&ev_mu);
     SDL_Event e;
     memset(&e, 0, sizeof e);
     e.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
     e.button.timestamp = SDL_GetTicks();
     e.button.windowID = 1;
+    e.button.which = (Uint32)p;
     e.button.button = (Uint8)button;
     e.button.state = down ? SDL_PRESSED : SDL_RELEASED;
     e.button.clicks = 1;
-    e.button.x = ptr_x; e.button.y = ptr_y;
-    if (down) ptr_buttons |= SDL_BUTTON(button); else ptr_buttons &= ~SDL_BUTTON(button);
+    e.button.x = ptr_x[p]; e.button.y = ptr_y[p];
+    if (down) ptr_buttons[p] |= SDL_BUTTON(button); else ptr_buttons[p] &= ~SDL_BUTTON(button);
+    push_locked(&e);
+    plat_lock_give(&ev_mu);
+}
+void quest_pointer(int x, int y) { pointer(0, x, y); }
+void quest_mouse_button(int button, int down) { mouse_button(0, button, down); }
+void quest_pointer2(int x, int y) { pointer(1, x, y); }
+void quest_mouse_button2(int button, int down) { mouse_button(1, button, down); }
+// player 2's Start: the key MAME gives it (arcade.cpp reads it as player 2's skip button)
+void quest_start2(void) { quest_key(SDL_SCANCODE_2, SDLK_2, 1); quest_key(SDL_SCANCODE_2, SDLK_2, 0); }
+// player 2 in or out: a user event (code 2: in, 3: out)
+void quest_player2(int in) {
+    plat_lock_take(&ev_mu);
+    if (!in) ptr_buttons[1] = 0;
+    SDL_Event e;
+    memset(&e, 0, sizeof e);
+    e.type = SDL_USEREVENT;
+    e.user.code = in ? 2 : 3;
     push_locked(&e);
     plat_lock_give(&ev_mu);
 }

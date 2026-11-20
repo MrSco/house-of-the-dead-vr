@@ -43,8 +43,10 @@ int local_slot();
 // The game thread, once per frame: this frame's cabinet input. Off and Host: made here (Host: and sent). Guest: the
 // host's for this frame, waiting for it; false when none came (quitting) or the host's save state came (guest_load
 // it): don't run the frame. `state_crc` gives
-// the game's state checksum (the frames whose bundle carries one).
-bool frame(const Local &local, rt::Inputs &out, uint32_t (*state_crc)());
+// the game's state checksum (the frames whose bundle carries one). `second`: alone (Off) only, a second player's
+// controls here (the flat apps' local player 2), player 2's gun as a guest's would be; never online, where player 2
+// is the partner (and ignored there).
+bool frame(const Local &local, rt::Inputs &out, uint32_t (*state_crc)(), const Local *second = nullptr);
 uint32_t frames();     // frames made so far (the next bundle's number - 1)
 int catching_up();     // guest: 1 bundles are waiting (don't pace), 2 many (don't draw either)
 bool desynced();

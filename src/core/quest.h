@@ -14,11 +14,24 @@ void qframe_size(int *w, int *h);
 void quest_pointer(int x, int y);               // the active gun's aim, in frame pixels
 void quest_mouse_button(int button, int down);  // SDL_BUTTON_LEFT / SDL_BUTTON_RIGHT
 void quest_key(int sdl_scancode, int sdl_keycode, int down);
+// player 2's gun beside this player's (the flat apps' local second player, never online: arcade.cpp): its aim (frame
+// pixels), its buttons (SDL_BUTTON_LEFT / SDL_BUTTON_RIGHT) and its Start; quest_player2(0): it left (its crosshair
+// goes, its trigger lets go)
+void quest_pointer2(int x, int y);
+void quest_mouse_button2(int button, int down);
+void quest_start2(void);
+void quest_player2(int in);
 void quest_quit(void);
 void arcade_restart(void);                      // the game back to its start, between frames (arcade.cpp RESTART)
 int host_gun_live_rect(int *x0, int *y0, int *x1, int *y1);   // where the game takes a shot (picture pixels)
 int host_player_ammo(int p);                    // the game's bullets for player p, -1 out of play (gun_input.c)
 int host_player_playing(int p);                 // 1 while the game takes player p's shots (not menus, cut scenes)
+// player p's place in the game (the game's own byte): HOST_P_IN in it (playing, or in a scene), HOST_P_OUT out of it
+// (the continue countdown, then that player's game over while the other plays), HOST_P_RANKING the game over's
+// ranking, HOST_P_NONE not in it (the title and attract, or a player 2 who never joined); others between (1 and 3
+// as a player comes in, 0 at the boot)
+enum { HOST_P_OUT = 4, HOST_P_IN = 5, HOST_P_RANKING = 6, HOST_P_NONE = 9 };
+int host_player_state(int p);
 // While paused (system menu open, headset off) the game thread waits in its next present and audio is silent.
 void quest_set_paused(int paused);
 void quest_audio_service(void);                 // reopen the audio stream after the output device changed

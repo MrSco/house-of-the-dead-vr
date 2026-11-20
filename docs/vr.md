@@ -233,6 +233,15 @@ run and a run that ends at game over.
 In play means mode 1, phase 1 to 3, and lives above 0. arcade_quest.cpp's update_ammo publishes it as
 host_player_playing. The magazine only drops in play.
 
+Two players (the flat apps' local player 2, 2026-11-20: 512 KB dumps of 0x500000 on, in each state, diffed) showed
+more. Player 2's block is 0xCC after player 1's: lives 0x51F290 / 0x51F35C, bullets 0x51F2C1 / 0x51F38D (0x51F294,
+read as player 2's lives above, is something else: it stayed 3 through a demo where both players lost lives). Each
+player has a state byte, 0x51F284 / 0x51F350: 9 not in the game (the title and attract, or a player 2 who never
+joined), 5 in it (playing or in a scene), 4 out (the continue countdown, and after it while the other plays), 6 the
+game over's ranking. 0x51F4A0 counts the players in the game: 2 while both are, so `mode == 1` above is false for
+both in any two-player game, online too (the attract mode's gameplay demo has 2 there as well, with both state bytes
+9). host_player_state publishes the state byte; host_player_playing and host_player_ammo are as before.
+
 The empty gun's message, "SHOOT OUTSIDE OF THE SCREEN !", is orange letters outlined in pure blue. For player 1 it
 sits at x 34-189, y 217-254, under the RELOAD sign (x 34-197, y 163-211). With a reload gesture on, draw_shoot_outside
 writes the gesture's step there instead.
