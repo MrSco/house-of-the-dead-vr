@@ -44,13 +44,14 @@ set(M2_APPLE_C
     ${M2_FRONT} src/flat/flat.c src/flat/flat_app.c src/flat/flat_menu.c src/flat/flat_touch.c
     src/core/host_sdl.c src/core/voice.c src/core/voice_dsp.c src/core/m2_gl.c
     src/core/quest_menu.c src/core/quest_canvas.c src/core/quest_options.c
-    src/platform/posix.c src/platform/apple/apple.m)
+    src/platform/posix.c src/platform/apple/apple.m src/platform/apple/crash_apple.m)
 add_library(hotdvr_apple STATIC ${M2_APPLE_C} ${M2_NET_C})
 target_include_directories(hotdvr_apple PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${M2_NET_SRC} ${M2_QUEST_SDL2}
                            ${ANGLE_DIR}/include)
 target_compile_definitions(hotdvr_apple PRIVATE HOTD_ARCADE HOTD_VOICE)
 target_link_libraries(hotdvr_apple PRIVATE opus m2_speexdsp m2_rnnoise)
-set_source_files_properties(${M2_FRONT} src/platform/apple/apple.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+set_source_files_properties(${M2_FRONT} src/platform/apple/apple.m src/platform/apple/crash_apple.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+set_source_files_properties(src/platform/apple/crash_apple.m PROPERTIES COMPILE_DEFINITIONS "${M2_BUILD_INFO_DEFS}")
 # (the shared C: its own warnings, as on the Quest; ObjC from the C99 headers)
 target_compile_options(hotdvr_apple PRIVATE -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers)
 
@@ -76,6 +77,10 @@ if(NOT IOS AND NOT CMAKE_SYSTEM_NAME STREQUAL "tvOS")
         COMMAND install_name_tool -change ./libGLESv2.dylib @rpath/libGLESv2.dylib "${M2_APP}/Contents/Frameworks/libEGL.dylib"
         COMMAND install_name_tool -change ./libEGL.dylib @rpath/libEGL.dylib -change ./libGLESv2.dylib @rpath/libGLESv2.dylib
                 "$<TARGET_FILE:hotdvr_mac>"
+        # the crash reports' symbols (build_apple.py mac keeps them by UUID): the dSYM beside the app, then the app
+        # without its debug map (the build machine's paths)
+        COMMAND dsymutil "$<TARGET_FILE:hotdvr_mac>" -o "${CMAKE_BINARY_DIR}/House of the Dead VR.app.dSYM"
+        COMMAND strip -S "$<TARGET_FILE:hotdvr_mac>"
         COMMAND codesign --force --deep --sign - "${M2_APP}"
         VERBATIM)
 endif()

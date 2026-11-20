@@ -88,7 +88,9 @@ int qasset_read(qasset *a, void *p, size_t n) {
 const void *qasset_buffer(qasset *a, size_t *len) { *len = a->len; return a->data; }
 void qasset_close(qasset *a) { if (a) { free(a->data); free(a); } }
 
-void xr_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (Apple's own crash logs)
+void crash_apple_keep_log(const char *files);   // platform/apple/crash_apple.m: the last run's port.log kept
+void crash_apple_start(const char *files, const int *opt);   // platform/apple/crash_apple.m
+void xr_os_crash_reports(const char *files, const int *opt) { crash_apple_start(files, opt); }
 void xr_os_online_started(void) {}
 // the app updates through the App Store (TestFlight): no updater in the SYSTEM tab
 const char *xr_os_update_line(void) { return NULL; }
@@ -689,6 +691,7 @@ void vosAppStart(void) {
     snprintf(V.assets, sizeof V.assets, "%s/assets", NSBundle.mainBundle.resourcePath.UTF8String);
     char log[1100];
     snprintf(log, sizeof log, "%s/port.log", V.files);
+    crash_apple_keep_log(V.files);   // (for a crash report of the last run)
     if (!getenv("HOTD_LOG_STDERR")) { freopen(log, "w", stderr); setvbuf(stderr, NULL, _IONBF, 0); }
     // the game's sound and voice chat: play and record
     AVAudioSession *s = AVAudioSession.sharedInstance;

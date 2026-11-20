@@ -23,6 +23,7 @@
 #include "platform/platform.h"
 #include "platform/android/android.h"
 #include "online.h"
+#include "quest/quest_report.h"
 
 #define LOGI(...) plat_log(PLAT_LOG_INFO, __VA_ARGS__)
 #define LOGE(...) plat_log(PLAT_LOG_ERROR, __VA_ARGS__)
@@ -73,8 +74,13 @@ static int from_pad(int32_t src) {
 void flat_os_fullscreen(int on) { (void)on; }
 void flat_os_quit(void) { A.quit = 1; }
 int flat_os_touch(void) { return 1; }
-void flat_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (none here yet)
-int flat_os_has_reports(void) { return 0; }
+// Crash reports: the Quest app's (src/quest/quest_report.c, "platform":"android" by the package): crashes caught into
+// crash.txt from here on, and a crash of the last run sent (the SYSTEM tab's Crash reports)
+void flat_os_crash_reports(const char *files, const int *opt) {
+    qreport_handler(files);
+    qreport_start(A.app->activity, files, opt);
+}
+int flat_os_has_reports(void) { return 1; }
 void flat_os_import_rom(void) { plat_android_start("com.mrsco.hotdvr.ImportActivity"); }   // (it restarts the app)
 // Rumble: a pad's motors (by its input device id), or playing by touch, the phone's: the system's click on a shot, its
 // tick on a reload, a long strong buzz on a hit (android.h plat_android_vibrate: never waits)

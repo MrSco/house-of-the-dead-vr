@@ -381,6 +381,12 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
         if(MSVC)
             target_compile_definitions(arcade_core PRIVATE _CRT_SECURE_NO_WARNINGS)
         endif()
+        # What a crash report says about the build (src/platform/windows/crash_win.c, src/platform/apple/crash_apple.m):
+        # its version and commit, from the build scripts (scripts/build_info.py), on those files only (a new commit
+        # recompiles nothing else)
+        set(HOTD_BUILD_VERSION "" CACHE STRING "the app's version, for crash reports")
+        set(HOTD_BUILD_COMMIT "" CACHE STRING "the commit it is built from, for crash reports")
+        set(M2_BUILD_INFO_DEFS "HOTD_BUILD_VERSION=\"${HOTD_BUILD_VERSION}\";HOTD_BUILD_COMMIT=\"${HOTD_BUILD_COMMIT}\"")
         if(WIN32)
             include(cmake/flat_windows.cmake)
         elseif(CMAKE_SYSTEM_NAME STREQUAL "visionOS")

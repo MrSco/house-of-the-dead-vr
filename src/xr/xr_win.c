@@ -134,8 +134,8 @@ int xr_os_graphics_binding(XrInstance inst, XrSystemId sys, const void **binding
     *binding = &X.binding;
     return 1;
 }
-void crash_win_start(const char *files, const int *opt);   // platform/windows/crash_win.c
-void xr_os_crash_reports(const char *files, const int *opt) { crash_win_start(files, opt); }
+void crash_win_start(const char *files, const int *opt, const char *platform);   // platform/windows/crash_win.c
+void xr_os_crash_reports(const char *files, const int *opt) { crash_win_start(files, opt, "pcvr"); }
 void xr_os_online_started(void) {}
 int xr_os_import_rom(void) {
     if (!win_import_rom(X.wnd, X.files_w)) return 0;

@@ -19,6 +19,8 @@ import subprocess
 import sys
 import tarfile
 
+import build_info
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXTRA = ['build_houseofthedead/recomp/hotd/gen', 'extern/softfloat', 'extern/lzma', 'extern/ymfm',
          'third_party/quest/SDL2-2.32.10-headers', 'third_party/quest/opus-1.5.2', 'third_party/quest/speexdsp-1.2.1',
@@ -63,6 +65,11 @@ def main():
                     full = os.path.join(dp, f)
                     t.add(full, os.path.relpath(full, ROOT).replace('\\', '/'), recursive=False)
                     n += 1
+        # the commit, for the crash reports (scripts/build_info.py: the copy has no .git)
+        stamp = (build_info.commit(ROOT) + '\n').encode()
+        ti = tarfile.TarInfo('build-commit.txt')
+        ti.size = len(stamp)
+        t.addfile(ti, io.BytesIO(stamp))
     p.stdin.close()
     if p.wait(): sys.exit('apple_sync: ssh or tar failed')
     print('apple_sync: %d files to %s:~/%s' % (n, a.host, a.dest))

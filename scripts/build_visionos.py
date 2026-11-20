@@ -24,6 +24,8 @@ import shutil
 import subprocess
 import sys
 
+import build_info
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SET = 'hotd'
 
@@ -53,7 +55,7 @@ def main():
     run(['cmake', '-S', ROOT, '-B', bdir, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_SYSTEM_NAME=visionOS',
          '-DCMAKE_OSX_SYSROOT=' + sysroot, '-DCMAKE_OSX_ARCHITECTURES=arm64', '-DCMAKE_OSX_DEPLOYMENT_TARGET=26.0',
          '-DM2_ROMSET=' + SET, '-DM2_GAME=houseofthedead', '-DM2_SPIN_SKIP=ON', '-DM2_GEN_ROOT=' + gen,
-         '-DANGLE_DIR=' + angle], env=env)
+         '-DANGLE_DIR=' + angle] + build_info.cmake_args(ROOT) + build_info.apple_debug_args(ROOT), env=env)
     run(['cmake', '--build', bdir, '--target', 'hotdvr_visionos', 'arcade_core', 'opus', 'm2_speexdsp', 'm2_rnnoise'], env=env)
     parts = [p for p in glob.glob(os.path.join(bdir, '*.a')) + glob.glob(os.path.join(bdir, 'opus', '*.a'))
              if not p.endswith('libhotdvr_all.a')]

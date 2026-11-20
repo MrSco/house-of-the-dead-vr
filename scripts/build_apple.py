@@ -27,6 +27,8 @@ import subprocess
 import sys
 import zipfile
 
+import build_info
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SET = 'hotd'
 
@@ -54,7 +56,7 @@ def main():
         bdir = os.path.join(ROOT, 'build_houseofthedead', 'mac', SET)   # (m2nettest's too: the game compiled once)
         run(['cmake', '-S', ROOT, '-B', bdir, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_OSX_ARCHITECTURES=arm64',
              '-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0', '-DM2_ROMSET=' + SET, '-DM2_GAME=houseofthedead', '-DM2_SPIN_SKIP=ON',
-             '-DM2_GEN_ROOT=' + gen, '-DANGLE_DIR=' + angle], env=env)
+             '-DM2_GEN_ROOT=' + gen, '-DANGLE_DIR=' + angle] + build_info.cmake_args(ROOT) + build_info.apple_debug_args(ROOT), env=env)
         run(['cmake', '--build', bdir, '--target', 'hotdvr_mac'], env=env)
         print('[apple] app: %s' % os.path.join(bdir, 'House of the Dead VR.app'))
         return
@@ -64,7 +66,7 @@ def main():
     run(['cmake', '-S', ROOT, '-B', bdir, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_SYSTEM_NAME=iOS',
          '-DCMAKE_OSX_SYSROOT=' + sysroot, '-DCMAKE_OSX_ARCHITECTURES=arm64', '-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0',
          '-DM2_ROMSET=' + SET, '-DM2_GAME=houseofthedead', '-DM2_SPIN_SKIP=ON', '-DM2_GEN_ROOT=' + gen,
-         '-DANGLE_DIR=' + angle], env=env)
+         '-DANGLE_DIR=' + angle] + build_info.cmake_args(ROOT) + build_info.apple_debug_args(ROOT), env=env)
     run(['cmake', '--build', bdir, '--target', 'hotdvr_apple', 'arcade_core', 'opus', 'm2_speexdsp', 'm2_rnnoise'], env=env)
     # one library for the app to link
     parts = [p for p in glob.glob(os.path.join(bdir, '*.a')) + glob.glob(os.path.join(bdir, 'opus', '*.a'))

@@ -49,6 +49,7 @@ set(M2_FLAT_C
     src/platform/windows/crash_win.c
     src/xr/xr_shell.c src/xr/xr_win.c src/xr/quest_gun.c src/xr/quest_hand.c src/xr/quest_cabinet.c)
 add_executable(hotdvr WIN32 ${M2_FLAT_C} ${M2_NET_C} src/flat/win/hotdvr.rc)   # (.rc: its icon)
+set_source_files_properties(src/platform/windows/crash_win.c PROPERTIES COMPILE_DEFINITIONS "${M2_BUILD_INFO_DEFS}")
 set_target_properties(hotdvr PROPERTIES OUTPUT_NAME HOTDVR C_STANDARD 11)
 target_include_directories(hotdvr PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${CMAKE_SOURCE_DIR}/src/xr
                            ${M2_NET_SRC} ${M2_QUEST_SDL2} ${M2_OPENXR_WIN}/include)
@@ -61,7 +62,8 @@ if(MSVC)
     target_compile_options(hotdvr PRIVATE $<$<COMPILE_LANGUAGE:C>:/std:c11> $<$<COMPILE_LANGUAGE:C>:/experimental:c11atomics>
                            $<$<COMPILE_LANGUAGE:C>:/FI${CMAKE_SOURCE_DIR}/tools/m2netguest/msvc_compat.h> $<$<COMPILE_LANGUAGE:C>:/wd4244>)
     # a PDB for the crash reports' frames (the code is compiled with /Z7: build_windows.py), as small as /OPT allows
-    target_link_options(hotdvr PRIVATE /STACK:8388608 /DEBUG /OPT:REF /OPT:ICF)
+    # (/PDBALTPATH: the exe names its PDB without the build machine's folders)
+    target_link_options(hotdvr PRIVATE /STACK:8388608 /DEBUG /OPT:REF /OPT:ICF "/PDBALTPATH:%_PDB%")
     # the OpenXR loader only when VR is tried (xr_win.c loads it first): HOTDVR.exe starts flat without it
     target_link_options(hotdvr PRIVATE /DELAYLOAD:openxr_loader.dll)
     target_link_libraries(hotdvr PRIVATE delayimp)

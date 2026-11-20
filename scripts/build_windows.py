@@ -29,6 +29,7 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import quest_tools as port  # noqa: E402
+import build_info  # noqa: E402
 
 SET = 'hotd'
 BDIR = os.path.join(ROOT, 'build_houseofthedead', 'win', SET)
@@ -139,7 +140,8 @@ def main():
                            '-DCMAKE_C_COMPILER=cl', '-DCMAKE_CXX_COMPILER=cl',
                            '-DCMAKE_C_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Z7', '-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Z7',
                            '-DM2_ROMSET=' + SET, '-DM2_GAME=houseofthedead', '-DM2_SPIN_SKIP=ON',
-                           '-DM2_GEN_ROOT=' + gen.replace('\\', '/'), '-DM2_OPENXR_WIN=' + xr.replace('\\', '/')], env=env)
+                           '-DM2_GEN_ROOT=' + gen.replace('\\', '/'), '-DM2_OPENXR_WIN=' + xr.replace('\\', '/')]
+                          + build_info.cmake_args(ROOT), env=env)
     subprocess.check_call(['cmake', '--build', BDIR, '--target', 'hotdvr'], env=env)
     # SDL3.dll for the game pads (pad_win.c loads it at run time: HOTDVR.exe's own host_sdl.c is the SDL the game
     # sees, so it cannot link SDL itself): the gamepad, joystick and sensor parts only
@@ -164,12 +166,14 @@ def main():
     for n in sorted(os.listdir(os.path.join(ROOT, 'src', 'quest', 'assets'))):
         shutil.copy2(os.path.join(ROOT, 'src', 'quest', 'assets', n), os.path.join(assets, n))
     port.log('built %s' % exe)
-    # its PDB, kept by build id (crash_win.c's: the PDB's GUID and age) for the crash reports' frames
+    # its PDB and the exe (llvm-symbolizer reads the PDB through it), kept by build id (crash_win.c's: the PDB's GUID
+    # and age) for the crash reports' frames; quest_tools.py symbols uploads them to the private repository
     bid = pdb_id(exe)
     if bid and os.path.exists(os.path.join(BDIR, 'HOTDVR.pdb')):
         sym = os.path.join(OUT, 'symbols', bid)
         os.makedirs(sym, exist_ok=True)
         shutil.copy2(os.path.join(BDIR, 'HOTDVR.pdb'), os.path.join(sym, 'HOTDVR.pdb'))
+        shutil.copy2(exe, os.path.join(sym, 'HOTDVR.exe'))
         port.log('symbols: %s' % sym)
     if a.zip:
         z = os.path.join(OUT, 'HOTDVR-%s-windows.zip' % version())

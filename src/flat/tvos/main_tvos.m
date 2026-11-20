@@ -90,8 +90,10 @@ static double now_s(void) { return (double)plat_now_ns() * 1e-9; }
 // ---------------------------------------------------------------- flat.h's front-end calls
 void flat_os_fullscreen(int on) { (void)on; }
 int flat_os_touch(void) { return 0; }
-void flat_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (none here yet)
-int flat_os_has_reports(void) { return 0; }
+void crash_apple_keep_log(const char *files);   // platform/apple/crash_apple.m: the last run's port.log kept
+void crash_apple_start(const char *files, const int *opt);   // platform/apple/crash_apple.m
+void flat_os_crash_reports(const char *files, const int *opt) { crash_apple_start(files, opt); }
+int flat_os_has_reports(void) { return 1; }
 // pads only: the Siri Remote has no motor
 void flat_os_rumble(int dev, int what, float low, float high, int ms) { (void)what; apple_pad_rumble(dev, low, high, ms); }
 void flat_os_trigger(int dev, int right, int mode, float amp, int ms) { apple_pad_trigger(dev, right, mode, amp, ms); }
@@ -785,6 +787,7 @@ static void rom_arrived(const char *path) { (void)path; [the_controller romArriv
     plat_mkdir(A.files);
     char log[1100];
     snprintf(log, sizeof log, "%s/port.log", A.files);
+    crash_apple_keep_log(A.files);   // (for a crash report of the last run)
     if (!getenv("HOTD_LOG_STDERR")) { freopen(log, "w", stderr); setvbuf(stderr, NULL, _IONBF, 0); }
     tv_store_restore(A.files);
     // the game's sound; voice chat records only where the TV has an input (a headset through it)

@@ -109,7 +109,7 @@ def main():
               'src/platform/android/activity.c']
     if phone:   # the flat shell (src/flat) and its Android front end
         app = ['src/flat/android/main_android.c', 'src/flat/flat.c', 'src/flat/flat_app.c', 'src/flat/flat_menu.c',
-               'src/flat/flat_touch.c']
+               'src/flat/flat_touch.c', 'src/quest/quest_report.c']   # (the crash reports: the Quest's)
         sflags = sflags + ['-DHOTD_VOICE']
     else:       # the VR shell
         app = ['src/xr/xr_shell.c', 'src/xr/quest_gun.c', 'src/xr/quest_hand.c', 'src/xr/quest_cabinet.c',

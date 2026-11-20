@@ -59,8 +59,10 @@ static HotdController *the_controller;
 // ---------------------------------------------------------------- flat.h's front-end calls
 void flat_os_fullscreen(int on) { (void)on; }
 int flat_os_touch(void) { return 1; }
-void flat_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (none here yet)
-int flat_os_has_reports(void) { return 0; }
+void crash_apple_keep_log(const char *files);   // platform/apple/crash_apple.m: the last run's port.log kept
+void crash_apple_start(const char *files, const int *opt);   // platform/apple/crash_apple.m
+void flat_os_crash_reports(const char *files, const int *opt) { crash_apple_start(files, opt); }
+int flat_os_has_reports(void) { return 1; }
 void flat_os_trigger(int dev, int right, int mode, float amp, int ms) { apple_pad_trigger(dev, right, mode, amp, ms); }
 // Rumble: a pad's motors (apple_pads.h), or playing by touch, the iPhone's Taptic Engine: a light tap on a shot, a soft
 // one on a reload, a heavy one on a hit (an iPad has none). On the main thread (the frame's).
@@ -386,6 +388,7 @@ static void test_pads(double now) {
     snprintf(A.files, sizeof A.files, "%s", docs.UTF8String);
     char log[1100];
     snprintf(log, sizeof log, "%s/port.log", A.files);
+    crash_apple_keep_log(A.files);   // (for a crash report of the last run)
     if (!getenv("HOTD_LOG_STDERR")) { freopen(log, "w", stderr); setvbuf(stderr, NULL, _IONBF, 0); }
     // the game's sound and voice chat: play and record, the speaker by default, Bluetooth headsets too
     AVAudioSession *s = AVAudioSession.sharedInstance;

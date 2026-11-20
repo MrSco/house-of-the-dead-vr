@@ -10,6 +10,8 @@
 // The build id is the PDB's (its GUID and age, as a symbol server names it): build_windows.py keeps HOTDVR.pdb under
 // build_windows/symbols/<build id>/. Nothing personal: paths in the files folder are written as <files>.
 //
+// The same exe runs flat and in a headset (PC VR): the report says which ("platform": windows or pcvr).
+//
 // env.txt: QUEST_CRASH_URL=https://... (the relay; overrides REPORT_URL), QUEST_CRASH_KEY=... (sent as X-Report-Key),
 // FLAT_CRASH_TEST=seconds (crash on purpose that long after the start).
 #define WIN32_LEAN_AND_MEAN
@@ -23,14 +25,22 @@
 #include "../platform.h"
 #include "quest_options.h"
 
-#define REPORT_URL ""                      // as quest_report.c's: the relay, once deployed
+#define REPORT_URL "https://hotdvr.roccojuliano.com/v1/reports"   // as quest_report.c's: the relay
 #define REPORT_LOG_LINES 200
 #define REPORT_CRASH_MAX (16 * 1024)
 #define REPORT_LOG_MAX (48 * 1024)
 #define REPORT_KEEP 10
 #define REPORT_SEND_MAX 5
+// the version and commit (CMake: scripts/build_info.py gives them)
+#ifndef HOTD_BUILD_VERSION
+#define HOTD_BUILD_VERSION ""
+#endif
+#ifndef HOTD_BUILD_COMMIT
+#define HOTD_BUILD_COMMIT ""
+#endif
 
 static char files_dir[600];
+static const char *platform_name = "windows";
 static char build_id[64];
 static wchar_t crash_path[MAX_PATH];
 
@@ -211,11 +221,14 @@ static void collect(const int *opt) {
     char t[64];
     strftime(t, sizeof t, "%Y-%m-%dT%H:%M:%SZ", &tm);
     Buf b = { 0 };
-    bputs(&b, "{\"schema\":1,\"platform\":\"windows\",");
+    bputs(&b, "{\"schema\":1,");
+    jkey(&b, "platform", platform_name); bputs(&b, ",");
     jkey(&b, "build_id", crashed_id[0] ? crashed_id : crash_win_build_id()); bputs(&b, ",");
     jkey(&b, "running_build_id", crash_win_build_id()); bputs(&b, ",");
     jkey(&b, "crash_time", t); bputs(&b, ",\"build_info\":{");
-    jkey(&b, "app", "HOTDVR.exe"); bputs(&b, "},\"device\":{");
+    jkey(&b, "app", "HOTDVR.exe"); bputs(&b, ",");
+    jkey(&b, "version", HOTD_BUILD_VERSION); bputs(&b, ",");
+    jkey(&b, "commit", HOTD_BUILD_COMMIT); bputs(&b, "},\"device\":{");
     jkey(&b, "os", "windows"); bputs(&b, ",");
     jkey(&b, "windows", os); bputs(&b, ",");
     jkey(&b, "cpus", cpus); bputs(&b, "},\"settings\":{");
@@ -340,10 +353,11 @@ static int crash_test(void *arg) {
     return 0;
 }
 
-// At start (the files folder made, env.txt and the settings read, before the game thread starts a new port.log):
+// At start (platform: "windows" flat, "pcvr" in a headset; the files folder made, env.txt and the settings read, before the game thread starts a new port.log):
 // the handler in place, then a crash of the last run collected and the reports sent (reports on, a relay set).
-void crash_win_start(const char *files, const int *opt) {
+void crash_win_start(const char *files, const int *opt, const char *platform) {
     snprintf(files_dir, sizeof files_dir, "%s", files);
+    platform_name = platform;
     char p[700];
     snprintf(p, sizeof p, "%s/crash.txt", files);
     MultiByteToWideChar(CP_UTF8, 0, p, -1, crash_path, MAX_PATH);
@@ -351,6 +365,7 @@ void crash_win_start(const char *files, const int *opt) {
     SetUnhandledExceptionFilter(on_crash);
     plat_log(PLAT_LOG_INFO, "build %s", build_id);
     const char *ct = getenv("FLAT_CRASH_TEST");
+    if (!ct || !*ct) ct = getenv("QUEST_CRASH_TEST");
     if (ct && atoi(ct) > 0) plat_thread_start(crash_test, (void *)(uintptr_t)atoi(ct));
     if (!opt[QOPT_CRASH_REPORTS] || !*relay_url()) return;   // off, or nowhere to send: crash.txt stays as it is
     collect(opt);

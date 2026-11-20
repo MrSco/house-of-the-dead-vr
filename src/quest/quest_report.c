@@ -1,6 +1,7 @@
-// Crash reports (quest_report.h).
+// Crash reports (quest_report.h), for every Android build: the Quest and the Steam Frame (src/quest/quest_main.c), and
+// the phones and tablets (src/flat/android/main_android.c); the package tells them apart ("platform" in the report).
 //
-// A crash can't send anything itself (quest_xr.c's handler only appends to crash.txt), so the next start does it:
+// A crash can't send anything itself (the handler below only appends to crash.txt), so the next start does it:
 //  1. collect (at start, before the game thread opens a new port.log): the last crash in crash.txt, the last
 //     REPORT_LOG_LINES lines of the crashed run's port.log, the build, the settings and the headset's model and OS
 //     version go into crash-reports/<time>.json; crash.txt is emptied (the report keeps its text).
@@ -12,8 +13,8 @@
 // serial numbers. The relay holds the GitHub token; the app only knows the relay's address.
 //
 // env.txt: QUEST_CRASH_URL=https://... (the relay; overrides REPORT_URL below), QUEST_CRASH_KEY=... (sent as
-// X-Report-Key when the relay asks for one), QUEST_CRASH_TEST=seconds (crash on purpose that long after the start, to
-// try the whole path: take it out again afterwards).
+// X-Report-Key when the relay asks for one), QUEST_CRASH_TEST=seconds (FLAT_CRASH_TEST on the phone: crash on purpose
+// that long after the start, to try the whole path: take it out again afterwards).
 #include "quest_report.h"
 #include "quest_options.h"
 #include <android/asset_manager.h>
@@ -26,21 +27,22 @@
 #include <jni.h>
 #include <link.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/system_properties.h>
 #include <time.h>
+#include <ucontext.h>
 #include <unistd.h>
 
 #define TAG "hotdvr"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 
-// The crash relay's address (tools/vr/crash-relay, deployed with wrangler): set it once after deploying, e.g.
-// "https://hotd-crash-relay.<your-subdomain>.workers.dev/report". Empty (and no QUEST_CRASH_URL in env.txt): no
-// reports at all, crash.txt is left as it is.
-#define REPORT_URL ""
+// The crash relay's address (tools/vr/crash-relay: the project's Worker). Empty (and no QUEST_CRASH_URL in env.txt):
+// no reports at all, crash.txt is left as it is.
+#define REPORT_URL "https://hotdvr.roccojuliano.com/v1/reports"
 #define REPORT_LOG_LINES 200
 #define REPORT_CRASH_MAX (16 * 1024)       // the last crash in crash.txt, at most
 #define REPORT_LOG_MAX (48 * 1024)         // port.log's tail, at most
@@ -78,6 +80,59 @@ const char *qreport_build_id(void) {
         }
     }
     return build_id;
+}
+
+// ---------------------------------------------------------------- crashes -> crash.txt
+// A crash (a bad pointer, an abort) appends to crash.txt in the files folder: the signal, the faulting address and
+// the call chain (pc, lr, then the frame pointers), each as library+offset (and the nearest dynamic symbol), which
+// llvm-symbolizer turns into source lines with the unstripped libhotdvr.so the build-id line names. Then the default
+// action runs (the system's own report). The next start sends it (qreport_start) when Crash reports is on.
+static int crash_fd = -1;
+static char crash_build[64];
+static void crash_put(const char *s) { if (crash_fd >= 0 && write(crash_fd, s, strlen(s)) < 0) {} }
+static void crash_addr(const char *what, uintptr_t a) {
+    char b[300];
+    Dl_info di;
+    if (a && dladdr((void *)a, &di) && di.dli_fname) {
+        const char *f = strrchr(di.dli_fname, '/');
+        snprintf(b, sizeof b, "  %s %s+0x%lx (%s)\n", what, f ? f + 1 : di.dli_fname, (unsigned long)(a - (uintptr_t)di.dli_fbase),
+                 di.dli_sname ? di.dli_sname : "?");
+    } else snprintf(b, sizeof b, "  %s %p\n", what, (void *)a);
+    crash_put(b);
+}
+static void on_crash(int sig, siginfo_t *si, void *ctx) {
+    ucontext_t *uc = ctx;
+    char b[200];
+    snprintf(b, sizeof b, "crash: signal %d code %d addr %p thread %d\n", sig, si->si_code, si->si_addr, gettid());
+    crash_put(b);
+    crash_put(crash_build);
+#if defined(__aarch64__)
+    crash_addr("pc", (uintptr_t)uc->uc_mcontext.pc);
+    crash_addr("lr", (uintptr_t)uc->uc_mcontext.regs[30]);
+    uintptr_t *fp = (uintptr_t *)uc->uc_mcontext.regs[29];
+    for (int i = 0; i < 48 && fp && ((uintptr_t)fp & 7) == 0; i++) {
+        uintptr_t next = fp[0], ret = fp[1];
+        crash_addr("at", ret);
+        if (next <= (uintptr_t)fp) break;
+        fp = (uintptr_t *)next;
+    }
+#else
+    (void)uc; (void)crash_addr;
+#endif
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+void qreport_handler(const char *dir) {
+    char p[600];
+    snprintf(p, sizeof p, "%s/crash.txt", dir);
+    crash_fd = open(p, O_WRONLY | O_CREAT | O_APPEND, 0660);
+    snprintf(crash_build, sizeof crash_build, "  build-id %s\n", qreport_build_id());
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_sigaction = on_crash;
+    sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
+    static const int sigs[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT };
+    for (int i = 0; i < 5; i++) sigaction(sigs[i], &sa, NULL);
 }
 
 // ---------------------------------------------------------------- a growing buffer, JSON
@@ -167,6 +222,10 @@ static void prop(const char *name, char *out) {
 
 // ---------------------------------------------------------------- collect
 static char files_dir[512];
+// which app this is: the package's files folder (Android/data/<package>/files) tells (the relay's PLATFORMS)
+static const char *platform(void) {
+    return strstr(files_dir, ".frame/") ? "frame" : strstr(files_dir, ".android/") ? "android" : "quest";
+}
 static void path_of(char *out, size_t n, const char *name) { snprintf(out, n, "%s/crash-reports/%s", files_dir, name); }
 
 static void collect(ANativeActivity *act, const int *opt) {
@@ -202,6 +261,7 @@ static void collect(ANativeActivity *act, const int *opt) {
     gmtime_r(&when, &tm);
     strftime(t, sizeof t, "%Y-%m-%dT%H:%M:%SZ", &tm);
     puts_(&b, "{\"schema\":1,");
+    jkey(&b, "platform", platform()); puts_(&b, ",");
     jkey(&b, "build_id", crashed_id[0] ? crashed_id : qreport_build_id()); puts_(&b, ",");
     jkey(&b, "running_build_id", qreport_build_id()); puts_(&b, ",");
     jkey(&b, "crash_time", t); puts_(&b, ",");
@@ -389,7 +449,7 @@ static void *send_thread(void *arg) {
 
 static void *crash_test(void *arg) {
     sleep((unsigned)(uintptr_t)arg);
-    LOGI("QUEST_CRASH_TEST: crashing on purpose");
+    LOGI("crash test: crashing on purpose");
     *(volatile int *)(uintptr_t)8 = 1;
     return NULL;
 }
@@ -406,6 +466,7 @@ void qreport_start(ANativeActivity *act, const char *files, const int *opt) {
     pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
     if (act && act->vm) { jvm = act->vm; pthread_create(&t, &at, send_thread, NULL); }
     const char *ct = getenv("QUEST_CRASH_TEST");
+    if (!ct || !*ct) ct = getenv("FLAT_CRASH_TEST");
     if (ct && atoi(ct) > 0) pthread_create(&t, &at, crash_test, (void *)(uintptr_t)atoi(ct));
     pthread_attr_destroy(&at);
 }
