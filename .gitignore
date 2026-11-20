@@ -15,6 +15,9 @@ build_quest/
 src/flat/ios/*.xcodeproj/
 # ...and the Apple TV app's (scripts/build_tvos.py)
 src/flat/tvos/*.xcodeproj/
+# the Vision Pro app's, and its libraries (scripts/build_visionos.py)
+src/visionos/*.xcodeproj/
+build_visionos/
 vendor/
 
 # ---- ROMs and anything derived from them — LEGAL, not tidiness ----

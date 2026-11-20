@@ -96,7 +96,7 @@ mouse or touch; VR-only rows (hands, cabinet room, comfort, physical reload) are
 | Android phone / tablet | APK flavor `mobile` | Flat | GLES 3.0, no multiview | none | Touch, gyro, pads | as Quest | Landscape; 16 KB page alignment |
 | Windows | One zip: `HOTDVR.exe` | VR (immersive) when a headset is found, else flat; `--flat` / `--vr` force one | GL 3.3 | OpenXR, any runtime (SteamVR, Link, Virtual Desktop) | Mouse, pads, light guns; VR controllers | Open dialog, or drop the zip on the window | Flat first, PCVR second |
 | iOS / iPadOS | IPA (Xcode project from xcodegen), installed with SideStore | Flat | ANGLE on Metal | none | Touch, gyro, MFi / Xbox / PS pads, iPad mouse | Document picker; Files shows the data folder | Built on the Mac; LAN discovery needs Apple's multicast entitlement, so iOS uses rooms and direct IP |
-| Vision Pro | visionOS app | VR | ANGLE on Metal, one pass per eye | Compositor Services + ARKit | Hand tracking (aim ray + pinch, as the Quest's hands), PSVR2 Sense controllers | Document picker | Later; reuse gevr-visionos-native's findings |
+| Vision Pro | visionOS app | VR | ANGLE on Metal, one pass per eye | Compositor Services + ARKit | Hand tracking (aim ray + pinch, as the Quest's hands), PSVR2 Sense controllers | Document picker | P5: builds (`scripts/build_visionos.py`), runs in the visionOS Simulator and plays online with Windows; the headset itself not tried yet, see P5 under Progress |
 | macOS | App (zip on GitHub) | Flat | ANGLE on Metal | none | Mouse, pads, light guns | Open dialog | Right after iOS, sharing its Apple layer and ANGLE |
 | Apple TV (tvOS 17+) | App (Xcode project from xcodegen), installed from Xcode with a developer account (TestFlight later, the user's call) | Flat | ANGLE on Metal (its tvOS slices) | none | Siri Remote (touch surface moves the sight, click shoots), MFi / Xbox / PS pads | A page on the LAN (address and QR code on the TV) | Files in Caches (tvOS may empty them): settings and saves also in the app's defaults; voice listens only |
 
@@ -246,6 +246,72 @@ the Quest.
   VR on a PC. On the Quest 3, this build's menu, guns, hands, cabinet room and passthrough (the shell moved; the
   desk runs here kept being stopped by a Guardian dialog). Seen on SteamVR: the attract mode's title logo draws over
   the VR menu (the game's face layer comes after the menu; probably the Quest's too).
+
+**P5, Vision Pro (2026-11-19): built, checked in the visionOS Simulator, crossplay with Windows.** Branch `t3/visionos-vr-port`. On the PC
+`python scripts/apple_sync.py --dest <folder>`, then on the Mac `python3 scripts/build_visionos.py simulator|device
+[--app]` (`--archive BUILD [--upload]` as build_apple.py's, with HOTD_BUNDLE_ID; nothing uploaded). Both the
+simulator app and the device app (unsigned) build with Xcode 27.2 against the visionOS 27.2 SDK, deployment target 26.0. ANGLE's visionOS
+slices: `~/angle/xcframeworks-visionos`, as GoldenEye VR's `tools/build_angle_apple.sh` makes them.
+- `src/visionos`: `VosApp.swift` opens straight into a full-immersion space (a CompositorLayer; the scene role
+  `CPSceneSessionRoleImmersiveSpaceApplication`) and has the document picker's window for the ROM set;
+  `vos_render.m` is the compositor's thread: ANGLE with a pbuffer, ARKit (world tracking for the head, hand tracking,
+  accessory tracking for the Sense controllers' poses, one session), each frame's input, **one GL pass per eye** into
+  an sRGB Metal texture of ours (EGL_METAL_TEXTURE_ANGLE, GL fenced to Metal by ANGLE's shared event), then a Metal
+  pass copying each eye into the drawable with its depth at 2 m (visionOS drops a frame whose depth is all 0), the
+  drawable stamped with the head's device anchor; `VosControllers.swift` reads the Sense controllers' buttons
+  (GameController) and rumbles them. These follow GoldenEye VR's native visionOS build, but each eye is drawn with
+  its own real (canted) pose and field of view, so the copy is one to one.
+- `vos_shell.c` is the Quest's VR shell (`src/quest/quest_xr.c`) carried over with OpenXR, JNI and Android taken
+  out: the immersive and cabinet views, the cabinet room (dark, the courtyard; passthrough is not offered), the guns,
+  hands, menu, reloads (gestures included), recenter, the online partner's guns and hands, the same settings file
+  (`vr-options.cfg`) and the QUEST_* test switches (plus `QUEST_TEST_PLAY`, FLAT_TEST_PLAY's scripted play, and
+  `QUEST_TEST_PICK`, the picker without a pinch). The Quest's model loaders (`quest_gun.c`, `quest_hand.c`, `quest_cabinet.c`) build unchanged against
+  `src/visionos/shim` (AAsset over the bundle's `assets` folder, the log). One hook in `host_sdl.c`:
+  `quest_clear_message`, so a ROM set chosen while the setup page shows starts the game without reopening the app.
+- **Hands** (ARKit's skeleton, in `vos_render.m`): the aim ray runs from a shoulder point (20 cm under the head,
+  17 cm aside, by the head's heading) through the hand; a thumb-index pinch fires (on under 1.5 cm, off over 3 cm),
+  a thumb-middle pinch on the off hand is the skip button, the left palm turned to the face with a pinch opens the
+  menu. **Sense controllers** as Touch: trigger fires, grip reloads (as the GRIP setting), A / X skip, B / Y reload,
+  Create / Options the menu, the stick's click held switches the view; poses from ARKit's `aim` location.
+- **LOCAL** is ARKit's origin raised to the first head's height, recentred on the first tracked head (the Quest's
+  LOCAL is at your eyes when the app starts). Documents is the files folder (the Files app shows it); online play's
+  start and a new ROM set say "open the app again" and close on a pinch, as iOS.
+- **Crossplay:** every file of the game is compiled with `-fno-fast-math -ffp-contract=off` by Apple clang for arm64,
+  the compiler and flags that matched the PC and the Quest in P3 (m2nettest, 30 of 30 both ways). Online play
+  (`src/net`, `arcade_net.cpp`, the VR scenery hook on) is the same code as every other app. ONLINE_VER unchanged.
+- **Checked in the visionOS 27.2 Simulator** (Apple Vision Pro; the T3 device tools don't offer it, so `simctl`
+  installed, launched, pushed the files into the app's Documents and took the pictures). The simulator has one view
+  (3840 x 2160), a fixed head, no hand tracking and no accessory tracking, so the test switches stand in for a player:
+  - It starts into the space and draws (ANGLE on the simulator's GPU, 90 Hz): the setup page without a ROM set; with
+    hotd.7z in Documents/arcade the game, the board 0.7 to 2 ms a frame. `QUEST_SHOT_HANDS=3` puts the gun before
+    the head: the immersive view's attract scenes round you (the office, the courtyard).
+  - The simulator's head starts at ARKit's origin, so the floor was at eye level (the cabinet view showed its coin
+    door): a first head under 0.5 m now takes a standing player's 1.6 m (a real headset's ARKit origin is on the
+    floor).
+  - The cabinet view (`view=1` in vr-options.cfg) with `QUEST_TEST_PLAY=1`: the cabinet in the courtyard, the game
+    on its screen, coins and a game under way. `QUEST_MENU_AT=12,0`: the menu (PAUSED, the GUN tab) with the gun's
+    ray on it.
+  - The document picker: `QUEST_TEST_PICK=seconds[,file]` (new) opens the picker's window as a pinch on the setup
+    page does, and with a file in Documents answers as the picker does when you choose it. The window and its file
+    browser opened beside the space, the set moved into arcade/, and the game started without reopening the app
+    (`quest_clear_message`).
+  - Online, with HOTDVR.exe (MSVC, this branch's `host_sdl.c`): `QUEST_TEST_ONLINE=5,hostlan` showed "open the app
+    again"; opened again (by `simctl`: the simulator can't pinch) it hosted, and HOTDVR.exe joined by IP
+    (`FLAT_TEST_ONLINE=8,joinip:<the Mac>`, `FLAT_TEST_PLAY=1`), loaded at frame 1,948: **140 of 140** checksums
+    over 8,400 frames, both playing. HOTDVR.exe hosted a room on zonesync.net and the Vision Pro joined by its code
+    (`QUEST_TEST_ONLINE=5,join:CODE`), loaded at frame 2,282: **140 of 140** over 8,400 frames, the guest's gun
+    blue. No desync either way. A LAN join from the Mac to the PC didn't connect (the PC's firewall blocked that
+    copy of HOTDVR.exe), as the Apple TV found.
+  - Another immersive app opened in the same simulator closes this one's space, and the app closes ("the immersive
+    space closed").
+- **Left for a real Vision Pro:** stereo and the canted eyes, head tracking, the depth written at 2 m (not black), the
+  frame rate (eyes at the drawable's size with 4x MSAA if ANGLE has EXT_multisampled_render_to_texture), the hands'
+  aim ray, pinch thresholds and whether the palm-and-pinch menu gesture collides with visionOS's own (Home / Control
+  Center), the Sense controllers (aim pose, buttons by name, rumble), a file chosen in the picker by hand, the
+  microphone and voice chat (the permission prompt shows over the game when an online game starts), and an online
+  game with a Quest and a PC.
+- **Later:** an app icon (a layered solidimagestack); the cabinet room's PASSTHROUGH as mixed immersion; the display
+  rate (GRAPHICS' Hz row only shows the system's); foveation.
 
 **Since (2026-11-16):**
 - **The 3D was too dark everywhere**: the shared renderer decoded the arcade's colours with a 2.2 power and the sRGB

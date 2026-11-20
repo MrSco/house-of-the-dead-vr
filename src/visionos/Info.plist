@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  House of the Dead VR for Apple Vision Pro (docs/platforms.md, P5). As GoldenEye VR's port/visionos/Info.plist, which
+  learnt from Klepton's on the device that a missing privacy string is a process kill the simulator never shows.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>House of the Dead VR</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<!-- The full space is the app's first scene: it opens into VR, as on the Quest. A CompositorLayer space has
+	     Compositor Services' own role (UIKit's UISceneSessionRoleImmersiveSpaceApplication makes SwiftUI abort). -->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationPreferredDefaultSceneSessionRole</key>
+		<string>CPSceneSessionRoleImmersiveSpaceApplication</string>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>CPSceneSessionRoleImmersiveSpaceApplication</key>
+			<array>
+				<dict>
+					<key>UISceneInitialImmersionStyle</key>
+					<string>UIImmersionStyleFull</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+
+	<!-- ARKit: the head, your hands, the PlayStation VR2 Sense controllers -->
+	<key>NSWorldSensingUsageDescription</key>
+	<string>House of the Dead VR follows your head so the game's world stays round you.</string>
+	<key>NSHandsTrackingUsageDescription</key>
+	<string>House of the Dead VR turns your hands into light guns: aim, and pinch to shoot.</string>
+	<key>NSAccessoryTrackingUsageDescription</key>
+	<string>House of the Dead VR tracks PlayStation VR2 Sense controllers as your light guns.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>House of the Dead VR connects to game controllers.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>House of the Dead VR uses the microphone for voice chat in online games.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>House of the Dead VR plays online with players on your local network.</string>
+
+	<!-- the Sense controllers come as spatial game pads -->
+	<key>GCSupportsControllerUserInteraction</key>
+	<true/>
+	<key>GCSupportedGameControllers</key>
+	<array>
+		<dict>
+			<key>ProfileName</key>
+			<string>SpatialGamepad</string>
+		</dict>
+		<dict>
+			<key>ProfileName</key>
+			<string>ExtendedGamepad</string>
+		</dict>
+	</array>
+
+	<!-- the ROM set, saves, settings and port.log live in Documents, shown in the Files app -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+</dict>
+</plist>

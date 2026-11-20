@@ -24,6 +24,7 @@ void quest_set_paused(int paused);
 void quest_audio_service(void);                 // reopen the audio stream after the output device changed
 void quest_audio_shutdown(void);                // the app is exiting: the stream stopped and closed first
 void quest_show_message(const char *text);      // a text page instead of the game (missing files, errors)
+void quest_clear_message(void);                  // the game's pictures again (Vision Pro: the ROM set came in)
 extern volatile int quest_volume;              // the game's sound, 0..100 (the VR menu's Game volume)
 // RGB565 value that SDL_RenderCopy turns into transparent pixels (-1: none): the 2D overlay over the VR scene
 extern int quest_overlay_key;

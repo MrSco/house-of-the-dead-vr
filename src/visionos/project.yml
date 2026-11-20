@@ -1,0 +1,80 @@
+# House of the Dead VR for Apple Vision Pro: the xcodegen project (scripts/build_visionos.py makes and builds it on the
+# Mac; docs/platforms.md, P5).
+#
+# CMake builds everything into static libraries in build_visionos/<slice> (cmake/visionos.cmake), merged into
+# libhotdvr_all.a; this is the app around them: the SwiftUI entry (VosApp.swift) and the Sense controllers' Swift,
+# Info.plist, the Quest's models and voice lines (src/quest/assets, as the bundle's assets folder), ANGLE's
+# frameworks, Apple's frameworks and the signing. Generated, never edited: src/visionos/HouseOfTheDeadVR.xcodeproj is
+# git-ignored.
+#
+# From the environment (build_visionos.py sets them):
+#   ANGLE_DIR          ANGLE's one place on the Mac (~/angle), its visionOS xcframeworks
+#   HOTD_LIBS          build_visionos (the libraries: build_visionos/simulator, build_visionos/device)
+#   HOTD_VERSION       0.4.2 (the Quest app's versionName)
+#   HOTD_BUILD         8 (its versionCode, or --archive's build)
+#   HOTD_BUNDLE_ID     com.mrsco.hotdvr unless set
+#   DEVELOPMENT_TEAM   your Apple team id, for a signed device build
+name: HouseOfTheDeadVR
+options:
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: "${DEVELOPMENT_TEAM}"
+    XROS_DEPLOYMENT_TARGET: "26.0"
+    CLANG_ENABLE_OBJC_ARC: "YES"
+    ENABLE_BITCODE: "NO"
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    ENABLE_DEBUG_DYLIB: "NO"
+    SWIFT_VERSION: "5.0"
+    # arm64 only: the libraries (and ANGLE) have no Intel simulator slice
+    EXCLUDED_ARCHS[sdk=xrsimulator*]: x86_64
+    HOTD_SLICE: device
+    HOTD_SLICE[sdk=xrsimulator*]: simulator
+    LIBRARY_SEARCH_PATHS:
+      - "${HOTD_LIBS}/$(HOTD_SLICE)"
+targets:
+  HouseOfTheDeadVR:
+    type: application
+    platform: visionOS
+    sources:
+      - path: VosApp.swift
+      - path: VosControllers.swift
+      - path: PrivacyInfo.xcprivacy
+      # the guns, the hands, the cabinet and the reload lines (vos_assets())
+      - path: ../quest/assets
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        SDKROOT: xros
+        SUPPORTED_PLATFORMS: "xros xrsimulator"
+        TARGETED_DEVICE_FAMILY: "7"
+        PRODUCT_BUNDLE_IDENTIFIER: "${HOTD_BUNDLE_ID}"
+        PRODUCT_NAME: HouseOfTheDeadVR
+        INFOPLIST_FILE: Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: vos_bridging.h
+        MARKETING_VERSION: "${HOTD_VERSION}"
+        CURRENT_PROJECT_VERSION: "${HOTD_BUILD}"
+        OTHER_LDFLAGS: "-ObjC -lhotdvr_all -lc++ -lobjc"
+    dependencies:
+      # ANGLE supplies every gl* and egl* call (its visionOS slices)
+      - framework: "${ANGLE_DIR}/xcframeworks-visionos/libGLESv2.xcframework"
+        embed: true
+        codeSign: true
+      - framework: "${ANGLE_DIR}/xcframeworks-visionos/libEGL.xcframework"
+        embed: true
+        codeSign: true
+      - sdk: CompositorServices.framework
+      - sdk: ARKit.framework
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework
+      - sdk: UIKit.framework
+      - sdk: SwiftUI.framework
+      - sdk: AVFoundation.framework
+      - sdk: AudioToolbox.framework
+      - sdk: CoreAudio.framework
+      - sdk: CoreHaptics.framework
+      - sdk: GameController.framework
+      - sdk: Foundation.framework
+      - sdk: CoreFoundation.framework
+      - sdk: UniformTypeIdentifiers.framework
