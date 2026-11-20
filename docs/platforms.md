@@ -415,8 +415,8 @@ libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANG
   account (`DEVELOPMENT_TEAM=<team> python3 scripts/build_tvos.py device --app`, then run it on the paired Apple TV
   from Xcode, or `xcrun devicectl device install app`; a free account's build lapses after 7 days, a paid one's after
   a year), or later through TestFlight under the iPhone app's bundle id (`com.mrsco.hotdvr`, with its tvOS platform
-  added in App Store Connect; nothing uploaded). The layered home-screen icon and the Top Shelf come from
-  `python scripts/make_icons.py tvos`.
+  added in App Store Connect; nothing uploaded). The home-screen icon (the wide banner, 5:3, as a layered stack) and the
+  Top Shelf come from `python scripts/make_icons.py tvos`.
 - Test switch: `FLAT_TEST_REMOTE="seconds action [args]; ..."` in env.txt plays the remote through the same code
   (swipe DX DY [SECONDS], click, play, playhold, menu, up / down / left / right), logging the presses and the sight.
 - **Checked in the tvOS 27.2 Simulator** (Apple TV 4K, 3840 x 2160; the T3 device tools don't offer tvOS

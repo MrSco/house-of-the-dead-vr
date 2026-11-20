@@ -56,9 +56,9 @@ def main():
     print('icons and banner written')
 
 
-# Apple TV: the home screen's icon is a layered stack that tilts under the focus: the app icon, whole, in front of a
-# blurred, darker copy of it filling the TV's wider shape. The Top Shelf (shown while the icon has the focus) is the
-# banner. Every size App Store validation asks for, at 1x and 2x; the opaque pictures as JPEG (the repository stays
+# Apple TV: the home screen's icon is a wide (5:3) layered stack that tilts under the focus: the banner, filling it,
+# behind a clear front layer (tvOS asks for two layers or more). The Top Shelf (shown while the icon has the focus) is
+# the banner too. Every size App Store validation asks for, at 1x and 2x; the opaque pictures as JPEG (the repository stays
 # small). As GoldenEye VR's tools/make_icons.py tvos.
 TV_INFO = {'author': 'xcode', 'version': 1}
 
@@ -83,20 +83,15 @@ def tv_cover(src, w, h):
     return src.crop((x0, y0, x0 + w, y0 + h))
 
 
-def tv_back(icon, w, h):
-    img = tv_cover(icon, w, h).filter(ImageFilter.GaussianBlur(w * 0.025))
-    return Image.blend(img, Image.new('RGB', (w, h), (0, 0, 0)), 0.35)
+def tv_back(banner, w, h):
+    return tv_cover(banner, w, h)
 
 
-def tv_front(icon, w, h):
-    side = int(h * 0.88)
-    out = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    out.paste(icon.resize((side, side), Image.LANCZOS), ((w - side) // 2, (h - side) // 2))
-    return out
+def tv_front(banner, w, h):
+    return Image.new('RGBA', (w, h), (0, 0, 0, 0))
 
 
 def tvos_brand_assets():
-    icon = Image.open(os.path.join(BRAND, 'app-icon.png')).convert('RGB')
     banner = Image.open(os.path.join(BRAND, 'banner.png')).convert('RGB')
     base = os.path.join(ROOT, 'src', 'flat', 'tvos', 'Assets.xcassets')
     brand = os.path.join(base, 'App Icon & Top Shelf Image.brandassets')
@@ -110,7 +105,7 @@ def tvos_brand_assets():
             images = []
             for k in scales:
                 name = '%s%s.%s' % (stem, '' if k == 1 else '@%dx' % k, ext)
-                tv_save(draw(icon, w * k, h * k), os.path.join(root, layer + '.imagestacklayer', 'Content.imageset', name))
+                tv_save(draw(banner, w * k, h * k), os.path.join(root, layer + '.imagestacklayer', 'Content.imageset', name))
                 images.append({'filename': name, 'idiom': 'tv', 'scale': '%dx' % k})
             tv_json(os.path.join(root, layer + '.imagestacklayer', 'Content.imageset', 'Contents.json'), {'images': images, 'info': TV_INFO})
             tv_json(os.path.join(root, layer + '.imagestacklayer', 'Contents.json'), {'info': TV_INFO})
