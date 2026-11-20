@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- rumble: a game pad's motors, and the phone's while playing by touch (src/platform/android/activity.c) -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:label="@LABEL@"

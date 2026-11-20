@@ -76,6 +76,24 @@ int flat_os_touch(void) { return 1; }
 void flat_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (none here yet)
 int flat_os_has_reports(void) { return 0; }
 void flat_os_import_rom(void) { plat_android_start("com.mrsco.hotdvr.ImportActivity"); }   // (it restarts the app)
+// Rumble: a pad's motors (by its input device id), or playing by touch, the phone's: the system's click on a shot, its
+// tick on a reload, a long strong buzz on a hit (android.h plat_android_vibrate: never waits)
+void flat_os_rumble(int dev, int what, float low, float high, int ms) {
+    if (dev == FLAT_DEV_TOUCH) {
+        if (ms <= 0) plat_android_vibrate(-1, PLAT_VIB_STOP, 0, 0);
+        else if (what == FLAT_RUMBLE_SHOT) plat_android_vibrate(-1, PLAT_VIB_CLICK, 0, 0);
+        else if (what == FLAT_RUMBLE_RELOAD) plat_android_vibrate(-1, PLAT_VIB_TICK, 0, 0);
+        else plat_android_vibrate(-1, PLAT_VIB_ONE_SHOT, 255, 300);
+        return;
+    }
+    for (int i = 0; i < PADS; i++)
+        if (pads[i].used && pads[i].dev == dev) {
+            const float s = low > high ? low : high;
+            plat_android_vibrate(pads[i].id, ms > 0 ? PLAT_VIB_ONE_SHOT : PLAT_VIB_STOP, (int)(s * 255.0f + 0.5f), ms);
+        }
+}
+// Trigger feedback: Android has no API for a pad's trigger motors or a DualSense's adaptive triggers
+void flat_os_trigger(int dev, int right, int mode, float amp, int ms) { (void)dev; (void)right; (void)mode; (void)amp; (void)ms; }
 
 // ---------------------------------------------------------------- EGL
 static int egl_init(void) {
