@@ -98,6 +98,7 @@ mouse or touch; VR-only rows (hands, cabinet room, comfort, physical reload) are
 | iOS / iPadOS | IPA (Xcode project from xcodegen), installed with SideStore | Flat | ANGLE on Metal | none | Touch, gyro, MFi / Xbox / PS pads, iPad mouse | Document picker; Files shows the data folder | Built on the Mac; LAN discovery needs Apple's multicast entitlement, so iOS uses rooms and direct IP |
 | Vision Pro | visionOS app | VR | ANGLE on Metal, one pass per eye | Compositor Services + ARKit | Hand tracking (aim ray + pinch, as the Quest's hands), PSVR2 Sense controllers | Document picker | Later; reuse gevr-visionos-native's findings |
 | macOS | App (zip on GitHub) | Flat | ANGLE on Metal | none | Mouse, pads, light guns | Open dialog | Right after iOS, sharing its Apple layer and ANGLE |
+| Apple TV (tvOS 17+) | App (Xcode project from xcodegen), installed from Xcode with a developer account (TestFlight later, the user's call) | Flat | ANGLE on Metal (its tvOS slices) | none | Siri Remote (touch surface moves the sight, click shoots), MFi / Xbox / PS pads | A page on the LAN (address and QR code on the TV) | Files in Caches (tvOS may empty them): settings and saves also in the app's defaults; voice listens only |
 
 Linux is out of scope.
 
@@ -122,6 +123,7 @@ Linux is out of scope.
 | P3 | **iOS / iPadOS** on ANGLE, installed with SideStore; then **macOS** on the same Apple layer | An iPhone and a Mac play online with a Quest |
 | P4 | **PCVR** on Windows: `src/xr` with a GL binding, SteamVR's quirks from GoldenEye (quads, dashboard button) | A Quest over Link and a SteamVR headset play the cabinet and immersive views |
 | P5 | **Vision Pro**: a spike first (Compositor Services, hands, one eye pass each), then the port | Plays online with the others |
+| TV | **Apple TV** (asked for 2026-11-19): the iOS app's flat shell for tvOS, the Siri Remote as the gun, the ROM set over the LAN | Plays online with the others |
 
 Each phase ends with the crossplay check against every platform already done, and the determinism replay.
 
@@ -246,12 +248,73 @@ generated code and the fetched libraries over ssh; `python3 scripts/build_apple.
     options.cfg (`brightness_level_pct`) so the 50 saved files carry is dropped.
   - The "plain floor" seen on Windows was those two together (the marble's pattern is there).
 
+**Apple TV (2026-11-19): done but for a real Apple TV and Siri Remote.** On the Mac: `python scripts/apple_sync.py
+[--dest DIR]` from the PC, then `python3 scripts/build_tvos.py simulator|device [--app] [--ipa]` there (the
+libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANGLE's tvOS slices in
+`~/angle/xcframeworks-tvos`, made by GoldenEye VR's `tools/build_angle_apple.sh tvos-device tvos-simulator`).
+- `src/flat/tvos/main_tvos.m`: the iOS app's shape (a scene, a CAMetalLayer view, ANGLE's EGL, a frame each display
+  refresh), HD by default, 4:3 in the middle of the TV. The controller is a `GCEventViewController`, so the remote's
+  and pads' presses are the game's and Menu doesn't leave the app.
+- **The Siri Remote** (GameController's micro gamepad, absolute touch positions): the touch surface moves the sight
+  like a mouse, relative, a slow swipe across it half the picture and quick ones up to three times that (GAME:
+  Remote speed, 25-300%); a click shoots (off the picture: reload, as on the cabinet); Play/Pause reloads; Play/Pause
+  held half a second gives coins and Start (skips a scene); Menu opens the menu. In the menu (its TV layout: the
+  remote's keys line, GAME = Picture, Crosshair, Brightness, Remote speed, no QUIT) each third of the surface swiped
+  is one focus step, a click chooses, Play/Pause resumes, Menu goes back, and at the menu's top Menu goes to the Home
+  screen, as Apple asks: there the controller hands its presses to UIKit (`controllerUserInteractionEnabled`).
+  UIKit's own presses (a keyboard, the Simulator's remote) do the same; a press seen by both is counted once.
+- **Pads** as on iOS (either stick moves the sight, R2 / R1 shoot, L2 / L1 / X reload, A / Menu coins and Start,
+  Options the menu); in the menu the d-pad, A and B work as the remote's swipes, click and Menu, L1 / R1 the tabs.
+- **The ROM set** (`tv_upload.m`): a TV has no document picker and no Files app, so when the set is missing the app
+  shows `http://<the TV's address>:8007/` (another port if taken) and its QR code; that page, opened on a phone or
+  computer on the same network, sends hotd.zip or hotd.7z in one POST. The file's first bytes decide (a ZIP or a 7z,
+  whatever its name; anything else is refused, on the page and the TV); then the game starts. The menu's ROM row
+  shows the same page over the game (Menu cancels it); a new set loads when the app opens again.
+- **Storage** (`tv_store.m`): a tvOS app can't write Documents on the device and keeps only its defaults
+  (NSUserDefaults, about 500 KB); everything else is Library/Caches, which tvOS empties when it runs short of space.
+  The files folder is `Library/Caches/HOTDVR`; options.cfg, online.cfg and save/ (the game's settings and high
+  scores, about 17 KB) are copied into the defaults every 20 s, on going to the background and before closing, and
+  put back at start when missing. A ROM set that was there and is gone is asked for again with the reason ("tvOS
+  removed the ROM set to free space... your settings and scores are kept"). Keeping the ROM itself would need iCloud
+  or on-demand resources: not done.
+- **Voice chat** listens; an Apple TV has no microphone of its own. `apple.m` asks for one (AVAudioApplication) only
+  when tvOS reports an input (a headset through the TV), else voice is receive-only.
+- **Online play** as on iOS: rooms, quick match, LAN host and direct IP; an app can't restart itself, so starting or
+  leaving online play says "open the app again" and closes. Nothing in the protocol changed (no ONLINE_VER bump).
+- **Install**: SideStore and AltStore don't sign for tvOS, so an Apple TV takes the app from Xcode with a developer
+  account (`DEVELOPMENT_TEAM=<team> python3 scripts/build_tvos.py device --app`, then run it on the paired Apple TV
+  from Xcode, or `xcrun devicectl device install app`; a free account's build lapses after 7 days, a paid one's after
+  a year), or later through TestFlight under the iPhone app's bundle id (`com.mrsco.hotdvr`, with its tvOS platform
+  added in App Store Connect; nothing uploaded). The layered home-screen icon and the Top Shelf come from
+  `python scripts/make_icons.py tvos`.
+- Test switch: `FLAT_TEST_REMOTE="seconds action [args]; ..."` in env.txt plays the remote through the same code
+  (swipe DX DY [SECONDS], click, play, playhold, menu, up / down / left / right), logging the presses and the sight.
+- **Checked in the tvOS 27.2 Simulator** (Apple TV 4K, 3840 x 2160; the T3 device tools don't offer tvOS
+  simulators, so `simctl` installed, launched and took the pictures):
+  - The ROM page: the PC fetched it over the LAN, a README sent to it was refused, hotd.7z (38.4 MB) arrived in
+    1.5 s and the game started by itself (ANGLE on the tvOS simulator's GPU, the board 0.7 ms a frame).
+  - The remote by `FLAT_TEST_REMOTE`: two Play/Pause holds gave the credits and started a game; a slow swipe of 0.8
+    moved the sight 607 px, the same swipe done quickly hit the stop just past the picture's edge (about 3x); clicks
+    shot, Play/Pause reloaded; Menu opened the menu, swipes moved the focus (Remote speed 100% to 125% and back),
+    Play/Pause resumed, and Menu at the menu's top logged the hand-over to the Home screen.
+  - The caches emptied by hand while the app was closed: 4 files put back (options.cfg byte for byte), the ROM page
+    asked again with the reason, the set sent again, the game back.
+  - Crossplay with HOTDVR.exe: the Apple TV hosted a LAN game and HOTDVR.exe joined by IP (the host's game loaded at
+    frame 897): **140 of 140** checksums over 8,300 frames; HOTDVR.exe hosted a room on zonesync.net and the Apple TV
+    joined by its code (loaded at frame 2,104): **120 of 120** over 7,200 frames. Voice: the TV received 3,121 Opus
+    frames, none lost, and sent none.
+  - The iOS simulator app and the Mac app still build with the shared changes.
+
 **Left for a player (the end check):** on the headset, a stage and an online game with this build (joining a game under way, both ways: the
 headset here lost tracking on the desk, so its app couldn't be opened for a live join), and the headset's new
 depth (figures over the floors and walls they dip into: the girl at the door, the first zombie's feet); on Windows, the
 mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM dialog, and voice with real speech;
 a real phone (touch, a pad, the ROM picker, voice); a Steam Frame; an iPhone or iPad (a signed build, touch, voice);
-the Mac app by hand.
+the Mac app by hand; an Apple TV with a Siri Remote (a signed build from Xcode): the touch surface's feel and the
+Remote speed default, a click and the ring's clicks, Play/Pause held, Menu in the game, in the menu and at its top
+(the Home screen), a pad (and the remote with a pad connected), the ROM page from a phone (the QR code) and the
+local-network prompt, the storage after tvOS empties the caches, voice with a headset if tvOS offers one, and the 4K
+HD picture's frame time on the device.
 
 **Left, later:**
 - Deploy the crash relay and set `REPORT_URL` (Quest and Windows); upload the Windows PDBs beside the Quest's

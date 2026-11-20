@@ -175,7 +175,7 @@ static int top_level(void) {
 
 static void remote_touch(int down, float x, float y, double now) {
     if (!down) {
-        if (R.touching && R.test) {
+        if (R.touching && R.test && !flat_menu_is_open() && !A.upload) {
             int vx, vy, vw, vh;
             flat_view_rect(&vx, &vy, &vw, &vh);
             LOGI("tv: sight at %.0f,%.0f (the picture %d,%d %dx%d)", A.sx, A.sy, vx, vy, vw, vh);
