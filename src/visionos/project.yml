@@ -11,8 +11,8 @@
 #   HOTD_ANGLE_FW      build_visionos/angle: ANGLE's xcframeworks (from ~/angle) without their debug maps (the paths of the
 #                      machine that built them: scripts/build_info.py clean_angle)
 #   HOTD_LIBS          build_visionos (the libraries: build_visionos/simulator, build_visionos/device)
-#   HOTD_VERSION       0.6.0 (the Quest app's versionName)
-#   HOTD_BUILD         10 (its versionCode, or --archive's build)
+#   HOTD_VERSION       0.6.1 (the Quest app's versionName)
+#   HOTD_BUILD         11 (its versionCode, or --archive's build)
 #   HOTD_BUNDLE_ID     com.mrsco.hotdvr unless set
 #   DEVELOPMENT_TEAM   your Apple team id, for a signed device build
 name: HouseOfTheDeadVR
