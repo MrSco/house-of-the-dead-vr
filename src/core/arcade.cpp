@@ -1327,7 +1327,8 @@ extern "C" int SDL_main(int argc, char **argv) {
     // The game thread's time per frame by part, logged every 600 frames (hotdarcade: "frame ms"): the measure of
     // the headroom on the headset.
     game->set_profile_clock(now_ns);
-    struct { uint64_t frames = 0, board = 0, core = 0, tgpx4 = 0, geo = 0, video = 0, scene = 0, sound = 0, tgpx4_at = 0; } prof;
+    struct { uint64_t frames = 0, board = 0, core = 0, tgpx4 = 0, geo = 0, video = 0, scene = 0, sound = 0, tgpx4_at = 0, skipped = 0; } prof;
+    bool skipped_last = false;
     SoundThread sound_thread; // (after the game: it goes first, before the sound board its packets use)
     const std::vector<uint64_t> shots = shot_frames();
     std::unique_ptr<tools::Script> input_script;
@@ -1396,6 +1397,19 @@ extern "C" int SDL_main(int argc, char **argv) {
             input_script->pokes(game->frames(), game->board());
         }
         rt::GameLoop::SoundPacket packet; // this frame's sound board work: on the sound thread, during the next frame
+        // a screen behind the arcade's time (a slow CPU: the Apple TV HD's busiest scenes took 18 ms a frame of 17.4),
+        // alone or hosting, or a guest with the host's frames queued, skips drawing a frame, never two in a row: the 2D
+        // layers, the scene and the overlay (about 6 ms there). The game runs every frame as ever (the same game for
+        // every player), so it and its sound keep up instead of the sound running short.
+        bool skip_draw = false;
+        const bool late = arcade_net::mode() == arcade_net::Guest ? arcade_net::catching_up() >= 1 : now_ns() > next + frame_ns / 4;
+        if (arcade_flat && late && !skipped_last &&
+            std::find(shots.begin(), shots.end(), game->frames() + 1) == shots.end()) {
+            game->board().skip_next_draw();
+            skip_draw = true;
+            prof.skipped++;
+        }
+        skipped_last = skip_draw;
         const uint64_t t_board = now_ns();
         try {
             packet = game->run_frame_sound_packet(in);
@@ -1416,7 +1430,7 @@ extern "C" int SDL_main(int argc, char **argv) {
         const int behind = arcade_net::catching_up(); // a guest with frames to catch up on: 2 many (don't draw)
         const rt::Video &video = game->board().video();
         update_gamma();   // (Brightness changed in the menu)
-        if (behind < 2) {
+        if (behind < 2 && !skip_draw) {
             publish(video);
             bool face_any = false;
             if (draw_overlay(video, px, face_px, face_any)) {
@@ -1428,7 +1442,9 @@ extern "C" int SDL_main(int argc, char **argv) {
             }
         }
         if (game->sound()) {
-            if (behind) game->sound()->take_pcm(); // (catching up: no sound of frames gone by)
+            // (far behind: no sound of frames gone by; on a screen a few behind keep theirs, the ring trims a backlog:
+            // a slow guest always a few frames behind had no sound at all)
+            if (behind >= 2 || (behind && !arcade_flat)) game->sound()->take_pcm();
             else push_audio(*game->sound());
         }
         if (arcade_net::snapshot_wanted()) {
@@ -1449,6 +1465,10 @@ extern "C" int SDL_main(int argc, char **argv) {
         if (++prof.frames == 600) {
             const uint64_t tg = tgpx4_ns_total();
             const double k = 1e-6 / double(prof.frames);
+            static uint64_t line_at;   // the game's own rate: under the arcade's 57.5 a second, its sound runs short
+            const uint64_t t_line = now_ns();
+            if (line_at) LOGI("frame ms: %.1f frames a second, %u not drawn (behind the arcade's time)", 600e9 / double(t_line - line_at), unsigned(prof.skipped));
+            line_at = t_line;
             LOGI("frame ms: board %.2f (i960 and TGP %.2f, TGPx4 %.2f, geometrizer %.2f, 2D layers %.2f), scene and "
                  "overlay %.2f; sound thread %.2f (peak %.3f, speakers short %.0f ms)",
                  double(prof.board) * k, double(prof.core) * k, double(tg - prof.tgpx4_at) * k, double(prof.geo) * k,
