@@ -1929,6 +1929,11 @@ static void haptic(int h, float amp, int ms) {
     hi.action = S.a_haptic; hi.subactionPath = S.hand[h];
     xrApplyHapticFeedback(S.sess, &hi, (const XrHapticBaseHeader *)&v);
 }
+static void haptic_stop(int h) {
+    XrHapticActionInfo hi = { XR_TYPE_HAPTIC_ACTION_INFO };
+    hi.action = S.a_haptic; hi.subactionPath = S.hand[h];
+    xrStopHapticFeedback(S.sess, &hi);
+}
 static int get_bool(XrAction a, XrPath sub) {
     XrActionStateGetInfo gi = { XR_TYPE_ACTION_STATE_GET_INFO };
     gi.action = a; gi.subactionPath = sub;
@@ -2041,6 +2046,7 @@ static void haptic(int h, float amp, int ms) {
     if (!S.opt[QOPT_RUMBLE]) return;
     xr_os_haptic(h, amp, ms);
 }
+static void haptic_stop(int h) { xr_os_haptic(h, 0, 0); }
 // a controller's button (sub: the hand, or XR_NULL_PATH: either)
 static int ctl_bool(XrAction a, int h) {
     const XrhController *c = &S.in->ctl[h];
@@ -2289,7 +2295,7 @@ static void release_all(void);
 static void menu_set_open(int open) {
     if (open == S.menu_open) return;
     S.menu_open = open;
-    if (open) { release_all(); menu_place(); qmenu_open(-1); S.mfire[0] = S.mfire[1] = 1; }
+    if (open) { release_all(); menu_place(); qmenu_open(-1); S.mfire[0] = S.mfire[1] = 1; haptic_stop(0); haptic_stop(1); }
     else for (int h = 0; h < 2; h++) S.fire_hold[h] = fire_down(h);   // the click that closed it
     update_pause();
     LOGI("menu %s", open ? "open" : "closed");
@@ -2772,6 +2778,15 @@ static void update_input(XrTime t) {
         S.back_on[h] = back;
     }
     shot_confirm(t);
+    {   // hit (a life lost): both hands, strong and long. The shots and reloads have their own above (shot_confirm,
+        // reload_press: the hand that did it); the hit is the game's (quest.h host_player_events, this player's slot
+        // online, never the partner's), as every shell's rumble. Not while the menu is open (the game is paused).
+        static HostEventsSeen seen;
+        if (host_events_new(&seen, net_local) & 1 << HOST_EV_HIT && !S.menu_open) {
+            haptic(0, 1.0f, 400); haptic(1, 1.0f, 400);
+            LOGI("rumble: hit, both hands%s", S.opt[QOPT_RUMBLE] ? "" : " (Rumble OFF: none)");
+        }
+    }
     {
         int a = host_player_ammo(net_local);
         if (a < 0 || (S.ammo_seen >= 0 && a > S.ammo_seen)) { S.mag_seated = 1; S.mag_in = 0; }

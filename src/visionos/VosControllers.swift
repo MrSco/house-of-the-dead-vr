@@ -28,9 +28,11 @@ final class VosControllers: @unchecked Sendable {
     }
 
     private var engines: [Int: CHHapticEngine] = [:]
+    private var players: [Int: CHHapticPatternPlayer] = [:]
     private let hapticsQueue = DispatchQueue(label: "hotdvr.haptics", qos: .userInitiated)
     private var hapticsBusy = [false, false]
 
+    /// amplitude 0: what's playing on that hand stops (the menu opened)
     func rumble(hand: Int, amplitude: Float, seconds: Double) {
         lock.lock()
         if hapticsBusy[hand] { lock.unlock(); return }   // never hold up the frame for CoreHaptics
@@ -39,7 +41,12 @@ final class VosControllers: @unchecked Sendable {
         lock.unlock()
         hapticsQueue.async { [self] in
             defer { lock.lock(); hapticsBusy[hand] = false; lock.unlock() }
-            guard let c, amplitude > 0, seconds > 0 else { return }
+            if amplitude <= 0 || seconds <= 0 {
+                try? players[hand]?.stop(atTime: CHHapticTimeImmediate)
+                players[hand] = nil
+                return
+            }
+            guard let c else { return }
             if engines[hand] == nil {
                 engines[hand] = c.haptics?.createEngine(withLocality: .default)
                 try? engines[hand]?.start()
@@ -53,6 +60,7 @@ final class VosControllers: @unchecked Sendable {
             do {
                 let player = try engine.makePlayer(with: try CHHapticPattern(events: [event], parameters: []))
                 try player.start(atTime: CHHapticTimeImmediate)
+                players[hand] = player
             } catch {
                 engines[hand] = nil   // made again next time
             }
