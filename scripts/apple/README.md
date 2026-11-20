@@ -14,8 +14,9 @@ checkout the script is in. Run them with `bash` (a synced copy may not keep the 
 | `run-env.sh DEVICE ENVFILE TAG SECONDS [SHOT_AT...]` | The installed app with ENVFILE as its `env.txt` (the test switches), started afresh; screenshots at those seconds (`shots/TAG_<s>.png`), then `pulled/TAG.log` |
 | `asc.sh METHOD PATH [BODY]` | The App Store Connect API with the account's key |
 
-Over ssh, `testflight.sh tvos|visionos` and the build in `dev-install.sh` go through `desktop.sh` by themselves
-(codesign needs the desktop session's keychain there); the Mac's user must be logged in at the desktop.
+`testflight.sh` runs over plain ssh for all three platforms (manual signing, the signing keychain unlocked with its
+password file), screen locked or not. Only the build in `dev-install.sh` (Xcode's automatic signing for a device) goes
+through `desktop.sh` by itself over ssh; for that the Mac's user must be logged in at the desktop, screen unlocked.
 
     # on the PC
     python scripts/apple_sync.py --dest src/house-of-the-dead-vr

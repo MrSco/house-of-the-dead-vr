@@ -436,8 +436,8 @@ slices: `~/angle/xcframeworks-visionos`, as GoldenEye VR's `tools/build_angle_ap
   its visionOS platform already). The iPhone app's App Store profile serves visionOS too (an iOS App Store profile
   lists iOS, xrOS and visionOS), so `HOTD_PROFILE` is that profile's name; the rest of the account as for
   build_apple.py (`HOTD_TEAM`, `HOTD_KEYCHAIN`, `HOTD_KEYCHAIN_PASS`, `HOTD_ASC_KEY_DIR`, `HOTD_ASC_KEY_ID`,
-  `HOTD_ASC_ISSUER`), from the Mac's desktop session (the keychain): `scripts/apple/testflight.sh visionos BUILD
-  --upload`, which over ssh runs there through `desktop.sh`. Validation
+  `HOTD_ASC_ISSUER`), over plain ssh like the iPhone's (manual signing, the keychain unlocked with its password file):
+  `scripts/apple/testflight.sh visionos BUILD --upload`. Validation
   refused the first archive with no visionOS app icon (error 90970, CFBundleIcons.CFBundlePrimaryIcon), so the app
   has one now: `src/visionos/Assets.xcassets`, a round solid image stack (`python scripts/make_icons.py visionos`:
   the square icon as the opaque back layer, clear middle and front layers). Export compliance comes from
@@ -569,8 +569,8 @@ libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANG
   GoldenEye VR's Apple TV app is: `python3 scripts/build_tvos.py device --archive BUILD [--upload]` makes the App
   Store archive and .ipa with that build number and sends it (altool, validated first), with the account as
   build_apple.py's (`HOTD_TEAM`, `HOTD_KEYCHAIN`, `HOTD_KEYCHAIN_PASS`, `HOTD_ASC_KEY_DIR`, `HOTD_ASC_KEY_ID`,
-  `HOTD_ASC_ISSUER`), from the Mac's desktop session (`scripts/apple/testflight.sh tvos BUILD --upload`, through
-  `desktop.sh` over ssh). Two things App Store Connect needed first, both done through
+  `HOTD_ASC_ISSUER`), over plain ssh like the iPhone's (`scripts/apple/testflight.sh tvos BUILD --upload`; the screen
+  may be locked). Two things App Store Connect needed first, both done through
   the API with the team's key: Apple TV as a platform of the app record (an App Store version for tvOS, `POST
   /v1/appStoreVersions` with `platform: TV_OS`; it stays "Prepare for submission", nothing is sent for review), and a
   tvOS App Store profile (`profileType: TVOS_APP_STORE`, the bundle id and the Apple Distribution certificate; named

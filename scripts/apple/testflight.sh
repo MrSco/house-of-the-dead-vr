@@ -12,7 +12,9 @@
 # --upload sends it to TestFlight; then the archive (its dSYMs) moves to HOTD_ARCHIVES/<platform>/<version>-<build>.
 # Without --upload it stays in the checkout's build_<platform>/testflight-<version>-<build>.
 #
-# Over ssh, Apple TV and Vision Pro builds run in the Mac's desktop session (desktop.sh) unless --here.
+# All three sign the same way (manual signing, the signing keychain unlocked with its password file), so they run over
+# plain ssh too, screen locked or not. (Only dev-install.sh's development builds, with Xcode's automatic signing, need
+# the desktop session.) --here is accepted and ignored, for old callers.
 . "$(dirname "$0")/lib.sh"
 hotd_env
 
@@ -47,11 +49,6 @@ fi
 case "$build" in *[!0-9]*) die "the build number must be a number: $build" ;; esac
 [ -n "$profile" ] || die "no profile for $plat in the settings (HOTD_PROFILE_$(echo "$plat" | tr a-z A-Z))"
 hotd_checkout "$dir"
-
-if [ "$plat" != ios ] && [ -z "$here" ] && hotd_over_ssh; then
-    cd "$HOTD_CHECKOUT" || exit 1
-    exec bash "$HOTD_APPLE_DIR/desktop.sh" bash "$HOTD_APPLE_DIR/testflight.sh" --here "$plat" "$build" ${upload:+--upload}
-fi
 
 cd "$HOTD_CHECKOUT" || exit 1
 echo "[testflight] $plat build $build from $HOTD_CHECKOUT${upload:+, to TestFlight}"

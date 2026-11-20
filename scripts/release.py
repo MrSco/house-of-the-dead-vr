@@ -183,7 +183,7 @@ def main():
             run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py'), '--dest', MAC_DIR])
         builds = testflight_builds(a)
         log('TestFlight: ' + ', '.join('%s build %d' % kv for kv in builds.items()))
-        for p, b in builds.items():   # (Apple TV and Vision Pro in the Mac's desktop session: testflight.sh sees to it)
+        for p, b in builds.items():   # (all three over plain ssh, as the iPhone's)
             run(['ssh', MAC, 'cd ~/%s && bash scripts/apple/testflight.sh %s %d --upload' % (MAC_DIR, p, b)])
             log('TestFlight: v%s %s build %d uploaded (App Store Connect processes it, then it reaches the testers)' % (v, p, b))
     if not a.no_build:   # every build's crash symbols (the TestFlight archives' dSYMs too) to the private repository
