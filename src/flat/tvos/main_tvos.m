@@ -601,7 +601,7 @@ static NSMutableSet *passed_presses;   // presses UIKit keeps (the Menu that goe
     self.controllerUserInteractionEnabled = top_level();   // (the top: Menu goes to UIKit, which leaves the app)
     {   // no screensaver while someone plays or online play is on: tvOS suspends an app under it, and online the
         // partner's game would wait (they may play while this player only watches); the attract scenes alone may have it.
-        // (A player in the game by its state: host_player_playing is 0 for both in a two-player game, docs/vr.md.)
+        // (A player in the game by its state: in a scene too, where host_player_playing is 0.)
         const BOOL busy = online_session() || host_player_playing(0) || host_player_playing(1) ||
                           host_player_state(0) == HOST_P_IN || host_player_state(1) == HOST_P_IN;
         if (UIApplication.sharedApplication.idleTimerDisabled != busy) {

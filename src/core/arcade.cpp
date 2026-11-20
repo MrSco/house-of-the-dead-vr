@@ -985,22 +985,24 @@ void draw_crosshair(std::vector<uint16_t> &px, uint16_t gx, uint16_t gy, uint16_
     if (gx <= gun.x_min || gx >= gun.x_max || gy <= gun.y_min || gy >= gun.y_max) return; // off the screen
     const int x = int(float(gx - gun.x_min) * float(rt::Video::W) / float(gun.x_max - gun.x_min));
     const int y = int(float(gy - gun.y_min) * float(rt::Video::H) / float(gun.y_max - gun.y_min));
-    auto put = [&](int u, int v) {
-        if (u >= 0 && u < rt::Video::W && v >= 0 && v < rt::Video::H) px[size_t(v) * rt::Video::W + size_t(u)] = colour;
+    auto put = [&](int u, int v, uint16_t c) {
+        if (u >= 0 && u < rt::Video::W && v >= 0 && v < rt::Video::H) px[size_t(v) * rt::Video::W + size_t(u)] = c;
     };
     if (port_crosshair_big) { // a TV: longer ticks, three pixels thick, in a black outline, and a dot in the middle
         auto tick = [&](uint16_t c, int grow) {
             for (int d = 4 - grow; d <= 14 + grow; d++)
-                for (int t = -1 - grow; t <= 1 + grow; t++) put(x + d, y + t), put(x - d, y + t), put(x + t, y + d), put(x + t, y - d);
+                for (int t = -1 - grow; t <= 1 + grow; t++)
+                    put(x + d, y + t, c), put(x - d, y + t, c), put(x + t, y + d, c), put(x + t, y - d, c);
             for (int v = -1 - grow; v <= 1 + grow; v++)
-                for (int u = -1 - grow; u <= 1 + grow; u++) put(x + u, y + v);
+                for (int u = -1 - grow; u <= 1 + grow; u++) put(x + u, y + v, c);
         };
         tick(0x0000, 1);
         tick(colour, 0);
         return;
     }
     for (int d = 3; d <= 9; d++) // four ticks around the aim, two pixels thick
-        for (int t = 0; t < 2; t++) put(x + d, y + t), put(x - d, y + t), put(x + t, y + d), put(x + t, y - d);
+        for (int t = 0; t < 2; t++)
+            put(x + d, y + t, colour), put(x - d, y + t, colour), put(x + t, y + d, colour), put(x + t, y - d, colour);
 }
 // "SHOOT OUTSIDE OF THE SCREEN !" (orange letters outlined in blue, under the RELOAD sign, when the trigger is pulled
 // on an empty gun) says the reload gesture's step instead when one is on (quest_xr.c's arcade_reload_step), in the
@@ -1153,21 +1155,24 @@ std::vector<uint8_t> restart_state;
 std::atomic<int> restart_wanted{0};
 uint32_t game_crc() { return the_game->board().state_hash(); } // online play's checksum (arcade_net)
 
-// The players' bullets and lives in work RAM (found with tools/m2probe: RAM at every shot of the scripted games):
-// lives at 0x51f290 (player 1) and 0x51f294 (player 2), bullets at 0x51f2c1 and 0x51f38d (each player's block
-// 0xcc bytes). A player with no lives left (game over, the continue countdown, the attract) isn't in the game.
+// The players' bullets and lives in work RAM (found with tools/m2probe: RAM at every shot of the scripted games, and
+// the two-player dumps of docs/vr.md): each player's block 0xcc bytes apart, lives at 0x51f290 / 0x51f35c, bullets at
+// 0x51f2c1 / 0x51f38d, the state byte at 0x51f284 / 0x51f350. A player with no lives left (game over, the continue
+// countdown, the attract) isn't in the game.
 void update_ammo(rt::GameLoop &game) {
     rt::M2Board &b = game.board();
     for (int p = 0; p < 2; p++) {
-        const uint8_t lives = b.read_byte(p ? 0x0051f294 : 0x0051f290);
+        const uint8_t lives = b.read_byte(p ? 0x0051f35c : 0x0051f290);
         const uint8_t ammo = b.read_byte(p ? 0x0051f38d : 0x0051f2c1);
+        const uint8_t state = b.read_byte(p ? 0x0051f350 : 0x0051f284);
         g_ammo[p] = lives > 0 && ammo <= 6 ? int(ammo) : -1;
-        // In play: a game (0x51f4a0: 0 the title, 1 a game, 2 the attract demo) out of its cut scenes (the phase,
-        // 0x51f4b4 / 0x51f4b5 for players 1 / 2: 4 a cut scene, 1..3 play), the player alive. Found by which
-        // trigger pulls the game takes (m2probe RAM dumps, docs/vr.md).
-        const uint8_t mode = b.read_byte(0x0051f4a0), phase = b.read_byte(p ? 0x0051f4b5 : 0x0051f4b4);
-        g_playing[p] = mode == 1 && phase >= 1 && phase <= 3 && lives > 0;
-        g_state[p] = b.read_byte(p ? 0x0051f350 : 0x0051f284);
+        // In play: the player in the game (the state byte: 5, not the continue countdown, the title, the attract
+        // demo or a player 2 who never joined) out of its cut scenes (the phase, 0x51f4b4 / 0x51f4b5 for players 1 /
+        // 2: 4 a cut scene, 1..3 play), alive. Found by which trigger pulls the game takes (m2probe RAM dumps,
+        // docs/vr.md). (0x51f4a0 counts the players in the game: 2 in any two-player game, so it can't say this.)
+        const uint8_t phase = b.read_byte(p ? 0x0051f4b5 : 0x0051f4b4);
+        g_playing[p] = state == HOST_P_IN && phase >= 1 && phase <= 3 && lives > 0;
+        g_state[p] = state;
     }
 }
 

@@ -528,9 +528,9 @@ void flat_players_frame(void) {
     const int on = (s1 && s1 != HOST_P_RANKING && s1 != HOST_P_NONE) || (s2 && s2 != HOST_P_RANKING && s2 != HOST_P_NONE);
     {   // (the log: each player's state and play, for the tests)
         static int was = -1;
-        const int now = s1 | s2 << 8 | host_player_playing(0) << 16 | on << 17;
-        if (now != was) LOGI("players: game %s; player 1 state %d%s, player 2 state %d", on ? "on" : "off", s1,
-                             host_player_playing(0) ? " (playing)" : "", s2);
+        const int now = s1 | s2 << 8 | host_player_playing(0) << 16 | host_player_playing(1) << 17 | on << 18;
+        if (now != was) LOGI("players: game %s; player 1 state %d%s, player 2 state %d%s", on ? "on" : "off", s1,
+                             host_player_playing(0) ? " (playing)" : "", s2, host_player_playing(1) ? " (playing)" : "");
         was = now;
     }
     if (P.game_on && !on) {
