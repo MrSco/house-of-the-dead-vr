@@ -16,6 +16,7 @@
 // Files: the app's Documents (the Files app shows it) hold arcade/ (the ROM set), save/, port.log, vr-options.cfg
 // (the menu's settings) and env.txt (KEY=VALUE lines: QUEST_SCALE and the QUEST_TEST_* switches, as on the Quest).
 #include "vos.h"
+#include "vos_bridging.h"   // (vosPickerDone: QUEST_TEST_PICK)
 #include <android/asset_manager.h>   // (src/visionos/shim: the bundle's files)
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
@@ -2448,6 +2449,29 @@ void vos_shell_frame(const VosInput *in) {
             else if (!strncmp(what, "joinip:", 7)) { online_set_join_ip(what + 7); online_join_ip(); }
             else if (!strcmp(what, "leave")) online_leave();
             else if (!strncmp(what, "join:", 5)) online_join_code(what + 5);
+        }
+    }
+    {   // QUEST_TEST_PICK=seconds[,file] (env.txt, tests; the simulator has no pinch): on the setup page, that long
+        // after the first frame, opens the document picker's window as a pinch does; with a file (in Documents), 3 s
+        // later answers as the picker does when you choose it (a copy in the temporary folder, moved into arcade/)
+        static double at = -1; static XrTime t0; static char file[128];
+        if (at < 0) { const char *e = getenv("QUEST_TEST_PICK"); at = e ? atof(e) : 0; if (e && strchr(e, ',')) snprintf(file, sizeof file, "%s", strchr(e, ',') + 1); t0 = t; }
+        const double s = (double)(t - t0) / 1e9;
+        if (at > 0 && s >= at && S.need_files && !S.import_started) { LOGI("test: the picker"); S.import_started = 1; start_import(); }
+        if (at > 0 && file[0] && s >= at + 3) {
+            char src[700], dst[700], buf[1 << 16];
+            snprintf(src, sizeof src, "%s/%s", S.files, file);
+            const char *tmp = getenv("TMPDIR");
+            snprintf(dst, sizeof dst, "%s/%s", tmp ? tmp : S.files, strrchr(file, '/') ? strrchr(file, '/') + 1 : file);
+            FILE *in_f = fopen(src, "rb"), *out_f = in_f ? fopen(dst, "wb") : NULL;
+            size_t n;
+            int ok = in_f && out_f;
+            while (ok && (n = fread(buf, 1, sizeof buf, in_f)) > 0) ok = fwrite(buf, 1, n, out_f) == n;
+            if (in_f) fclose(in_f);
+            if (out_f && fclose(out_f)) ok = 0;
+            LOGI("test: the picker chose %s (%s)", file, ok ? "copied" : "could not copy");
+            vosPickerDone(ok ? 1 : -1, ok ? dst : NULL);
+            file[0] = 0;
         }
     }
     {   // QUEST_TEST_TALK=1 (env.txt, tests): push to talk, held the whole time (voice frames sent without a voice)
