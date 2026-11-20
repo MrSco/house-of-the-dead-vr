@@ -189,12 +189,20 @@ def image_base(path, family):
 
 
 def repo_path(p):
-    """a build machine's path as one in the repository (src/..., gen/... stay; the rest goes)"""
+    """a build's source path as one in the repository (src/..., gen/... for the recompiled game). Builds since 0.6.1
+    give them relative to the checkout already (./src/...: cmake/prefix_map.cmake), the home folder's as ~/...; older
+    builds' absolute ones lose the build machine's folders (the Mac's checkouts were ~/src/<folder>/)."""
     p = p.replace('\\', '/')
-    if p.startswith('./'): p = p[2:]
-    m = re.search(r'(?:^|/)((?:src|gen|build_quest|third_party|extern|tools)/.*)$', p)
-    if m: p = m.group(1)
+    # (a relative name after its compilation folder: build_houseofthedead/android/hotd/./src/..., .../hotd/~/...)
+    m = re.search(r'^.*/(\./|~/)', p)
+    if m: p = p[m.start(1):]
+    rel = not re.match(r'^(?:[A-Za-z]:)?/|^~', p)
+    while p.startswith('./'): p = p[2:]
     m = re.search(r'(?:^|/)build_houseofthedead/recomp/[^/]+/(gen/.*)$', p)
+    if m: return m.group(1)
+    if rel: return p
+    p = re.sub(r'^/(?:Users|home)/[^/]+/src/[^/]+/', '', p)
+    m = re.search(r'(?:^|/)((?:src|gen|build_quest|third_party|extern|tools)/.*)$', p)
     return m.group(1) if m else p
 
 

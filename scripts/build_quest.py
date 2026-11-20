@@ -27,6 +27,7 @@ import sys
 ARCADE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import quest_tools as port  # noqa: E402
+import build_info  # noqa: E402
 
 PKG = 'com.mrsco.hotdvr'
 LABEL = 'House of the Dead VR'
@@ -100,7 +101,8 @@ def main():
             import shutil
             shutil.copy2(s, d)
     target = '--target=aarch64-linux-android%d' % port.QUEST_API
-    base = [tools['clang'], target, '-fPIC', '-O2', '-fno-strict-aliasing', '-ffp-contract=off']
+    # (no build machine's folders in the library: its __FILE__s, Opus's assert messages, and its line tables)
+    base = [tools['clang'], target, '-fPIC', '-O2', '-fno-strict-aliasing', '-ffp-contract=off'] + build_info.prefix_map_flags(ARCADE)
     sflags = ['-Wall', '-Wno-unused-function', '-gline-tables-only', '-DHOTD_ARCADE', '-Isrc', '-Isrc/quest', '-Isrc/xr', '-Isrc/core', '-Isrc/net',
               '-Ibuild_quest/glue', '-I' + sdl_inc, '-I' + xr_inc]
     shared = ['src/core/host_sdl.c', 'build_quest/glue/android_native_app_glue.c',

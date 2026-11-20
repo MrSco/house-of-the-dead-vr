@@ -81,6 +81,9 @@ if(NOT IOS AND NOT CMAKE_SYSTEM_NAME STREQUAL "tvOS")
         # without its debug map (the build machine's paths)
         COMMAND dsymutil "$<TARGET_FILE:hotdvr_mac>" -o "${CMAKE_BINARY_DIR}/House of the Dead VR.app.dSYM"
         COMMAND strip -S "$<TARGET_FILE:hotdvr_mac>"
+        # ANGLE's copies without their debug maps either (the paths of the machine that built ANGLE; ~/angle itself
+        # stays as it is: GoldenEye VR's builds share it)
+        COMMAND strip -S -x "${M2_APP}/Contents/Frameworks/libEGL.dylib" "${M2_APP}/Contents/Frameworks/libGLESv2.dylib"
         COMMAND codesign --force --deep --sign - "${M2_APP}"
         VERBATIM)
 endif()

@@ -23,6 +23,9 @@ pre-release for a version with a suffix, 0.4.1-test.1), created, or its assets r
 release also announces it on Discord (.github/workflows/discord-release.yml). --no-build: what build_release/<version>
 already holds (build, check the downloads, then publish them).
 
+Every download is checked for the build machines' folders and names first (scripts/check_paths.py: C:\\Users\\<name>,
+/Users/<name>, /home/<name>, this machine's user and host names, $HOTD_MAC's): with any, nothing is published.
+
 --testflight: the iPhone and iPad, Apple TV and Vision Pro apps to TestFlight too (or the platforms listed), signed
 for the App Store on the Mac: scripts/apple/testflight.sh in the copy apple_sync.py made, with the account's settings
 the Mac keeps outside the repository (scripts/apple/README.md). Build numbers rise per platform: each one's is the
@@ -168,6 +171,13 @@ def main():
             run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py'), '--dest', MAC_DIR])
         for key, suffix, _ in PLATFORMS:
             if key in keys: build(key, out, 'house-of-the-dead-vr-%s%s' % (v, suffix))
+    # no build machine's folder or name in any download (scripts/check_paths.py): never published with one
+    sys.path.insert(0, os.path.join(ROOT, 'scripts'))
+    import check_paths
+    leaks = check_paths.check([out], log=log)   # (before anything is sent anywhere: TestFlight, the symbols)
+    if leaks:
+        sys.exit('release: build machine paths or names in %d files of build_release/%s (above): not published; '
+                 'fix the build (docs/platforms.md, "Releases") and build again' % (len(leaks), v))
     if a.testflight and not a.no_build:
         if not ('mac' in keys or 'ios' in keys):
             run([sys.executable, os.path.join(ROOT, 'scripts', 'apple_sync.py'), '--dest', MAC_DIR])

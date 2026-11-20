@@ -4,6 +4,9 @@ project(hotd_recomp LANGUAGES C CXX)
 set(M2_GEN_ROOT "${CMAKE_BINARY_DIR}/gen" CACHE PATH
     "Directory containing the recompiled sources: <set>/, <set>_tgp/, <set>_snd/ (hotd/, hotd_tgp/, hotd_snd/)")
 
+# no build machine's folders in __FILE__ or the debug information (the downloads are public: cmake/prefix_map.cmake)
+include(cmake/prefix_map.cmake)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

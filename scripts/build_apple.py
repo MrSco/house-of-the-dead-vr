@@ -80,6 +80,8 @@ def main():
     env['HOTD_VERSION'] = re.search(r'android:versionName="([^"]+)"', quest).group(1)
     env['HOTD_BUILD'] = a.archive or re.search(r'android:versionCode="([^"]+)"', quest).group(1)
     env['HOTD_LIBS'] = libs
+    # ANGLE's frameworks without the paths of the machine that built them (build_info.clean_angle)
+    env['HOTD_ANGLE_FW'] = build_info.clean_angle(os.path.join(angle, 'xcframeworks'), os.path.join(libs, 'angle'))
     env.setdefault('DEVELOPMENT_TEAM', '')
     # (beside its spec: xcodegen writes the paths outside the project relative to it)
     spec_dir = os.path.join(ROOT, 'src', 'flat', 'ios')
@@ -143,6 +145,10 @@ def archive(a, env, spec_dir, libs):
     if not ipas: sys.exit('build_apple: the export made no .ipa')
     ipa = ipas[0]
     print('[apple] App Store ipa: %s' % ipa)
+    # (no build machine's folder or name in what goes to App Store Connect: scripts/check_paths.py)
+    import check_paths
+    if check_paths.check([ipa]):
+        sys.exit("build_apple: the .ipa holds the build machine's paths or names (above): not sent")
     if not a.upload: return
     iss = env['HOTD_ASC_ISSUER']
     if os.path.isfile(iss): iss = open(iss).read().strip()

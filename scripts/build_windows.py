@@ -150,7 +150,9 @@ def main():
         off = ['SDL_STATIC', 'SDL_TEST_LIBRARY', 'SDL_TESTS', 'SDL_EXAMPLES', 'SDL_AUDIO', 'SDL_VIDEO', 'SDL_RENDER', 'SDL_GPU',
                'SDL_CAMERA', 'SDL_DIALOG', 'SDL_POWER', 'SDL_TRAY', 'SDL_INSTALL']
         subprocess.check_call(['cmake', '-S', os.path.join(ROOT, 'extern', 'sdl3'), '-B', sdl_dir, '-G', 'Ninja',
-                               '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_C_COMPILER=cl', '-DSDL_SHARED=ON']
+                               '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_C_COMPILER=cl', '-DSDL_SHARED=ON',
+                               # (no build machine's folders in its __FILE__s: the app's own build does the same)
+                               '-DCMAKE_PROJECT_INCLUDE=' + os.path.join(ROOT, 'cmake', 'prefix_map.cmake').replace(os.sep, '/')]
                               + ['-D%s=OFF' % o for o in off], env=env)
         subprocess.check_call(['cmake', '--build', sdl_dir], env=env)
     else:

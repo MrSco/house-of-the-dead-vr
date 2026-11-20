@@ -729,6 +729,30 @@ the sound in the busiest scenes (frames are skipped there, so the picture is les
 - Apple: an app icon for both; CI for the IPA (as GoldenEye VR's plan: a macOS runner with ANGLE's xcframeworks
   from a release asset); a pad's gyro on Apple and Android (GCController.motion, the pad's sensor).
 
+## Releases
+
+Every download is public, so none may carry a build machine's folders or names. The releases up to 0.6.0 did
+(found 2026-11-20): the Windows exe and SDL3.dll, the Android libraries and the Apple apps had `C:\Users\<name>\...`
+or `/Users/<name>/...` in Opus's and SDL's assert messages (`__FILE__`), and the Apple apps' ANGLE frameworks and
+dylibs in their debug maps (the object files' paths on the Mac that built ANGLE). Since 0.6.1:
+
+- **Every compiler maps the folders out**: `cmake/prefix_map.cmake` (CMake's builds, and SDL3.dll's through
+  `CMAKE_PROJECT_INCLUDE`) and `build_info.prefix_map_flags` (build_quest.py's own compiles). clang's
+  `-ffile-prefix-map` turns the checkout into `.` and the home folder into `~`, in `__FILE__` and the debug
+  information alike (the crash symbols' paths are relative to the repository, as the triage's digest reads them);
+  MSVC's `/d1trimfile` cuts them from `__FILE__` (its PDB keeps them: it only goes to the private crash-symbols
+  release). Only file names change, no floating-point or code-generation flag (`crossplay_check.py`: the same game).
+- **ANGLE's copies are stripped** (`strip -S -x`: their debug maps): the Mac app's in `cmake/flat_apple.cmake`; the
+  iPhone, Apple TV and Vision Pro apps' frameworks by `build_info.clean_angle` into `build_<platform>/angle`, which
+  their Xcode projects embed (`HOTD_ANGLE_FW`). `~/angle` itself is never changed (GoldenEye VR's builds share it);
+  ANGLE's release build has no `__FILE__` strings of its own.
+- **The guard**: `python scripts/check_paths.py [PATH ...]` looks through every file of `build_release/<version>/`,
+  into the zips, APKs and IPAs, for `C:\Users\<name>\`, `/Users/<name>/`, `/home/<name>/` and this machine's user and
+  host names (from the environment, and `$HOTD_MAC`'s: none is written in the script), in 8-bit and UTF-16 text.
+  `release.py` runs it once the downloads are built and stops on any hit, before anything is uploaded or published;
+  the TestFlight archives (`build_apple.py`, `build_tvos.py`, `build_visionos.py --archive`) check their .ipa before
+  sending it.
+
 ## Risks
 
 - **Desync from a compiler or library change.** Guarded by the replay test; a desync shows as a checksum mismatch

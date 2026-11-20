@@ -7,7 +7,8 @@
 # src/flat/tvos/HouseOfTheDeadVR.xcodeproj is git-ignored.
 #
 # From the environment (build_tvos.py sets them):
-#   ANGLE_DIR          ANGLE's one place on the Mac (~/angle): its xcframeworks-tvos
+#   HOTD_ANGLE_FW      build_tvos/angle: ANGLE's xcframeworks (from ~/angle) without their debug maps (the paths of the
+#                      machine that built them: scripts/build_info.py clean_angle)
 #   HOTD_LIBS          build_tvos (the libraries: build_tvos/simulator, build_tvos/device)
 #   HOTD_VERSION       the Quest app's versionName
 #   HOTD_BUILD         its versionCode
@@ -24,6 +25,9 @@ settings:
     ENABLE_BITCODE: "NO"
     ENABLE_USER_SCRIPT_SANDBOXING: "NO"
     ENABLE_DEBUG_DYLIB: "NO"
+    # the app stripped in every build, as an archive is (its dSYM made first, for the crash reports): no debug map,
+    # whose object paths are the build machine's (scripts/check_paths.py)
+    DEPLOYMENT_POSTPROCESSING: "YES"
     # arm64 only: the libraries (and ANGLE) have no Intel simulator slice
     EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
     HOTD_SLICE: device
@@ -55,10 +59,10 @@ targets:
         OTHER_LDFLAGS: "-ObjC -lhotdvr_all -lc++ -lobjc"
     dependencies:
       # ANGLE supplies every gl* and egl* call: its Apple TV slices
-      - framework: "${ANGLE_DIR}/xcframeworks-tvos/libGLESv2.xcframework"
+      - framework: "${HOTD_ANGLE_FW}/libGLESv2.xcframework"
         embed: true
         codeSign: true
-      - framework: "${ANGLE_DIR}/xcframeworks-tvos/libEGL.xcframework"
+      - framework: "${HOTD_ANGLE_FW}/libEGL.xcframework"
         embed: true
         codeSign: true
       - sdk: Foundation.framework

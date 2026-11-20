@@ -6,7 +6,8 @@
 # src/flat/ios/HouseOfTheDeadVR.xcodeproj is git-ignored. As GoldenEye VR's port/ios/project.yml.
 #
 # From the environment (build_apple.py sets them):
-#   ANGLE_DIR          ANGLE's one place on the Mac (~/angle), its xcframeworks
+#   HOTD_ANGLE_FW      build_ios/angle: ANGLE's xcframeworks (from ~/angle) without their debug maps (the paths of the
+#                      machine that built them: scripts/build_info.py clean_angle)
 #   HOTD_LIBS          build_ios (the libraries: build_ios/simulator, build_ios/device)
 #   HOTD_VERSION       0.6.0 (the Quest app's versionName)
 #   HOTD_BUILD         10 (its versionCode)
@@ -23,6 +24,9 @@ settings:
     ENABLE_BITCODE: "NO"
     ENABLE_USER_SCRIPT_SANDBOXING: "NO"
     ENABLE_DEBUG_DYLIB: "NO"
+    # the app stripped in every build, as an archive is (its dSYM made first, for the crash reports): no debug map,
+    # whose object paths are the build machine's (scripts/check_paths.py)
+    DEPLOYMENT_POSTPROCESSING: "YES"
     # arm64 only: the libraries (and ANGLE) have no Intel simulator slice
     EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
     HOTD_SLICE: device
@@ -56,10 +60,10 @@ targets:
         OTHER_LDFLAGS: "-ObjC -lhotdvr_all -lc++ -lobjc"
     dependencies:
       # ANGLE supplies every gl* and egl* call
-      - framework: "${ANGLE_DIR}/xcframeworks/libGLESv2.xcframework"
+      - framework: "${HOTD_ANGLE_FW}/libGLESv2.xcframework"
         embed: true
         codeSign: true
-      - framework: "${ANGLE_DIR}/xcframeworks/libEGL.xcframework"
+      - framework: "${HOTD_ANGLE_FW}/libEGL.xcframework"
         embed: true
         codeSign: true
       - sdk: Foundation.framework

@@ -230,7 +230,9 @@ PC's checkout. [docs/getting-started.md](docs/getting-started.md) goes through i
 | Apple TV, Vision Pro | As above, then `python3 scripts/build_tvos.py` or `python3 scripts/build_visionos.py`, `simulator` or `device` (`--app`) | As above, with ANGLE's tvOS and visionOS slices |
 
 `python scripts/release.py` builds every platform's download from one commit for a release (`--testflight`: the
-iPhone, Apple TV and Vision Pro apps to TestFlight too, through the Mac's `scripts/apple/`), and
+iPhone, Apple TV and Vision Pro apps to TestFlight too, through the Mac's `scripts/apple/`), and refuses to publish
+or upload anything in which `python scripts/check_paths.py` finds a build machine's folder or user name (the builds
+map them out: [docs/platforms.md, "Releases"](docs/platforms.md#releases)), and
 `python scripts/crossplay_check.py` checks that the PC and the Quest compute the same game, bit for bit (run it after
 any compiler, flag or runtime change).
 

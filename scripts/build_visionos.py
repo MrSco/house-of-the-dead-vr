@@ -68,6 +68,8 @@ def main():
     env['HOTD_VERSION'] = re.search(r'android:versionName="([^"]+)"', quest).group(1).split('-')[0]
     env['HOTD_BUILD'] = a.archive or re.search(r'android:versionCode="([^"]+)"', quest).group(1)
     env['HOTD_LIBS'] = libs
+    # ANGLE's frameworks without the paths of the machine that built them (build_info.clean_angle)
+    env['HOTD_ANGLE_FW'] = build_info.clean_angle(os.path.join(angle, 'xcframeworks-visionos'), os.path.join(libs, 'angle'))
     env.setdefault('HOTD_BUNDLE_ID', 'com.mrsco.hotdvr')
     env.setdefault('DEVELOPMENT_TEAM', '')
     spec_dir = os.path.join(ROOT, 'src', 'visionos')
@@ -120,6 +122,10 @@ def archive(a, env, spec_dir, libs):
     ipas = glob.glob(os.path.join(out, 'export', '*.ipa'))
     if not ipas: sys.exit('build_visionos: the export made no .ipa')
     print('[visionos] App Store ipa: %s' % ipas[0])
+    # (no build machine's folder or name in what goes to App Store Connect: scripts/check_paths.py)
+    import check_paths
+    if check_paths.check([ipas[0]]):
+        sys.exit("build_visionos: the .ipa holds the build machine's paths or names (above): not sent")
     if not a.upload: return
     iss = env['HOTD_ASC_ISSUER']
     if os.path.isfile(iss): iss = open(iss).read().strip()
