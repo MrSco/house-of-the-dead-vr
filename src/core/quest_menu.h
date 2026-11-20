@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 enum { QMENU_W = 1120, QMENU_H = 728 };
-enum { QACT_RESUME, QACT_RECENTER, QACT_RESTART, QACT_QUIT, QACT_ARCADE_IMPORT };
+enum { QACT_RESUME, QACT_RECENTER, QACT_RESTART, QACT_QUIT, QACT_ARCADE_IMPORT, QACT_PC_SWITCH };
 // QACT_RESTART: the game back to its start, as switched on (arcade.cpp arcade_restart), settings and scores kept
 typedef struct QMenuHost {
     int (*get)(int option);              // quest_options.h
@@ -24,6 +24,9 @@ typedef struct QMenuHost {
     // "state \t offered \t - \t message \t test builds 0/1 \t installed"; NULL: no updater in this app)
     const char *update;
     void (*update_cmd)(const char *cmd); // "check", "update", "testbuilds:0" / "testbuilds:1"
+    // HOTDVR.exe (the PC, flat or in a headset): the SYSTEM tab's button to the other mode (QACT_PC_SWITCH: the app
+    // starts again in it, and keeps to it); 0 none (every other app), 1 "PLAY IN VR" (flat), 2 "PLAY ON THE SCREEN"
+    int pc_switch;
 } QMenuHost;
 
 typedef struct QMenuInput {

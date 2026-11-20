@@ -43,6 +43,9 @@ static QMenuHost host(void) {
     h.flat = true;
     h.touch = flat_os_touch() != 0;
     h.reports = flat_os_has_reports() != 0;
+#ifdef _WIN32
+    h.pc_switch = 1;                     // HOTDVR.exe: PLAY IN VR (the SYSTEM tab)
+#endif
     {   // FLAT_TEST_UPDATE=state|offered|-|message|tests|installed (tests): the SYSTEM tab's update line with that
         // status (the Quest's updater's, '|' for its tabs), its buttons logged
         static int on = -1; static char line[512];
@@ -73,6 +76,9 @@ static void menu_action(int a) {
         arcade_restart();
     } else if (a == QACT_QUIT) flat_os_quit();
     else if (a == QACT_ARCADE_IMPORT) flat_os_import_rom();
+#ifdef _WIN32
+    else if (a == QACT_PC_SWITCH) flat_os_pc_switch();
+#endif
 }
 
 void flat_menu_key(int key) {

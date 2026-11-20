@@ -59,6 +59,9 @@ int flat_os_touch(void);                // a touch screen (the menu's layout)
 // crash reports (Windows: platform/windows/crash_win.c), at start before the game thread; elsewhere none yet
 void flat_os_crash_reports(const char *files, const int *opt);
 int flat_os_has_reports(void);
+#ifdef _WIN32
+void flat_os_pc_switch(void);           // HOTDVR.exe: start again in the VR headset (and keep to it)
+#endif
 
 // GL helpers for the panel (flat.c)
 unsigned flat_gl_program(const char *vs, const char *fs);

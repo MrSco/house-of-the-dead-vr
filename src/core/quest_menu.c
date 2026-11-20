@@ -1090,6 +1090,14 @@ static void layout(int which) {
                    "Choose your MAME ROM set of the game (hotd.zip or hotd.7z, Revision A). The app restarts with it."))
             H->action(QACT_ARCADE_IMPORT);
         if (H->update) update_line(CX0 + 316, by);   // (updates: the apps that have an updater)
+        else if (H->pc_switch) {                     // HOTDVR.exe: VR or the screen
+            const int id = ID(K_ROW, QOPT_COUNT + 3);
+            focusable(id, F_BUTTON, CX0 + 316 + 160);
+            if (button(id, CX0 + 316, by, 320, 48, H->pc_switch == 1 ? "PLAY IN VR" : "PLAY ON THE SCREEN", UI_B20, 0,
+                       H->pc_switch == 1 ? "Starts again in your VR headset (SteamVR, Quest Link, Virtual Desktop: the OpenXR runtime that is on), and does so from now on."
+                                         : "Starts again on the screen, with the mouse, and does so from now on. PLAY IN VR in this tab comes back."))
+                H->action(QACT_PC_SWITCH);
+        }
         next_row();
     }
     else online_tab();

@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""The game on Windows, flat (docs/platforms.md, P1): HOTDVR.exe, and a zip to hand out.
+"""The game on Windows (docs/platforms.md, P1 and P4): HOTDVR.exe, flat or in a VR headset, and a zip to hand out.
 
   python scripts/build_windows.py [--run] [--zip]
 
 The app: src/flat (the flat shell: win/main_win.c, the picture, the app round the game), src/core (the game's bridge,
 the renderer, the menu, voice chat), src/net (online play) and src/platform/windows (WASAPI, WGL, the OS), with the
-runtime and the generated code. Built with Visual Studio's MSVC (/fp:strict: the same game as the Quest's, bit for
+runtime and the generated code; src/xr (the VR shell, as the Quest's) with its Windows host (xr_win.c) and Khronos's
+OpenXR loader (openxr_loader.dll, fetched from the OpenXR SDK's release), for PCVR. Built with Visual Studio's MSVC (/fp:strict: the same game as the Quest's, bit for
 bit) and Ninja, in Visual Studio's own environment (vcvars64).
 
 Needs the generated code first (python scripts/recompile.py --game houseofthedead). The ROM set is the player's:
 files/arcade/hotd.zip (or hotd.7z) beside the exe.
 
   --run   start it afterwards (with the files folder beside it)
-  --zip   build_windows/HOTDVR-<version>-windows.zip: HOTDVR.exe, SDL3.dll (game pads), no ROM
+  --zip   build_windows/HOTDVR-<version>-windows.zip: HOTDVR.exe, SDL3.dll (game pads), openxr_loader.dll and
+          assets/ (the VR guns, hands, cabinet), no ROM
 """
 import argparse
 import json
@@ -21,6 +23,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,6 +33,36 @@ import quest_tools as port  # noqa: E402
 SET = 'hotd'
 BDIR = os.path.join(ROOT, 'build_houseofthedead', 'win', SET)
 OUT = os.path.join(ROOT, 'build_windows')
+
+
+# Khronos's OpenXR loader for Windows (x64, its own headers), from the OpenXR SDK's release: PCVR (src/xr/xr_win.c)
+OPENXR_WIN_VER = '1.1.53'
+OPENXR_WIN_URL = ('https://github.com/KhronosGroup/OpenXR-SDK/releases/download/release-%s/OpenXR.Loader.%s.nupkg'
+                  % (OPENXR_WIN_VER, OPENXR_WIN_VER))
+OPENXR_WIN_SHA256 = '203a721b28acaea6602722f0c01f516e4b77f10aaf9d19b1066969d0324bdf64'
+
+
+def openxr_win():
+    """The loader's headers, import library and DLL in third_party/quest/openxr-loader-<ver>-win (fetched once)."""
+    d = os.path.join(port.THIRD_PARTY, 'openxr-loader-%s-win' % OPENXR_WIN_VER)
+    if os.path.exists(os.path.join(d, 'bin', 'openxr_loader.dll')): return d
+    dl = os.path.join(port.THIRD_PARTY, 'dl')
+    os.makedirs(dl, exist_ok=True)
+    pkg = os.path.join(dl, 'OpenXR.Loader.%s.nupkg' % OPENXR_WIN_VER)
+    if not os.path.exists(pkg) or port.sha256(pkg) != OPENXR_WIN_SHA256:
+        port.log('downloading the OpenXR loader for Windows %s' % OPENXR_WIN_VER)
+        urllib.request.urlretrieve(OPENXR_WIN_URL, pkg)
+    if port.sha256(pkg) != OPENXR_WIN_SHA256: sys.exit('build_windows: %s is not the expected download' % pkg)
+    with zipfile.ZipFile(pkg) as z:
+        for n in z.namelist():
+            out = None
+            if n.startswith('include/openxr/') and n.endswith('.h'): out = os.path.join(d, 'include', 'openxr', os.path.basename(n))
+            elif n == 'native/x64/release/lib/openxr_loader.lib': out = os.path.join(d, 'lib', 'openxr_loader.lib')
+            elif n == 'native/x64/release/bin/openxr_loader.dll': out = os.path.join(d, 'bin', 'openxr_loader.dll')
+            if out:
+                os.makedirs(os.path.dirname(out), exist_ok=True)
+                open(out, 'wb').write(z.read(n))
+    return d
 
 
 def vs_env():
@@ -99,13 +132,14 @@ def main():
     # the SDL2 headers and the voice libraries (shared with the Quest build's third_party/quest)
     port.quest_thirdparty()
     port.voice_jobs([])
+    xr = openxr_win()
     env = vs_env()
     # (/Z7: debug information in every object, for HOTDVR.pdb: the crash reports' frames get names from it)
     subprocess.check_call(['cmake', '-S', ROOT, '-B', BDIR, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
                            '-DCMAKE_C_COMPILER=cl', '-DCMAKE_CXX_COMPILER=cl',
                            '-DCMAKE_C_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Z7', '-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Z7',
                            '-DM2_ROMSET=' + SET, '-DM2_GAME=houseofthedead', '-DM2_SPIN_SKIP=ON',
-                           '-DM2_GEN_ROOT=' + gen.replace('\\', '/')], env=env)
+                           '-DM2_GEN_ROOT=' + gen.replace('\\', '/'), '-DM2_OPENXR_WIN=' + xr.replace('\\', '/')], env=env)
     subprocess.check_call(['cmake', '--build', BDIR, '--target', 'hotdvr'], env=env)
     # SDL3.dll for the game pads (pad_win.c loads it at run time: HOTDVR.exe's own host_sdl.c is the SDL the game
     # sees, so it cannot link SDL itself): the gamepad, joystick and sensor parts only
@@ -123,6 +157,12 @@ def main():
     exe = os.path.join(OUT, 'HOTDVR.exe')
     shutil.copy2(os.path.join(BDIR, 'HOTDVR.exe'), exe)
     if os.path.exists(os.path.join(sdl_dir, 'SDL3.dll')): shutil.copy2(os.path.join(sdl_dir, 'SDL3.dll'), os.path.join(OUT, 'SDL3.dll'))
+    # PCVR: the OpenXR loader (HOTDVR.exe delay-loads it: flat without it) and the VR app's models and sounds
+    shutil.copy2(os.path.join(xr, 'bin', 'openxr_loader.dll'), os.path.join(OUT, 'openxr_loader.dll'))
+    assets = os.path.join(OUT, 'assets')
+    os.makedirs(assets, exist_ok=True)
+    for n in sorted(os.listdir(os.path.join(ROOT, 'src', 'quest', 'assets'))):
+        shutil.copy2(os.path.join(ROOT, 'src', 'quest', 'assets', n), os.path.join(assets, n))
     port.log('built %s' % exe)
     # its PDB, kept by build id (crash_win.c's: the PDB's GUID and age) for the crash reports' frames
     bid = pdb_id(exe)
@@ -136,6 +176,8 @@ def main():
         with zipfile.ZipFile(z, 'w', zipfile.ZIP_DEFLATED) as f:
             f.write(exe, 'HOTDVR/HOTDVR.exe')
             if os.path.exists(os.path.join(OUT, 'SDL3.dll')): f.write(os.path.join(OUT, 'SDL3.dll'), 'HOTDVR/SDL3.dll')
+            f.write(os.path.join(OUT, 'openxr_loader.dll'), 'HOTDVR/openxr_loader.dll')
+            for n in sorted(os.listdir(assets)): f.write(os.path.join(assets, n), 'HOTDVR/assets/' + n)
             f.writestr('HOTDVR/files/arcade/PUT hotd.zip HERE.txt',
                        'Your own MAME ROM set of The House of the Dead (hotd, Revision A), as hotd.zip or hotd.7z, goes in this folder.\r\n')
         port.log('zip %s' % z)

@@ -20,6 +20,7 @@ typedef ptrdiff_t GLintptr;
 typedef float GLfloat;
 
 #define GL_ARRAY_BUFFER 0x8892
+#define GL_ELEMENT_ARRAY_BUFFER 0x8893
 #define GL_STATIC_DRAW 0x88E4
 #define GL_STREAM_DRAW 0x88E0
 #define GL_DYNAMIC_DRAW 0x88E8
@@ -69,6 +70,10 @@ typedef float GLfloat;
     X(void, glBlitFramebuffer, (GLint sx0, GLint sy0, GLint sx1, GLint sy1, GLint dx0, GLint dy0, GLint dx1, GLint dy1, GLbitfield mask, GLenum filter)) \
     X(void, glBufferData, (GLenum target, GLsizeiptr size, const void *data, GLenum usage)) \
     X(GLenum, glCheckFramebufferStatus, (GLenum target)) \
+    X(void, glDeleteBuffers, (GLsizei n, const GLuint *buffers)) \
+    X(void, glDeleteProgram, (GLuint program)) \
+    X(void, glDeleteVertexArrays, (GLsizei n, const GLuint *arrays)) \
+    X(void, glUniform3f, (GLint location, GLfloat v0, GLfloat v1, GLfloat v2)) \
     X(void, glCompileShader, (GLuint shader)) \
     X(GLuint, glCreateProgram, (void)) \
     X(GLuint, glCreateShader, (GLenum type)) \
@@ -116,12 +121,15 @@ PLAT_GL_FUNCS(PLAT_GL_DECLARE)
 #define glBlitFramebuffer plat_glBlitFramebuffer
 #define glBufferData plat_glBufferData
 #define glCheckFramebufferStatus plat_glCheckFramebufferStatus
+#define glDeleteBuffers plat_glDeleteBuffers
 #define glCompileShader plat_glCompileShader
 #define glCreateProgram plat_glCreateProgram
 #define glCreateShader plat_glCreateShader
 #define glDeleteFramebuffers plat_glDeleteFramebuffers
+#define glDeleteProgram plat_glDeleteProgram
 #define glDeleteRenderbuffers plat_glDeleteRenderbuffers
 #define glDeleteShader plat_glDeleteShader
+#define glDeleteVertexArrays plat_glDeleteVertexArrays
 #define glDisableVertexAttribArray plat_glDisableVertexAttribArray
 #define glEnableVertexAttribArray plat_glEnableVertexAttribArray
 #define glFramebufferRenderbuffer plat_glFramebufferRenderbuffer
@@ -144,6 +152,7 @@ PLAT_GL_FUNCS(PLAT_GL_DECLARE)
 #define glUniform1f plat_glUniform1f
 #define glUniform1i plat_glUniform1i
 #define glUniform2f plat_glUniform2f
+#define glUniform3f plat_glUniform3f
 #define glUniform4f plat_glUniform4f
 #define glUniformMatrix4fv plat_glUniformMatrix4fv
 #define glUseProgram plat_glUseProgram
