@@ -1,6 +1,8 @@
-// Meta Quest host: OpenXR + OpenGL ES 3 on a NativeActivity (no Java).
+// The VR shell (docs/vr.md, docs/platforms.md "src/xr"): OpenXR + OpenGL (ES) 3, shared by the Quest app (its host:
+// src/quest/quest_main.c, a NativeActivity with EGL and GL ES) and PCVR (src/xr/xr_win.c: HOTDVR.exe with WGL and
+// desktop GL 3.3 on any OpenXR runtime: SteamVR, Meta's (Link), Virtual Desktop's). xr.h is the seam between the two.
 //
-// The recompiled arcade game runs on its own thread (SDL_main in arcade_quest.cpp, against quest_sdl.c) at the
+// The recompiled arcade game runs on its own thread (SDL_main in arcade.cpp, against host_sdl.c) at the
 // arcade's 57.52 frames a second, publishing each frame's world in 3D (m2_vr.h, drawn by m2_gl.c; d3d_vr.h's VrScene
 // for the guns' aim); this thread runs the headset at its display rate and draws, every display frame, the newest
 // game scene for both eyes:
@@ -21,24 +23,40 @@
 // is in your right hand, your left, or both (the hand that fired last aims). Hand tracking: the hand's aim ray aims,
 // an index pinch fires and clicks in the menu, the off hand's middle-finger pinch is A / X (coins, Start, skip), the left
 // palm's menu gesture opens the menu (XR_FB_hand_tracking_aim,
-// with the simple controller profile as well).
+// with the simple controller profile as well). On a PC a thumbstick's double click opens the menu too (SteamVR keeps
+// the left menu button for its dashboard; Index controllers have none).
 //
-// Files: the app's external files dir (/sdcard/Android/data/<package>/files) holds game/ (your game folder), save/,
-// port.log, vr-options.cfg (the menu's settings) and env.txt (KEY=VALUE lines, the PORT_* switches of the other
-// builds plus QUEST_HZ, QUEST_RES_SCALE, QUEST_SCALE, which override the settings).
-#include <android_native_app_glue.h>
-#include <android/asset_manager.h>
+// Files: the files folder (Quest: the app's external files dir, /sdcard/Android/data/<package>/files; PC: "files"
+// beside HOTDVR.exe) holds arcade/ (your ROM set), save/, port.log, vr-options.cfg (the menu's settings) and env.txt
+// (KEY=VALUE lines, the PORT_* switches of the other builds plus QUEST_HZ, QUEST_RES_SCALE, QUEST_SCALE, which
+// override the settings).
+#if defined(__ANDROID__)
 #include <android/log.h>
+#include <android/native_activity.h>
 #include <jni.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
+#include <unistd.h>
 #define XR_USE_PLATFORM_ANDROID
 #define XR_USE_GRAPHICS_API_OPENGL_ES
+#define XR_GLES 1
+#define XR_GLSL "#version 300 es\n"
+#else
+#include "platform/gl.h"
+#include <unknwn.h>          // (IUnknown, for openxr_platform.h: WIN32_LEAN_AND_MEAN leaves it out)
+#undef near                 // (windows.h's, for 16-bit pointers: names here)
+#undef far
+#define XR_USE_PLATFORM_WIN32
+#define XR_USE_GRAPHICS_API_OPENGL
+#define XR_GLES 0
+#define XR_GLSL PLAT_GLSL_VERSION
+#endif
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include <SDL.h>
+#include "xr.h"
 #include "quest.h"
 #include "d3d_vr.h"
 #include "quest_gun.h"
@@ -48,30 +66,34 @@
 #include "ui_font_data.h"
 #include "quest_menu.h"
 #include "quest_options.h"
-#include "quest_report.h"
 #include "online.h"
 #include "voice.h"
-#include "platform/android/android.h"
 #include "netplay.h"
-#include "m2_vr.h"            // the arcade game's polygons (src/quest, scripts/build_quest.py there)
-#include <errno.h>
+#include "m2_vr.h"            // the arcade game's polygons (src/core/m2_gl.c draws them)
+#include "platform/platform.h"
 #include <math.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <dlfcn.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <ucontext.h>
-#include <dirent.h>
-#include <strings.h>
 
+#if XR_GLES
+typedef XrSwapchainImageOpenGLESKHR XrSwapchainImageGL;
+#define XR_TYPE_SWAPCHAIN_IMAGE_GL XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR
+#define XR_GL_ENABLE_EXTENSION_NAME XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME
+#else
+typedef XrSwapchainImageOpenGLKHR XrSwapchainImageGL;
+#define XR_TYPE_SWAPCHAIN_IMAGE_GL XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR
+#define XR_GL_ENABLE_EXTENSION_NAME XR_KHR_OPENGL_ENABLE_EXTENSION_NAME
+#endif
+
+#if defined(__ANDROID__)
 #define TAG "hotdvr"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+#else
+#define LOGI(...) plat_log(PLAT_LOG_INFO, __VA_ARGS__)
+#define LOGE(...) plat_log(PLAT_LOG_ERROR, __VA_ARGS__)
+#endif
 
 // The screen: 4:3, 2 m wide, 2.4 m ahead, centred at eye height where the app started (LOCAL space; the system's
 // recenter moves it in front of you again).
@@ -94,25 +116,32 @@ static float scr_w = 2.0f, scr_h = 1.5f, scr_y = -0.05f, scr_z = -2.4f;
 #define MAG_BOTTOM_Y (-0.135f)
 
 static struct {
-    struct android_app *app;
     char files[512];
-    int resumed, finishing;
     volatile int exit_requested, game_done, game_failed, game_tid;
-    // EGL
-    EGLDisplay dpy; EGLConfig cfg; EGLContext ctx; EGLSurface pbuf;
     // OpenXR
     XrInstance inst; XrSystemId sys; XrSession sess; XrSessionState state; int running;
     XrSpace local, stage;
     XrViewConfigurationView vcv[2];
-    XrSwapchain sc[2]; uint32_t sc_count[2]; XrSwapchainImageOpenGLESKHR *sc_img[2]; int sc_w, sc_h;
+    XrSwapchain sc[2]; uint32_t sc_count[2]; XrSwapchainImageGL *sc_img[2]; int sc_w, sc_h;
     XrActionSet aset; XrAction a_aim, a_fire, a_reload, a_back, a_skip, a_menu, a_mode, a_stick, a_haptic; XrPath hand[2]; XrSpace aim[2];
     XrSpace viewsp;
     PFN_xrEnumerateDisplayRefreshRatesFB enum_rates; PFN_xrRequestDisplayRefreshRateFB req_rate;
-    PFN_xrSetAndroidApplicationThreadKHR set_thread; PFN_xrPerfSettingsSetPerformanceLevelEXT perf_level;
+#if XR_GLES
+    PFN_xrSetAndroidApplicationThreadKHR set_thread;
+#endif
+    PFN_xrPerfSettingsSetPerformanceLevelEXT perf_level;
+    int steamvr;                         // the runtime is SteamVR (its quirks: xr_win.c, the menu's double click)
     // GL
     GLuint fbo, depth_rb, prog_col, prog_tex, screen_tex; int tex_w, tex_h, ms;
     GLint u_col_mvp, u_tex_mvp, u_tex_size;
+#if XR_GLES
     PFNGLFRAMEBUFFERTEXTURE2DMULTISAMPLEEXTPROC fb_tex_ms; PFNGLRENDERBUFFERSTORAGEMULTISAMPLEEXTPROC rb_ms;
+#else
+    // desktop GL: the eyes and the cabinet's picture drawn multisampled into renderbuffers, then resolved (blit) into
+    // the swapchain's image or cab_tex through resolve_fbo
+    GLuint ms_color, cab_ms_color, resolve_fbo;
+    GLenum sc_fmt;                       // the swapchains' format (an MSAA resolve needs the same on both sides)
+#endif
     uint32_t *frame;
     // the game's scene (d3d_vr.h)
     int cabinet;                         // 0 immersive, 1 the arcade room
@@ -200,172 +229,25 @@ static int xr_ok(XrResult r, const char *what) {
 }
 #define XR(call) xr_ok((call), #call)
 
-// ---------------------------------------------------------------- stdout / stderr -> logcat
-static int log_fd[2];
-static void *log_reader(void *a) {
-    (void)a;
-    char line[2048];
-    FILE *f = fdopen(log_fd[0], "r");
-    while (f && fgets(line, sizeof line, f)) __android_log_write(ANDROID_LOG_INFO, "hotd", line);
-    return NULL;
-}
-static void log_redirect(void) {
-    setvbuf(stdout, NULL, _IOLBF, 0);
-    setvbuf(stderr, NULL, _IONBF, 0);
-    if (pipe(log_fd)) return;
-    dup2(log_fd[1], 1);
-    dup2(log_fd[1], 2);
-    pthread_t t;
-    pthread_create(&t, NULL, log_reader, NULL);
-    pthread_detach(t);
-}
-
-// ---------------------------------------------------------------- files
+// ---------------------------------------------------------------- files and settings
+#if XR_GLES   // (HOTDVR.exe: flat_app.c's, linked beside it)
 const char *quest_files_dir(void) { return S.files; }
-static void apply_options(void);
-// ---------------------------------------------------------------- crashes -> crash.txt
-// A crash (a bad pointer, an abort) appends to crash.txt in the files folder: the signal, the faulting address and
-// the call chain (pc, lr, then the frame pointers), each as library+offset, which llvm-symbolizer turns into source
-// lines with build_quest's unstripped libhotdvr.so (the build-id line names it). Then the default action runs (the
-// system's own report). The next start sends it as a crash report (quest_report.c) when Crash reports is on.
-static int crash_fd = -1;
-static char crash_build[64];
-static void crash_put(const char *s) { if (crash_fd >= 0 && write(crash_fd, s, strlen(s)) < 0) {} }
-static void crash_addr(const char *what, uintptr_t a) {
-    char b[300];
-    Dl_info di;
-    if (a && dladdr((void *)a, &di) && di.dli_fname) {
-        const char *f = strrchr(di.dli_fname, '/');
-        snprintf(b, sizeof b, "  %s %s+0x%lx (%s)\n", what, f ? f + 1 : di.dli_fname, (unsigned long)(a - (uintptr_t)di.dli_fbase),
-                 di.dli_sname ? di.dli_sname : "?");
-    } else snprintf(b, sizeof b, "  %s %p\n", what, (void *)a);
-    crash_put(b);
-}
-static void on_crash(int sig, siginfo_t *si, void *ctx) {
-    ucontext_t *uc = ctx;
-    char b[200];
-    snprintf(b, sizeof b, "crash: signal %d code %d addr %p thread %d\n", sig, si->si_code, si->si_addr, gettid());
-    crash_put(b);
-    crash_put(crash_build);
-#if defined(__aarch64__)
-    crash_addr("pc", (uintptr_t)uc->uc_mcontext.pc);
-    crash_addr("lr", (uintptr_t)uc->uc_mcontext.regs[30]);
-    uintptr_t *fp = (uintptr_t *)uc->uc_mcontext.regs[29];
-    for (int i = 0; i < 48 && fp && ((uintptr_t)fp & 7) == 0; i++) {
-        uintptr_t next = fp[0], ret = fp[1];
-        crash_addr("at", ret);
-        if (next <= (uintptr_t)fp) break;
-        fp = (uintptr_t *)next;
-    }
 #endif
-    signal(sig, SIG_DFL);
-    raise(sig);
-}
-static void crash_handler(const char *dir) {
-    char p[600];
-    snprintf(p, sizeof p, "%s/crash.txt", dir);
-    crash_fd = open(p, O_WRONLY | O_CREAT | O_APPEND, 0660);
-    snprintf(crash_build, sizeof crash_build, "  build-id %s\n", qreport_build_id());
-    struct sigaction sa;
-    memset(&sa, 0, sizeof sa);
-    sa.sa_sigaction = on_crash;
-    sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
-    static const int sigs[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT };
-    for (int i = 0; i < 5; i++) sigaction(sigs[i], &sa, NULL);
-}
+static void apply_options(void);
+static void request_restart(void) { S.restart_requested = 1; }
+int xr_restart_requested(void) { return S.restart_requested; }
 static void mkdirs(const char *p) {
     char b[600];
     snprintf(b, sizeof b, "%s", p);
-    for (char *s = b + 1; *s; s++) if (*s == '/') { *s = 0; mkdir(b, 0775); *s = '/'; }
-    mkdir(b, 0775);
+    for (char *s = b + 1; *s; s++) if (*s == '/') { *s = 0; plat_mkdir(b); *s = '/'; }
+    plat_mkdir(b);
 }
-static void request_restart(void);
-// An online game hosted on the local network hears a partner's search (a broadcast) only once Wi-Fi's multicast
-// filter is lifted (WifiManager.MulticastLock, held for the rest of the run)
-static void multicast_lock(void) {
-    ANativeActivity *a = S.app->activity;
-    JNIEnv *env;
-    if ((*a->vm)->AttachCurrentThread(a->vm, &env, NULL) != JNI_OK) return;
-    jclass ac = (*env)->GetObjectClass(env, a->clazz);
-    jobject app = (*env)->CallObjectMethod(env, a->clazz, (*env)->GetMethodID(env, ac, "getApplicationContext", "()Landroid/content/Context;"));
-    jobject wifi = app ? (*env)->CallObjectMethod(env, app, (*env)->GetMethodID(env, (*env)->GetObjectClass(env, app), "getSystemService",
-                                                  "(Ljava/lang/String;)Ljava/lang/Object;"), (*env)->NewStringUTF(env, "wifi")) : NULL;
-    if (wifi && !(*env)->ExceptionCheck(env)) {
-        jclass wc = (*env)->GetObjectClass(env, wifi);
-        jobject lk = (*env)->CallObjectMethod(env, wifi, (*env)->GetMethodID(env, wc, "createMulticastLock",
-                                              "(Ljava/lang/String;)Landroid/net/wifi/WifiManager$MulticastLock;"), (*env)->NewStringUTF(env, "hotdvr-lan"));
-        if (lk && !(*env)->ExceptionCheck(env)) {
-            jclass lc = (*env)->GetObjectClass(env, lk);
-            (*env)->CallVoidMethod(env, lk, (*env)->GetMethodID(env, lc, "setReferenceCounted", "(Z)V"), JNI_FALSE);
-            (*env)->CallVoidMethod(env, lk, (*env)->GetMethodID(env, lc, "acquire", "()V"));
-            (*env)->NewGlobalRef(env, lk);
-        }
-    }
-    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionDescribe(env); (*env)->ExceptionClear(env); LOGE("Wi-Fi multicast lock refused"); }
-    else LOGI("Wi-Fi multicast lock held");
-    (*a->vm)->DetachCurrentThread(a->vm);
-}
-// ---------------------------------------------------------------- updates (src/quest/java/.../Updater.java)
-// The project's GitHub releases: checked once a launch and from the SYSTEM tab, which shows the status (polled while
-// the menu is open) and starts the update (UpdateActivity, a 2D panel). The class through the app's class loader:
-// FindClass from this thread sees only the system's.
-static struct { jclass cls; jmethodID status, command; char line[512]; double polled; } UPD;
-static int upd_env(JNIEnv **env) { return (*S.app->activity->vm)->AttachCurrentThread(S.app->activity->vm, env, NULL) == JNI_OK; }
-static void upd_done(JNIEnv *env, const char *what) {
-    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionDescribe(env); (*env)->ExceptionClear(env); LOGE("updater: %s failed", what); }
-    (*S.app->activity->vm)->DetachCurrentThread(S.app->activity->vm);
-}
-static void updater_command(const char *cmd) {
-    JNIEnv *env;
-    if (!UPD.cls || !upd_env(&env)) return;
-    jstring s = (*env)->NewStringUTF(env, cmd);
-    (*env)->CallStaticVoidMethod(env, UPD.cls, UPD.command, s);
-    upd_done(env, cmd);
-    UPD.polled = -1;   // (the status again at once)
-    LOGI("updater: %s", cmd);
-}
-static void updater_poll(double now) {
-    if (!UPD.cls || (now - UPD.polled < 0.3 && UPD.polled >= 0)) return;
-    UPD.polled = now;
-    JNIEnv *env;
-    if (!upd_env(&env)) return;
-    jstring s = (jstring)(*env)->CallStaticObjectMethod(env, UPD.cls, UPD.status);
-    if (s && !(*env)->ExceptionCheck(env)) {
-        const char *c = (*env)->GetStringUTFChars(env, s, NULL);
-        if (c) { snprintf(UPD.line, sizeof UPD.line, "%s", c); (*env)->ReleaseStringUTFChars(env, s, c); }
-    }
-    upd_done(env, "status");
-}
-static void updater_start(void) {
-    ANativeActivity *a = S.app->activity;
-    JNIEnv *env;
-    if (!upd_env(&env)) return;
-    jclass ac = (*env)->GetObjectClass(env, a->clazz);
-    jobject loader = (*env)->CallObjectMethod(env, a->clazz, (*env)->GetMethodID(env, ac, "getClassLoader", "()Ljava/lang/ClassLoader;"));
-    jclass lc = loader ? (*env)->GetObjectClass(env, loader) : NULL;
-    jclass cls = lc ? (jclass)(*env)->CallObjectMethod(env, loader, (*env)->GetMethodID(env, lc, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;"),
-                                                       (*env)->NewStringUTF(env, "com.mrsco.hotdvr.Updater")) : NULL;
-    if (cls && !(*env)->ExceptionCheck(env)) {
-        jmethodID init = (*env)->GetStaticMethodID(env, cls, "init", "(Landroid/content/Context;)V");
-        UPD.status = (*env)->GetStaticMethodID(env, cls, "status", "()Ljava/lang/String;");
-        UPD.command = (*env)->GetStaticMethodID(env, cls, "command", "(Ljava/lang/String;)V");
-        if (init && UPD.status && UPD.command && !(*env)->ExceptionCheck(env)) {
-            (*env)->CallStaticVoidMethod(env, cls, init, a->clazz);
-            if (!(*env)->ExceptionCheck(env)) UPD.cls = (jclass)(*env)->NewGlobalRef(env, cls);
-        }
-    }
-    upd_done(env, "start");
-    if (UPD.cls) updater_command("check");   // one look a launch
-}
-static void setup_files(void) {
-    const char *d = S.app->activity->externalDataPath ? S.app->activity->externalDataPath : S.app->activity->internalDataPath;
-    snprintf(S.files, sizeof S.files, "%s", d ? d : "/sdcard/hotdvr");
+// The host made the files folder and went into it (port.log, PORT_SHOT pictures land there)
+void xr_setup(const char *files) {
+    snprintf(S.files, sizeof S.files, "%s", files);
     char p[600];
-    mkdirs(S.files);
     snprintf(p, sizeof p, "%s/game", S.files); mkdirs(p);
     snprintf(p, sizeof p, "%s/save", S.files); mkdirs(p);
-    if (chdir(S.files)) LOGE("chdir %s: %s", S.files, strerror(errno));   // port.log, PORT_SHOT pictures land here
-    crash_handler(S.files);
     // env.txt: KEY=VALUE per line
     FILE *f = fopen("env.txt", "r");
     static char line[8192];                 // (PORT_INPUT scripts are long)
@@ -374,7 +256,7 @@ static void setup_files(void) {
         char *eq = strchr(line, '=');
         if (line[0] == '#' || !eq) continue;
         *eq = 0;
-        setenv(line, eq + 1, 1);
+        plat_setenv(line, eq + 1);
         LOGI("env %s=%s", line, eq + 1);
     }
     if (f) fclose(f);
@@ -392,71 +274,30 @@ static void setup_files(void) {
     S.mag_seated = 1; S.ammo_seen = -1;
     // a settings file the app can't write (copied in over adb: the shell user's) is replaced by its own copy now,
     // so the menu's changes save
-    if (access(op, F_OK) == 0 && access(op, W_OK) != 0) S.opt_saved = qoptions_save(op, S.opt);
+    if (plat_exists(op) && !plat_writable(op)) S.opt_saved = qoptions_save(op, S.opt);
     S.boot_res = S.opt[QOPT_RESOLUTION];
     memset(S.home, 0, sizeof S.home); S.home[0] = S.home[5] = S.home[10] = S.home[15] = 1;
     memcpy(S.home_inv, S.home, sizeof S.home);
     apply_options();
     // a crash in the last run: its report, before the game starts a new port.log (the SYSTEM tab's Crash reports)
-    qreport_start(S.app->activity, S.files, S.opt);
+    xr_os_crash_reports(S.files, S.opt);
     // online co-op (src/net/online.c): this run may be the restart into an online game (online-session.cfg), whose
     // game starts from fresh saves (game_main); voice chat beside it
-    plat_android_set_activity(S.app->activity);   // (the microphone's permission: platform/android/mic.c)
     voice_init();
     online_restart = request_restart;
-    if (online_boot(S.files)) { multicast_lock(); online_start(); apply_options(); }   // (the partner's crosshair)
-    updater_start();
-}
-
-// ---------------------------------------------------------------- restarting the app (online play begins and ends so)
-// RestartActivity (src/quest/java), in a process of its own, waits for this one to end and opens the game again.
-static void request_restart(void) { S.restart_requested = 1; }
-static void relaunch(void) {
-    ANativeActivity *a = S.app->activity;
-    JNIEnv *env;
-    if ((*a->vm)->AttachCurrentThread(a->vm, &env, NULL) != JNI_OK) return;
-    jclass ic = (*env)->FindClass(env, "android/content/Intent"), ac = (*env)->GetObjectClass(env, a->clazz);
-    jobject in = (*env)->NewObject(env, ic, (*env)->GetMethodID(env, ic, "<init>", "()V"));
-    jstring pkg = (jstring)(*env)->CallObjectMethod(env, a->clazz, (*env)->GetMethodID(env, ac, "getPackageName", "()Ljava/lang/String;"));
-    jstring cls = (*env)->NewStringUTF(env, "com.mrsco.hotdvr.RestartActivity"), key = (*env)->NewStringUTF(env, "pid");
-    (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "setClassName", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;"), pkg, cls);
-    (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "putExtra", "(Ljava/lang/String;I)Landroid/content/Intent;"), key, (jint)getpid());
-    (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "addFlags", "(I)Landroid/content/Intent;"), (jint)0x10000000);   // NEW_TASK
-    (*env)->CallVoidMethod(env, a->clazz, (*env)->GetMethodID(env, ac, "startActivity", "(Landroid/content/Intent;)V"), in);
-    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionDescribe(env); (*env)->ExceptionClear(env); LOGE("restart: startActivity failed"); }
-    else LOGI("restart: RestartActivity started");
-    (*a->vm)->DetachCurrentThread(a->vm);
+    if (online_boot(S.files)) { xr_os_online_started(); online_start(); apply_options(); }   // (the partner's crosshair)
 }
 // ---------------------------------------------------------------- your ROM set
-// The app holds none of the game: it plays your own MAME ROM set (hotd, Revision A), which ImportActivity copies into
-// files/arcade (hotd.zip or hotd.7z).
+// The app holds none of the game: it plays your own MAME ROM set (hotd, Revision A), which the host copies into
+// files/arcade (hotd.zip or hotd.7z: the Quest's ImportActivity, the PC's Open dialog).
 static int game_files_ok(char *why, size_t wn) {
     char zip[700];
-    struct stat st;
     snprintf(zip, sizeof zip, "%s/arcade/hotd.zip", S.files);
-    if (!stat(zip, &st)) return 1;
+    if (plat_exists(zip)) return 1;
     snprintf(zip, sizeof zip, "%s/arcade/hotd.7z", S.files);
-    if (!stat(zip, &st)) return 1;
+    if (plat_exists(zip)) return 1;
     snprintf(why, wn, "No ROM set yet.");
     return 0;
-}
-// ImportActivity (src/quest/java), in a process of its own: it lets you choose your ROM set, copies it, ends this
-// process and starts the app again
-static void start_import(void) {
-    ANativeActivity *a = S.app->activity;
-    JNIEnv *env;
-    if ((*a->vm)->AttachCurrentThread(a->vm, &env, NULL) != JNI_OK) return;
-    jclass ic = (*env)->FindClass(env, "android/content/Intent"), ac = (*env)->GetObjectClass(env, a->clazz);
-    jobject in = (*env)->NewObject(env, ic, (*env)->GetMethodID(env, ic, "<init>", "()V"));
-    jstring pkg = (jstring)(*env)->CallObjectMethod(env, a->clazz, (*env)->GetMethodID(env, ac, "getPackageName", "()Ljava/lang/String;"));
-    jstring cls = (*env)->NewStringUTF(env, "com.mrsco.hotdvr.ImportActivity"), key = (*env)->NewStringUTF(env, "pid");
-    (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "setClassName", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;"), pkg, cls);
-    (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "putExtra", "(Ljava/lang/String;I)Landroid/content/Intent;"), key, (jint)getpid());
-    (*env)->CallObjectMethod(env, in, (*env)->GetMethodID(env, ic, "addFlags", "(I)Landroid/content/Intent;"), (jint)0x10000000);   // NEW_TASK
-    (*env)->CallVoidMethod(env, a->clazz, (*env)->GetMethodID(env, ac, "startActivity", "(Landroid/content/Intent;)V"), in);
-    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionDescribe(env); (*env)->ExceptionClear(env); LOGE("import: startActivity failed"); S.import_started = 0; }
-    else LOGI("import: ImportActivity started");
-    (*a->vm)->DetachCurrentThread(a->vm);
 }
 static void show_setup(const char *why) {
     char msg[1600];
@@ -470,24 +311,13 @@ static void show_setup(const char *why) {
     quest_show_message(msg);
 }
 // ---------------------------------------------------------------- the game thread
-static void rm_tree(const char *p) {
-    DIR *d = opendir(p);
-    struct dirent *e;
-    while (d && (e = readdir(d))) {
-        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
-        char q[1024];
-        snprintf(q, sizeof q, "%s/%s", p, e->d_name);
-        struct stat st;
-        if (!lstat(q, &st) && S_ISDIR(st.st_mode)) rm_tree(q); else unlink(q);
-    }
-    if (d) closedir(d);
-    rmdir(p);
-}
-static void *game_main(void *arg) {
+static int game_main(void *arg) {
     (void)arg;
+#if defined(__ANDROID__)
     S.game_tid = gettid();
+#endif
     char game[600], save[600];
-    snprintf(game, sizeof game, "%s/arcade", S.files);      // hotd.zip (arcade_quest.cpp)
+    snprintf(game, sizeof game, "%s/arcade", S.files);      // hotd.zip (arcade.cpp)
     snprintf(save, sizeof save, "%s/save", S.files);
     // Online play (and QUEST_FRESH_SAVE=1, the determinism tests): every player's game starts from the same files, so
     // it saves into a folder of its own that starts empty each time (the game makes its default settings and scores)
@@ -495,7 +325,7 @@ static void *game_main(void *arg) {
         const char *e = getenv("QUEST_FRESH_SAVE");
         if ((e && atoi(e)) || online_session()) {
             snprintf(save, sizeof save, "%s/online-save", S.files);
-            rm_tree(save);
+            plat_rmtree(save);
             mkdirs(save);
             LOGI("fresh save folder %s", save);
         }
@@ -515,16 +345,19 @@ static void *game_main(void *arg) {
     } else {
         S.game_done = 1;
     }
-    return NULL;
+    return 0;
 }
 static void start_game(void) {
-    pthread_attr_t at;
-    pthread_attr_init(&at);
-    pthread_attr_setstacksize(&at, 64u << 20);     // recompiled code nests deeply on the host stack
-    pthread_t t;
-    if (pthread_create(&t, &at, game_main, NULL)) { LOGE("cannot start the game thread"); S.exit_requested = 1; }
-    pthread_attr_destroy(&at);
+    // (recompiled code nests deeply on the host stack)
+    if (!plat_thread_start_stack(game_main, NULL, (size_t)64 << 20)) { LOGE("cannot start the game thread"); S.exit_requested = 1; }
 }
+void xr_start(void) {
+    char why[200];
+    if (game_files_ok(why, sizeof why)) start_game();
+    else { S.need_files = 1; S.need_fire = 1; LOGI("no game files: %s", why); show_setup(why); }
+}
+int xr_should_exit(void) { return S.exit_requested || S.game_done; }
+void xr_menu_toggle(void);
 
 // ---------------------------------------------------------------- matrices (column-major, as GL wants them)
 static void mat_mul(float *o, const float *a, const float *b) {
@@ -691,7 +524,7 @@ static int cabinet_room(void) {
     return r;
 }
 static int gun_cabinet;   // (load_gun: the cabinet's gun is in your hand)
-static void load_reload_lines(struct AAssetManager *am);   // (the reload gesture's lines: below)
+static void load_reload_lines(void);   // (the reload gesture's lines: below)
 // The gun's tilt in your hand at Gun angle 0 (degrees, + raises the barrel): the angle that feels right held as a
 // pistol is (players set -15 on the old 0)
 #define GUN_PITCH_BASE (-15.0f)
@@ -835,16 +668,16 @@ static GLuint program(const char *vs, const char *fs) {
     return p;
 }
 static const char *VS_COL =
-    "#version 300 es\nuniform mat4 mvp;\nlayout(location=0) in vec3 pos;\nlayout(location=1) in vec4 col;\nout vec4 v_col;\n"
+    XR_GLSL "uniform mat4 mvp;\nlayout(location=0) in vec3 pos;\nlayout(location=1) in vec4 col;\nout vec4 v_col;\n"
     "void main() { gl_Position = mvp * vec4(pos, 1.0); v_col = col; }\n";
 static const char *FS_COL =
-    "#version 300 es\nprecision mediump float;\nin vec4 v_col;\nout vec4 o;\nvoid main() { o = v_col; }\n";
+    XR_GLSL "precision mediump float;\nin vec4 v_col;\nout vec4 o;\nvoid main() { o = v_col; }\n";
 static const char *VS_TEX =
-    "#version 300 es\nuniform mat4 mvp;\nlayout(location=0) in vec3 pos;\nlayout(location=1) in vec2 uv;\nout vec2 v_uv;\n"
+    XR_GLSL "uniform mat4 mvp;\nlayout(location=0) in vec3 pos;\nlayout(location=1) in vec2 uv;\nout vec2 v_uv;\n"
     "void main() { gl_Position = mvp * vec4(pos, 1.0); v_uv = uv; }\n";
 // "sharp bilinear": crisp game pixels when magnified, smooth when minified, no shimmer at their edges
 static const char *FS_TEX =
-    "#version 300 es\nprecision highp float;\nuniform sampler2D tex;\nuniform vec2 texsize;\nuniform int alpha;\nin vec2 v_uv;\nout vec4 o;\n"
+    XR_GLSL "precision highp float;\nuniform sampler2D tex;\nuniform vec2 texsize;\nuniform int alpha;\nin vec2 v_uv;\nout vec4 o;\n"
     "void main() {\n"
     "  vec2 px = v_uv * texsize;\n"
     "  vec2 seam = floor(px + 0.5);\n"
@@ -856,11 +689,11 @@ static const char *FS_TEX =
 
 // the turn vignette: clear in the middle, dark towards the edges, the clear part shrinking as vig grows
 static const char *VS_VIG =
-    "#version 300 es\nlayout(location=0) in vec2 pos;\nout vec2 p;\nvoid main() { gl_Position = vec4(pos, 0.0, 1.0); p = pos; }\n";
+    XR_GLSL "layout(location=0) in vec2 pos;\nout vec2 p;\nvoid main() { gl_Position = vec4(pos, 0.0, 1.0); p = pos; }\n";
 // (by each pixel's direction from the eye, through that eye's projection (k: m0, m8, m5, m9): the eyes' views are
 // not centred alike, so a ring in each picture's middle was two rings, out of step; this is one, round where you look)
 static const char *FS_VIG =
-    "#version 300 es\nprecision highp float;\nuniform float vig;\nuniform vec4 k;\nin vec2 p;\nout vec4 o;\n"
+    XR_GLSL "precision highp float;\nuniform float vig;\nuniform vec4 k;\nin vec2 p;\nout vec4 o;\n"
     "void main() {\n"
     "  vec2 t = vec2((p.x + k.y) / k.x, (p.y + k.w) / k.z);\n"   // the ray's tangents (x / -z, y / -z)
     "  float ang = degrees(atan(length(t)));\n"
@@ -870,19 +703,64 @@ static const char *FS_VIG =
     "}\n";
 // the menu's panel: its texture as it is (mipmapped: steady text from any distance)
 static const char *FS_MENU =
-    "#version 300 es\nprecision mediump float;\nuniform sampler2D tex;\nin vec2 v_uv;\nout vec4 o;\n"
+    XR_GLSL "precision mediump float;\nuniform sampler2D tex;\nin vec2 v_uv;\nout vec4 o;\n"
     "void main() { o = texture(tex, v_uv); }\n";
 static void game_gl_init(void);
 static void load_gun(void);
+// A depth (and stencil) renderbuffer of w x h at the eyes' sample count
+static void depth_storage(int w, int h) {
+#if XR_GLES
+    if (S.ms > 1) S.rb_ms(GL_RENDERBUFFER, S.ms, GL_DEPTH24_STENCIL8, w, h);
+#else
+    if (S.ms > 1) glRenderbufferStorageMultisample(GL_RENDERBUFFER, S.ms, GL_DEPTH24_STENCIL8, w, h);
+#endif
+    else glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+}
+// what a framebuffer's depth and stencil held is not needed after it was drawn (a tiler need not write it out)
+static void discard_depth(void) {
+#if XR_GLES
+    const GLenum discard[2] = { GL_DEPTH_ATTACHMENT, GL_STENCIL_ATTACHMENT };
+    glInvalidateFramebuffer(GL_FRAMEBUFFER, 2, discard);
+#endif
+}
+#if !XR_GLES
+// desktop GL: a multisampled colour renderbuffer for an MSAA framebuffer, resolved into a texture by resolve()
+static GLuint ms_color(int w, int h, GLenum fmt) {
+    GLuint rb = 0;
+    glGenRenderbuffers(1, &rb);
+    glBindRenderbuffer(GL_RENDERBUFFER, rb);
+    if (S.ms > 1) glRenderbufferStorageMultisample(GL_RENDERBUFFER, S.ms, fmt, w, h);
+    else glRenderbufferStorage(GL_RENDERBUFFER, fmt, w, h);
+    return rb;
+}
+// a framebuffer (MSAA) resolved into tex (w x h), which then holds the picture
+static void resolve(GLuint from_fbo, GLuint tex, int w, int h) {
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, from_fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, S.resolve_fbo);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+#endif
 static int gl_init(void) {
-    const char *ext = (const char *)glGetString(GL_EXTENSIONS);
     LOGI("GL: %s / %s", glGetString(GL_RENDERER), glGetString(GL_VERSION));
     S.ms = 1;
+#if XR_GLES
+    const char *ext = (const char *)glGetString(GL_EXTENSIONS);
     if (ext && strstr(ext, "GL_EXT_multisampled_render_to_texture")) {
         S.fb_tex_ms = (PFNGLFRAMEBUFFERTEXTURE2DMULTISAMPLEEXTPROC)eglGetProcAddress("glFramebufferTexture2DMultisampleEXT");
         S.rb_ms = (PFNGLRENDERBUFFERSTORAGEMULTISAMPLEEXTPROC)eglGetProcAddress("glRenderbufferStorageMultisampleEXT");
         if (S.fb_tex_ms && S.rb_ms) S.ms = 4;
     }
+#else
+    {   // 4x MSAA (fewer if the driver has fewer); the swapchains are sRGB: GL encodes into them only with this on
+        GLint mx = 0;
+        glGetIntegerv(GL_MAX_SAMPLES, &mx);
+        S.ms = mx >= 4 ? 4 : mx >= 2 ? 2 : 1;
+        glEnable(GL_FRAMEBUFFER_SRGB);
+        glGenFramebuffers(1, &S.resolve_fbo);
+    }
+#endif
     S.prog_col = program(VS_COL, FS_COL);
     S.u_col_mvp = glGetUniformLocation(S.prog_col, "mvp");
     S.prog_tex = program(VS_TEX, FS_TEX);
@@ -894,8 +772,15 @@ static int gl_init(void) {
     glGenFramebuffers(1, &S.fbo);
     glGenRenderbuffers(1, &S.depth_rb);
     glBindRenderbuffer(GL_RENDERBUFFER, S.depth_rb);
-    if (S.ms > 1) S.rb_ms(GL_RENDERBUFFER, S.ms, GL_DEPTH24_STENCIL8, S.sc_w, S.sc_h);
-    else glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, S.sc_w, S.sc_h);
+    depth_storage(S.sc_w, S.sc_h);
+#if !XR_GLES
+    S.ms_color = ms_color(S.sc_w, S.sc_h, S.sc_fmt);
+    glBindFramebuffer(GL_FRAMEBUFFER, S.fbo);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, S.ms_color);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, S.depth_rb);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) LOGE("eye framebuffer incomplete");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#endif
     glGenTextures(1, &S.screen_tex);
     glBindTexture(GL_TEXTURE_2D, S.screen_tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -905,9 +790,9 @@ static int gl_init(void) {
     S.frame = malloc(FRAME_MAX * 4);
     game_gl_init();
     load_gun();
-    S.cab_model = qcab_load(S.app->activity->assetManager, "cabinet.tccab");
-    S.hands_model = qhand_load(S.app->activity->assetManager, "hands.tchand");
-    load_reload_lines(S.app->activity->assetManager);
+    S.cab_model = qcab_load("cabinet.tccab");
+    S.hands_model = qhand_load("hands.tchand");
+    load_reload_lines();
     S.prog_vig = program(VS_VIG, FS_VIG);
     S.u_vig = glGetUniformLocation(S.prog_vig, "vig");
     S.u_vig_k = glGetUniformLocation(S.prog_vig, "k");
@@ -973,10 +858,10 @@ static void load_gun(void) {
     gun_size = S.opt[QOPT_GUN_SIZE];
     gun_cabinet = 0;
     if (gun_kind == QGUN_CABINET) {
-        S.gun_model = qgun_load(S.app->activity->assetManager, net_local == 1 ? "arcade-gun-blue.tcgun" : "arcade-gun.tcgun");
+        S.gun_model = qgun_load(net_local == 1 ? "arcade-gun-blue.tcgun" : "arcade-gun.tcgun");
         if (S.gun_model) gun_cabinet = 1;
     }
-    if (!gun_cabinet) S.gun_model = qgun_load(S.app->activity->assetManager, "player-gun.tcgun");
+    if (!gun_cabinet) S.gun_model = qgun_load("player-gun.tcgun");
     gun_fit(gun_cabinet, gun_size);
 }
 static void game_gl_init(void) {
@@ -991,12 +876,16 @@ static void game_gl_init(void) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glGenRenderbuffers(1, &S.cab_depth);
     glBindRenderbuffer(GL_RENDERBUFFER, S.cab_depth);
-    if (S.ms > 1) S.rb_ms(GL_RENDERBUFFER, S.ms, GL_DEPTH24_STENCIL8, CAB_W, CAB_H);
-    else glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, CAB_W, CAB_H);
+    depth_storage(CAB_W, CAB_H);
     glGenFramebuffers(1, &S.cab_fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, S.cab_fbo);
+#if XR_GLES
     if (S.ms > 1) S.fb_tex_ms(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, S.cab_tex, 0, S.ms);
     else glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, S.cab_tex, 0);
+#else
+    S.cab_ms_color = ms_color(CAB_W, CAB_H, GL_SRGB8_ALPHA8);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, S.cab_ms_color);
+#endif
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, S.cab_depth);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) LOGE("cabinet framebuffer incomplete");
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1146,8 +1035,10 @@ static void render_cabinet_view(void) {
         glDisable(GL_BLEND);
     }
     draw_fade();
-    const GLenum discard[2] = { GL_DEPTH_ATTACHMENT, GL_STENCIL_ATTACHMENT };
-    glInvalidateFramebuffer(GL_FRAMEBUFFER, 2, discard);
+    discard_depth();
+#if !XR_GLES
+    resolve(S.cab_fbo, S.cab_tex, CAB_W, CAB_H);
+#endif
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
@@ -1599,8 +1490,7 @@ static void partner_gun_load(void) {
     if (want == PR.loaded) return;
     PR.loaded = want;
     qgun_use(1);
-    PR.gun_ok = qgun_load(S.app->activity->assetManager,
-                          !PR.kind ? "player-gun.tcgun" : partner_slot() == 1 ? "arcade-gun-blue.tcgun" : "arcade-gun.tcgun");
+    PR.gun_ok = qgun_load(!PR.kind ? "player-gun.tcgun" : partner_slot() == 1 ? "arcade-gun-blue.tcgun" : "arcade-gun.tcgun");
     gun_fit(PR.kind, 100);
     qgun_use(0);
 }
@@ -1864,6 +1754,53 @@ static void pt_update(void) {
     }
     LOGI("passthrough: %s", PT.running ? "on" : "off");
 }
+#if !XR_GLES
+// XR_SHOT=seconds[,seconds...] (env.txt, tests): the left eye's whole picture that long after the first frame, to
+// xr_shot.ppm (then xr_shot2.ppm, ...) in the files folder
+static void shot(GLuint tex) {
+    static int n = -1; static double at[8]; static uint64_t t0;
+    if (n < 0) {
+        n = 0; t0 = plat_now_ns();
+        const char *e = getenv("XR_SHOT");
+        while (e && *e && n < 8) { at[n++] = atof(e); e = strchr(e, ','); if (e) e++; }
+    }
+    static int done;
+    if (done >= n || (double)(plat_now_ns() - t0) / 1e9 < at[done]) return;
+    uint8_t *px = malloc((size_t)S.sc_w * S.sc_h * 4);
+    if (!px) return;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, S.resolve_fbo);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    glReadPixels(0, 0, S.sc_w, S.sc_h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    char name[64];
+    if (done) snprintf(name, sizeof name, "xr_shot%d.ppm", done + 1); else snprintf(name, sizeof name, "xr_shot.ppm");
+    FILE *f = fopen(name, "wb");
+    if (f) {
+        fprintf(f, "P6\n%d %d\n255\n", S.sc_w, S.sc_h);
+        for (int y = S.sc_h - 1; y >= 0; y--)
+            for (int x = 0; x < S.sc_w; x++) fwrite(px + ((size_t)y * S.sc_w + x) * 4, 1, 3, f);
+        fclose(f);
+        LOGI("XR_SHOT: %s (%d x %d, the left eye)", name, S.sc_w, S.sc_h);
+    }
+    free(px);
+    done++;
+}
+// The PC's window shows the left eye (xr_os_mirror): its middle at the window's shape
+static void mirror(GLuint tex) {
+    int ww, wh;
+    if (!xr_os_mirror(&ww, &wh) || ww <= 0 || wh <= 0) return;
+    int sw = S.sc_w * 3 / 4, sh = S.sc_h * 3 / 4;            // (the eye's middle: its edges are the lens's)
+    if (sw * wh > sh * ww) sw = sh * ww / wh; else sh = sw * wh / ww;
+    const int sx = (S.sc_w - sw) / 2, sy = (S.sc_h - sh) / 2;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, S.resolve_fbo);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glDisable(GL_FRAMEBUFFER_SRGB);                         // (the window is not sRGB: the bytes as they are)
+    glBlitFramebuffer(sx, sy, sx + sw, sy + sh, 0, 0, ww, wh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    glEnable(GL_FRAMEBUFFER_SRGB);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+#endif
 static void render_eye(int e, const XrView *view) {
     uint32_t idx;
     XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
@@ -1873,9 +1810,11 @@ static void render_eye(int e, const XrView *view) {
     XR(xrWaitSwapchainImage(S.sc[e], &wi));
     GLuint tex = S.sc_img[e][idx].image;
     glBindFramebuffer(GL_FRAMEBUFFER, S.fbo);
+#if XR_GLES
     if (S.ms > 1) S.fb_tex_ms(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0, S.ms);
     else glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, S.depth_rb);
+#endif
     glViewport(0, 0, S.sc_w, S.sc_h);
     if (!S.cabinet && S.scene) {
         uint32_t c = S.scene->clear;      // the game's background colour beyond what it draws
@@ -1895,8 +1834,11 @@ static void render_eye(int e, const XrView *view) {
     if (S.need_files || S.game_failed) draw_message(p, v, pv);   // the setup page (or why the game didn't start)
     else draw_scene(p, v, pv);
     if (!S.need_files && !S.game_failed && !S.cabinet && !S.screen_scene) m2_gl_draw_face(p, arcade_eye_x[e]);   // a zombie's hit, on your face
-    const GLenum discard[2] = { GL_DEPTH_ATTACHMENT, GL_STENCIL_ATTACHMENT };
-    glInvalidateFramebuffer(GL_FRAMEBUFFER, 2, discard);
+    discard_depth();
+#if !XR_GLES
+    resolve(S.fbo, tex, S.sc_w, S.sc_h);
+    if (e == 0) { shot(tex); mirror(tex); }
+#endif
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     XrSwapchainImageReleaseInfo ri = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     XR(xrReleaseSwapchainImage(S.sc[e], &ri));
@@ -2022,13 +1964,13 @@ static void release_all(void) {
 // 22050 Hz WAVs, the line's rate) to the arcade bridge (arcade_reload_clip), which bakes the one for your step
 // (arcade_reload_step) into the line's place
 void arcade_reload_clip(int step, const int16_t *pcm, int n);
-static void load_reload_lines(struct AAssetManager *am) {
+static void load_reload_lines(void) {
     static const char *const names[3] = { "voice-drop-the-mag.wav", "voice-insert-a-magazine.wav", "voice-rack-the-slide.wav" };
     for (int i = 0; i < 3; i++) {
-        AAsset *a = am ? AAssetManager_open(am, names[i], AASSET_MODE_BUFFER) : NULL;
+        qasset *a = qasset_open(names[i]);
         if (!a) { LOGE("reload line: no asset %s", names[i]); continue; }
-        const uint8_t *b = AAsset_getBuffer(a);
-        const size_t n = (size_t)AAsset_getLength(a);
+        size_t n = 0;
+        const uint8_t *b = qasset_buffer(a, &n);
         int ok = 0;
         if (b && n > 12 && !memcmp(b, "RIFF", 4) && !memcmp(b + 8, "WAVE", 4)) {
             int fmt_ok = 0;
@@ -2052,7 +1994,7 @@ static void load_reload_lines(struct AAssetManager *am) {
                 o += 8 + len + (len & 1);
             }
         }
-        AAsset_close(a);
+        qasset_close(a);
         LOGI("reload line %s: %s", names[i], ok ? "loaded" : "not a 16-bit mono 22050 Hz WAV");
     }
 }
@@ -2162,11 +2104,17 @@ static void menu_action(int a) {
         menu_set_open(0);
         arcade_restart();
     } else if (a == QACT_QUIT) S.exit_requested = 1;
-    else if (a == QACT_ARCADE_IMPORT) start_import();   // ImportActivity ends this run and starts the app again
+    else if (a == QACT_ARCADE_IMPORT) xr_os_import_rom();   // (Quest: ImportActivity ends this run and starts the app again)
+#if !XR_GLES
+    else if (a == QACT_PC_SWITCH) xr_os_pc_switch();
+#endif
 }
 static QMenuHost menu_host(void) {
     QMenuHost h = { opt_get, opt_set, menu_action, S.boot_res, (unsigned)S.sc_w, (unsigned)S.sc_h, S.opt_saved != 0, S.hz_now };
-    if (UPD.cls) h.update = UPD.line, h.update_cmd = updater_command;   // (the SYSTEM tab's updates)
+    if (xr_os_update_line()) h.update = xr_os_update_line(), h.update_cmd = xr_os_update_cmd;   // (the SYSTEM tab's updates)
+#if !XR_GLES
+    h.pc_switch = 2;                    // HOTDVR.exe: PLAY ON THE SCREEN (the SYSTEM tab)
+#endif
     return h;
 }
 // where hand h's ray meets the panel, in menu pixels
@@ -2215,7 +2163,7 @@ static void menu_input(XrTime t) {
         get_stick(k, &x, &y);
         if (fabsf(x) + fabsf(y) > fabsf(in.stick_x) + fabsf(in.stick_y)) { in.stick_x = x; in.stick_y = y; }
     }
-    updater_poll(in.now);
+    xr_os_update_poll(in.now);
     QMenuHost host = menu_host();
     qmenu_update(&host, &in);
 }
@@ -2438,7 +2386,11 @@ static void cabinet_grab(XrTime t) {
 // The reload gesture's step, for the game's RELOAD sign (the arcade bridge writes it there instead) and its "Shoot
 // outside of the screen!" line (said instead: load_reload_lines): 0 none (the sign stays), 1 / 2 drop the magazine
 // with B / Y, 3 put a new one in, 4 rack the slide, 5 aim at the floor
+#if XR_GLES
 volatile int arcade_reload_step;
+#else
+extern volatile int arcade_reload_step;   // (HOTDVR.exe: flat_app.c defines it)
+#endif
 static void reload_step(void) {
     int st = 0, a = host_player_ammo(net_local);
     if (a >= 0 && !S.menu_open && host_player_playing(net_local)) {
@@ -2554,10 +2506,25 @@ static void update_input(XrTime t) {
     // the menu button opens and closes the VR menu (with the game's files missing: quits)
     if (S.need_files) {                     // the setup page: the trigger chooses your game's folder
         int f = fire_down(0) || fire_down(1);
-        if (f && !S.need_fire && !S.import_started) { S.import_started = 1; start_import(); }
+        if (f && !S.need_fire && !S.import_started) S.import_started = xr_os_import_rom();
         S.need_fire = f;
     }
     int menu = get_bool(S.a_menu, XR_NULL_PATH) || HT.menu;
+#if !XR_GLES
+    {   // PC: a thumbstick's double click (two within 0.4 s) is the menu button too (SteamVR opens its dashboard on the
+        // left menu button; the Index has none). A held click still switches the view, a single one still talks.
+        static XrTime last_click[2];
+        static int was[2];
+        for (int h = 0; h < 2; h++) {
+            const int c = get_bool(S.a_mode, S.hand[h]);
+            if (c && !was[h]) {
+                if (last_click[h] && t - last_click[h] < 400000000LL) { menu = 1; last_click[h] = 0; }
+                else last_click[h] = t;
+            }
+            was[h] = c;
+        }
+    }
+#endif
     if (menu && !S.menu) {
         if (S.game_failed || S.need_files) S.exit_requested = 1;
         else menu_set_open(!S.menu_open);
@@ -2739,6 +2706,50 @@ static void setup_actions(void) {
         "haptic", "/user/hand/left/output/haptic", "haptic", "/user/hand/right/output/haptic",
     };
     suggest("/interaction_profiles/khr/simple_controller", simple, sizeof simple / sizeof *simple);
+#if !XR_GLES
+    // PC runtimes: the other controllers SteamVR and Windows have. No menu button on the Index (a thumbstick's double
+    // click opens the menu: update_input)
+    static const char *const index[] = {
+        "aim", "/user/hand/left/input/aim/pose", "aim", "/user/hand/right/input/aim/pose",
+        "fire", "/user/hand/left/input/trigger/click", "fire", "/user/hand/right/input/trigger/click",
+        "reload", "/user/hand/left/input/squeeze/value", "reload", "/user/hand/right/input/squeeze/value",
+        "back", "/user/hand/left/input/b/click", "back", "/user/hand/right/input/b/click",
+        "stick", "/user/hand/left/input/thumbstick", "stick", "/user/hand/right/input/thumbstick",
+        "skip", "/user/hand/left/input/a/click", "skip", "/user/hand/right/input/a/click",
+        "mode", "/user/hand/left/input/thumbstick/click", "mode", "/user/hand/right/input/thumbstick/click",
+        "haptic", "/user/hand/left/output/haptic", "haptic", "/user/hand/right/output/haptic",
+        "trig", "/user/hand/left/input/trigger/value", "trig", "/user/hand/right/input/trigger/value",
+        "thumb", "/user/hand/left/input/thumbstick/touch", "thumb", "/user/hand/right/input/thumbstick/touch",
+        "thumb", "/user/hand/left/input/a/touch", "thumb", "/user/hand/right/input/a/touch",
+        "thumb", "/user/hand/left/input/b/touch", "thumb", "/user/hand/right/input/b/touch",
+    };
+    suggest("/interaction_profiles/valve/index_controller", index, sizeof index / sizeof *index);
+    static const char *const vive[] = {
+        "aim", "/user/hand/left/input/aim/pose", "aim", "/user/hand/right/input/aim/pose",
+        "fire", "/user/hand/left/input/trigger/click", "fire", "/user/hand/right/input/trigger/click",
+        "reload", "/user/hand/left/input/squeeze/click", "reload", "/user/hand/right/input/squeeze/click",
+        "stick", "/user/hand/left/input/trackpad", "stick", "/user/hand/right/input/trackpad",
+        "menu", "/user/hand/left/input/menu/click", "skip", "/user/hand/right/input/menu/click",
+        "mode", "/user/hand/left/input/trackpad/click", "mode", "/user/hand/right/input/trackpad/click",
+        "haptic", "/user/hand/left/output/haptic", "haptic", "/user/hand/right/output/haptic",
+        "trig", "/user/hand/left/input/trigger/value", "trig", "/user/hand/right/input/trigger/value",
+        "thumb", "/user/hand/left/input/trackpad/touch", "thumb", "/user/hand/right/input/trackpad/touch",
+    };
+    suggest("/interaction_profiles/htc/vive_controller", vive, sizeof vive / sizeof *vive);
+    static const char *const wmr[] = {
+        "aim", "/user/hand/left/input/aim/pose", "aim", "/user/hand/right/input/aim/pose",
+        "fire", "/user/hand/left/input/trigger/value", "fire", "/user/hand/right/input/trigger/value",
+        "reload", "/user/hand/left/input/squeeze/click", "reload", "/user/hand/right/input/squeeze/click",
+        "back", "/user/hand/left/input/trackpad/click", "back", "/user/hand/right/input/trackpad/click",
+        "stick", "/user/hand/left/input/thumbstick", "stick", "/user/hand/right/input/thumbstick",
+        "menu", "/user/hand/left/input/menu/click", "skip", "/user/hand/right/input/menu/click",
+        "mode", "/user/hand/left/input/thumbstick/click", "mode", "/user/hand/right/input/thumbstick/click",
+        "haptic", "/user/hand/left/output/haptic", "haptic", "/user/hand/right/output/haptic",
+        "trig", "/user/hand/left/input/trigger/value", "trig", "/user/hand/right/input/trigger/value",
+        "thumb", "/user/hand/left/input/trackpad/touch", "thumb", "/user/hand/right/input/trackpad/touch",
+    };
+    suggest("/interaction_profiles/microsoft/motion_controller", wmr, sizeof wmr / sizeof *wmr);
+#endif
     for (int h = 0; h < 2; h++) {
         XrActionSpaceCreateInfo sc = { XR_TYPE_ACTION_SPACE_CREATE_INFO };
         sc.action = S.a_aim; sc.subactionPath = S.hand[h];
@@ -2750,59 +2761,41 @@ static void setup_actions(void) {
     XR(xrAttachSessionActionSets(S.sess, &at));
 }
 
-static int egl_init(void) {
-    S.dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (!eglInitialize(S.dpy, NULL, NULL)) { LOGE("eglInitialize"); return 0; }
-    const EGLint attr[] = { EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_DEPTH_SIZE, 0,
-                            EGL_STENCIL_SIZE, 0, EGL_SAMPLES, 0, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT_KHR,
-                            EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_NONE };
-    EGLint n = 0;
-    if (!eglChooseConfig(S.dpy, attr, &S.cfg, 1, &n) || !n) { LOGE("eglChooseConfig"); return 0; }
-    const EGLint ca[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
-    S.ctx = eglCreateContext(S.dpy, S.cfg, EGL_NO_CONTEXT, ca);
-    const EGLint pa[] = { EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE };
-    S.pbuf = eglCreatePbufferSurface(S.dpy, S.cfg, pa);
-    if (!S.ctx || !S.pbuf || !eglMakeCurrent(S.dpy, S.pbuf, S.pbuf, S.ctx)) { LOGE("EGL context: %x", eglGetError()); return 0; }
-    return 1;
-}
-
 static int has_ext(const XrExtensionProperties *p, uint32_t n, const char *name) {
     for (uint32_t i = 0; i < n; i++) if (!strcmp(p[i].extensionName, name)) return 1;
     return 0;
 }
-static int xr_init(void) {
-    PFN_xrInitializeLoaderKHR init_loader = NULL;
-    xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR", (PFN_xrVoidFunction *)&init_loader);
-    if (init_loader) {
-        XrLoaderInitInfoAndroidKHR li = { XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR };
-        li.applicationVM = S.app->activity->vm; li.applicationContext = S.app->activity->clazz;
-        XR(init_loader((const XrLoaderInitInfoBaseHeaderKHR *)&li));
-    }
+static char runtime_name[XR_MAX_RUNTIME_NAME_SIZE];
+const char *xr_runtime_name(void) { return runtime_name; }
+static int refresh_ext, threads_ext, perf_ext;
+int xr_instance(void) {
+    xr_os_loader_init();
     uint32_t n = 0;
-    XR(xrEnumerateInstanceExtensionProperties(NULL, 0, &n, NULL));
+    if (!XR(xrEnumerateInstanceExtensionProperties(NULL, 0, &n, NULL))) return 0;   // (no runtime)
     XrExtensionProperties *props = calloc(n ? n : 1, sizeof *props);
     for (uint32_t i = 0; i < n; i++) props[i].type = XR_TYPE_EXTENSION_PROPERTIES;
     XR(xrEnumerateInstanceExtensionProperties(NULL, n, &n, props));
     const char *ext[12];
     uint32_t ne = 0;
-    ext[ne++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
+    if (!has_ext(props, n, XR_GL_ENABLE_EXTENSION_NAME)) { LOGE("OpenXR: the runtime has no %s", XR_GL_ENABLE_EXTENSION_NAME); free(props); return 0; }
+    ext[ne++] = XR_GL_ENABLE_EXTENSION_NAME;
+#if defined(XR_USE_PLATFORM_ANDROID)
     ext[ne++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
-    int refresh = has_ext(props, n, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
-    int threads = has_ext(props, n, XR_KHR_ANDROID_THREAD_SETTINGS_EXTENSION_NAME);
-    int perf = has_ext(props, n, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
-    if (refresh) ext[ne++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
-    if (threads) ext[ne++] = XR_KHR_ANDROID_THREAD_SETTINGS_EXTENSION_NAME;
-    if (perf) ext[ne++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
+    threads_ext = has_ext(props, n, XR_KHR_ANDROID_THREAD_SETTINGS_EXTENSION_NAME);
+    if (threads_ext) ext[ne++] = XR_KHR_ANDROID_THREAD_SETTINGS_EXTENSION_NAME;
+#endif
+    refresh_ext = has_ext(props, n, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+    perf_ext = has_ext(props, n, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+    if (refresh_ext) ext[ne++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
+    if (perf_ext) ext[ne++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
     PT.ext = has_ext(props, n, XR_FB_PASSTHROUGH_EXTENSION_NAME);
     if (PT.ext) ext[ne++] = XR_FB_PASSTHROUGH_EXTENSION_NAME;
     HT.ext = has_ext(props, n, XR_EXT_HAND_TRACKING_EXTENSION_NAME) && has_ext(props, n, XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME);
     if (HT.ext) { ext[ne++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME; ext[ne++] = XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME; }
     free(props);
 
-    XrInstanceCreateInfoAndroidKHR ia = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
-    ia.applicationVM = S.app->activity->vm; ia.applicationActivity = S.app->activity->clazz;
     XrInstanceCreateInfo ci = { XR_TYPE_INSTANCE_CREATE_INFO };
-    ci.next = &ia;
+    ci.next = xr_os_instance_next();
     snprintf(ci.applicationInfo.applicationName, sizeof ci.applicationInfo.applicationName, "HOTD recomp VR");
     snprintf(ci.applicationInfo.engineName, sizeof ci.applicationInfo.engineName, "hotd-recomp");
     ci.applicationInfo.applicationVersion = 1;
@@ -2810,28 +2803,38 @@ static int xr_init(void) {
     ci.enabledExtensionCount = ne; ci.enabledExtensionNames = ext;
     if (!XR(xrCreateInstance(&ci, &S.inst))) return 0;
     XrInstanceProperties ip = { XR_TYPE_INSTANCE_PROPERTIES };
-    if (XR_SUCCEEDED(xrGetInstanceProperties(S.inst, &ip)))
+    if (XR_SUCCEEDED(xrGetInstanceProperties(S.inst, &ip))) {
         LOGI("OpenXR runtime: %s %u.%u.%u", ip.runtimeName, XR_VERSION_MAJOR(ip.runtimeVersion), XR_VERSION_MINOR(ip.runtimeVersion), XR_VERSION_PATCH(ip.runtimeVersion));
-    if (refresh) {
+        snprintf(runtime_name, sizeof runtime_name, "%s", ip.runtimeName);
+        S.steamvr = strstr(ip.runtimeName, "SteamVR") != NULL;
+    }
+    if (refresh_ext) {
         xrGetInstanceProcAddr(S.inst, "xrEnumerateDisplayRefreshRatesFB", (PFN_xrVoidFunction *)&S.enum_rates);
         xrGetInstanceProcAddr(S.inst, "xrRequestDisplayRefreshRateFB", (PFN_xrVoidFunction *)&S.req_rate);
     }
-    if (threads) xrGetInstanceProcAddr(S.inst, "xrSetAndroidApplicationThreadKHR", (PFN_xrVoidFunction *)&S.set_thread);
-    if (perf) xrGetInstanceProcAddr(S.inst, "xrPerfSettingsSetPerformanceLevelEXT", (PFN_xrVoidFunction *)&S.perf_level);
+#if XR_GLES
+    if (threads_ext) xrGetInstanceProcAddr(S.inst, "xrSetAndroidApplicationThreadKHR", (PFN_xrVoidFunction *)&S.set_thread);
+#endif
+    if (perf_ext) xrGetInstanceProcAddr(S.inst, "xrPerfSettingsSetPerformanceLevelEXT", (PFN_xrVoidFunction *)&S.perf_level);
 
     XrSystemGetInfo sg = { XR_TYPE_SYSTEM_GET_INFO };
     sg.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
-    if (!XR(xrGetSystem(S.inst, &sg, &S.sys))) return 0;
-    PFN_xrGetOpenGLESGraphicsRequirementsKHR greq = NULL;
-    xrGetInstanceProcAddr(S.inst, "xrGetOpenGLESGraphicsRequirementsKHR", (PFN_xrVoidFunction *)&greq);
-    XrGraphicsRequirementsOpenGLESKHR gr = { XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR };
-    if (!greq || !XR(greq(S.inst, S.sys, &gr))) return 0;
-    if (!egl_init()) return 0;
-
-    XrGraphicsBindingOpenGLESAndroidKHR gb = { XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR };
-    gb.display = S.dpy; gb.config = S.cfg; gb.context = S.ctx;
+    if (!XR(xrGetSystem(S.inst, &sg, &S.sys))) {        // (a runtime, but no headset on it now)
+        xrDestroyInstance(S.inst);
+        S.inst = XR_NULL_HANDLE;
+        return 0;
+    }
+    {
+        XrSystemProperties sp = { XR_TYPE_SYSTEM_PROPERTIES };
+        if (XR_SUCCEEDED(xrGetSystemProperties(S.inst, S.sys, &sp))) LOGI("OpenXR system: %s", sp.systemName);
+    }
+    return 1;
+}
+int xr_session(void) {
+    const void *binding = NULL;
+    if (!xr_os_graphics_binding(S.inst, S.sys, &binding)) return 0;
     XrSessionCreateInfo sci = { XR_TYPE_SESSION_CREATE_INFO };
-    sci.next = &gb; sci.systemId = S.sys;
+    sci.next = binding; sci.systemId = S.sys;
     if (!XR(xrCreateSession(S.inst, &sci, &S.sess))) return 0;
 
     XrReferenceSpaceCreateInfo rs = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
@@ -2874,6 +2877,10 @@ static int xr_init(void) {
     if (!fmt && nf) fmt = fmts[0];
     free(fmts);
     if (!fmt) { LOGE("no swapchain format"); return 0; }
+#if !XR_GLES
+    S.sc_fmt = (GLenum)fmt;
+    LOGI("swapchains: format 0x%x%s", (unsigned)fmt, fmt == GL_SRGB8_ALPHA8 ? " (sRGB)" : "");
+#endif
     for (int e = 0; e < 2; e++) {
         XrSwapchainCreateInfo sc = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
         sc.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
@@ -2882,25 +2889,28 @@ static int xr_init(void) {
         if (!XR(xrCreateSwapchain(S.sess, &sc, &S.sc[e]))) return 0;
         XR(xrEnumerateSwapchainImages(S.sc[e], 0, &S.sc_count[e], NULL));
         S.sc_img[e] = calloc(S.sc_count[e], sizeof **S.sc_img);
-        for (uint32_t i = 0; i < S.sc_count[e]; i++) S.sc_img[e][i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        for (uint32_t i = 0; i < S.sc_count[e]; i++) S.sc_img[e][i].type = XR_TYPE_SWAPCHAIN_IMAGE_GL;
         XR(xrEnumerateSwapchainImages(S.sc[e], S.sc_count[e], &S.sc_count[e], (XrSwapchainImageBaseHeader *)S.sc_img[e]));
     }
     setup_actions();
     return 1;
 }
+int xr_gl_init(void) { return gl_init(); }
 
 // once the session runs: display rate, thread hints, CPU level
 static void session_started(void) {
     request_rate(1);         // 120 Hz (the default) shows each of the game's 60 frames exactly twice
+#if XR_GLES
     if (S.set_thread) {
         XR(S.set_thread(S.sess, XR_ANDROID_THREAD_TYPE_RENDERER_MAIN_KHR, (uint32_t)gettid()));
         if (S.game_tid) XR(S.set_thread(S.sess, XR_ANDROID_THREAD_TYPE_APPLICATION_MAIN_KHR, (uint32_t)S.game_tid));
     }
+#endif
     // the game is one CPU-bound thread; the room is nothing for the GPU
     if (S.perf_level) XR(S.perf_level(S.sess, XR_PERF_SETTINGS_DOMAIN_CPU_EXT, XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT));
 }
 
-static void poll_xr_events(void) {
+void xr_events(void) {
     XrEventDataBuffer ev = { XR_TYPE_EVENT_DATA_BUFFER };
     while (xrPollEvent(S.inst, &ev) == XR_SUCCESS) {
         if (ev.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
@@ -2941,7 +2951,7 @@ static void poll_xr_events(void) {
     }
 }
 
-static void frame(void) {
+void xr_frame(void) {
     XrFrameWaitInfo wi = { XR_TYPE_FRAME_WAIT_INFO };
     XrFrameState fs = { XR_TYPE_FRAME_STATE };
     if (!XR(xrWaitFrame(S.sess, &wi, &fs))) return;
@@ -2959,7 +2969,7 @@ static void frame(void) {
         // the launch's check found; none: a check)
         static double at = -1; static XrTime t0;
         if (at < 0) { const char *e = getenv("QUEST_TEST_UPDATE"); at = e ? atof(e) : 0; t0 = fs.predictedDisplayTime; }
-        if (at > 0 && (double)(fs.predictedDisplayTime - t0) / 1e9 >= at) { at = 0; LOGI("test: update"); updater_command("update"); }
+        if (at > 0 && (double)(fs.predictedDisplayTime - t0) / 1e9 >= at) { at = 0; LOGI("test: update"); xr_os_update_cmd("update"); }
     }
     {   // QUEST_TEST_ONLINE=seconds,host|hostlan|join:CODE|joinip:IP|leave (env.txt, tests): that ONLINE tab action that long after the
         // first frame. env.txt goes first, so the restart the action makes starts as a player would have it.
@@ -2968,6 +2978,7 @@ static void frame(void) {
         if (at > 0 && (double)(fs.predictedDisplayTime - t0) / 1e9 >= at) {
             at = 0;
             remove("env.txt");
+            plat_setenv("QUEST_TEST_ONLINE", "");   // (PC: the restart inherits this process's environment)
             LOGI("test: online %s", what);
             if (!strcmp(what, "host")) online_host_room();
             else if (!strcmp(what, "hostlan")) online_host_lan();
@@ -3039,6 +3050,20 @@ static void frame(void) {
             layers[nl++] = (const XrCompositionLayerBaseHeader *)&layer;
         }
     }
+#if !XR_GLES
+    {   // every 10 s in port.log: the frames drawn, the session's state, the inputs in hand (tests read it)
+        static int frames, drawn; static uint64_t t0;
+        frames++; drawn += nl > 0;
+        const uint64_t now = plat_now_ns();
+        if (!t0) t0 = now;
+        if (now - t0 >= 10000000000ULL) {
+            LOGI("xr: %d frames in %.1f s, %d drawn; state %d, %s view, aim %d %d, game %s", frames, (double)(now - t0) / 1e9,
+                 drawn, (int)S.state, S.cabinet ? "cabinet" : "immersive", S.aim_ok[0], S.aim_ok[1],
+                 S.game_failed ? "failed" : S.need_files ? "no ROM" : S.scene ? "showing" : "starting");
+            frames = drawn = 0; t0 = now;
+        }
+    }
+#endif
     XrFrameEndInfo ei = { XR_TYPE_FRAME_END_INFO };
     ei.displayTime = fs.predictedDisplayTime;
     ei.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -3046,55 +3071,17 @@ static void frame(void) {
     XR(xrEndFrame(S.sess, &ei));
 }
 
-// ---------------------------------------------------------------- activity
-static void on_cmd(struct android_app *app, int32_t cmd) {
-    (void)app;
-    if (cmd == APP_CMD_RESUME) S.resumed = 1;
-    else if (cmd == APP_CMD_PAUSE) S.resumed = 0;
+// ---------------------------------------------------------------- the host's loop
+int xr_running(void) { return S.running && S.inst; }
+void xr_end_session(void) { if (S.running) XR(xrRequestExitSession(S.sess)); }
+void xr_menu_toggle(void) {
+    if (S.game_failed || S.need_files) S.exit_requested = 1;
+    else menu_set_open(!S.menu_open);
 }
-
-void android_main(struct android_app *app) {
-    S.app = app;
-    app->onAppCmd = on_cmd;
-    log_redirect();
-    setup_files();
-    if (!xr_init() || !gl_init()) {
-        LOGE("OpenXR / GL setup failed");
-        ANativeActivity_finish(app->activity);
-        S.finishing = 1;
-    } else {
-        char why[200];
-        if (game_files_ok(why, sizeof why)) start_game();
-        else { S.need_files = 1; S.need_fire = 1; LOGI("no game files: %s", why); show_setup(why); }
-    }
-    while (!app->destroyRequested) {
-        for (;;) {
-            // block while the activity is paused; otherwise only drain what is there
-            int timeout = (!S.resumed && !S.running) ? -1 : S.running ? 0 : 10;
-            struct android_poll_source *src = NULL;
-            int events;
-            if (ALooper_pollOnce(timeout, NULL, &events, (void **)&src) < 0) break;
-            if (src) src->process(app, src);
-            if (app->destroyRequested) break;
-        }
-        if (app->destroyRequested || !S.inst) break;
-        poll_xr_events();
-        quest_audio_service();
-        if (S.restart_requested && !S.finishing) { relaunch(); S.exit_requested = 1; }
-        if ((S.exit_requested || S.game_done) && !S.finishing) {
-            LOGI("finishing");
-            S.finishing = 1;
-            if (S.running) XR(xrRequestExitSession(S.sess));
-            ANativeActivity_finish(app->activity);
-        }
-        if (S.running) frame();
-    }
-    LOGI("activity destroyed: exiting");
+void xr_quit(void) {
     online_quit();                          // the partner hears us go at once (else they wait out a timeout)
     // The audio stream stops first: its callback thread would run on into what exit()'s destructors tear down (a
-    // crash on every quit, "pthread_mutex_lock called on a destroyed mutex"). Then _exit: no destructors at all, as
-    // the game thread cannot be stopped from outside and is still running; its saves are written as it goes.
+    // crash on every quit, "pthread_mutex_lock called on a destroyed mutex"); the host then ends the process without
+    // them, as the game thread cannot be stopped from outside and is still running; its saves are written as it goes.
     quest_audio_shutdown();
-    fflush(NULL);
-    _exit(0);
 }

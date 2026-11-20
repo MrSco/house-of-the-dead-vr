@@ -3,16 +3,24 @@
 // TCGUN002: "TCGUN002", vertex count, index count (uint32), muzzle (3 floats), then per vertex position, normal,
 // colour (sRGB 0..1) and part (0 body, 1 trigger, 2 slide: they move with the trigger and the recoil), then the
 // indices. TCGUN001 (older): counts, texture size, muzzle; vertices with position, normal, uv; indices; RGBA texels.
-#include <android/asset_manager.h>
+#include "xr.h"
+#if defined(__ANDROID__)
 #include <GLES3/gl3.h>
 #include <android/log.h>
+#define XR_GLSL "#version 300 es\n"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "hotdvr", __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "hotdvr", __VA_ARGS__)
+#else
+#include "platform/gl.h"
+#include "platform/platform.h"
+#define XR_GLSL PLAT_GLSL_VERSION
+#define LOGI(...) plat_log(PLAT_LOG_INFO, __VA_ARGS__)
+#define LOGE(...) plat_log(PLAT_LOG_ERROR, __VA_ARGS__)
+#endif
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "quest_gun.h"
-
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "hotdvr", __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "hotdvr", __VA_ARGS__)
 
 typedef struct { float pos[3], normal[3], uv[2], color[3], part; } GunVertex;
 // two models (qgun_use): yours, and your partner's online (the other colour, or the pistol)
@@ -69,7 +77,7 @@ static GLuint link(const char *vs, const char *fs) {
 
 // The swapchain is sRGB: the shaders work and output in linear light.
 static const char *VS =
-    "#version 300 es\nprecision highp float;\n"
+    XR_GLSL "precision highp float;\n"
     "layout(location=0) in vec3 position; layout(location=1) in vec3 normal; layout(location=2) in vec2 texcoord;\n"
     "layout(location=3) in vec3 vcolor; layout(location=4) in float part;\n"
     "uniform mat4 view, projection, model; uniform float recoil, triggerPull;\n"
@@ -81,7 +89,7 @@ static const char *VS =
     "  p = v.xyz; n = mat3(mv) * normal; uv = texcoord; color = vcolor; gl_Position = projection * v;\n"
     "}\n";
 static const char *FS =
-    "#version 300 es\nprecision highp float;\n"
+    XR_GLSL "precision highp float;\n"
     "in vec3 n, p, color; in vec2 uv; uniform sampler2D albedo; uniform vec3 tint; out vec4 frag;\n"
     "void main() {\n"
     "  vec3 N = normalize(n); if (!gl_FrontFacing) N = -N;\n"
@@ -91,12 +99,12 @@ static const char *FS =
     "  frag = vec4(clamp(base * diffuse + spec, 0.0, 1.0), 1.0);\n"
     "}\n";
 static const char *VS_FLASH =
-    "#version 300 es\nprecision highp float;\n"
+    XR_GLSL "precision highp float;\n"
     "layout(location=0) in vec3 position; layout(location=1) in float edge;\n"
     "uniform mat4 view, projection, model; uniform vec3 tip; uniform float size; out float glow;\n"
     "void main() { glow = edge; gl_Position = projection * view * model * vec4(tip + position * size, 1.0); }\n";
 static const char *FS_FLASH =
-    "#version 300 es\nprecision highp float;\n"
+    XR_GLSL "precision highp float;\n"
     "in float glow; uniform float strength; out vec4 frag;\n"
     "void main() { float a = glow * strength; frag = vec4(vec3(1.0, 0.62 + 0.28 * glow, 0.12 + 0.60 * glow) * a, a); }\n";
 
@@ -113,10 +121,10 @@ static void gun_attribs(void) {
 static float srgb_to_linear(float c) { return c <= .04045f ? c / 12.92f : powf((c + .055f) / 1.055f, 2.4f); }
 
 // reads exactly n bytes from the asset
-static int rd(AAsset *a, void *p, size_t n) { return AAsset_read(a, p, n) == (int)n; }
+static int rd(qasset *a, void *p, size_t n) { return qasset_read(a, p, n); }
 
-int qgun_load(struct AAssetManager *am, const char *name) {
-    AAsset *a = am ? AAssetManager_open(am, name, AASSET_MODE_STREAMING) : NULL;
+int qgun_load(const char *name) {
+    qasset *a = qasset_open(name);
     if (!a) { LOGE("gun: no asset %s", name); return 0; }
     char magic[8];
     uint32_t n[4] = { 0, 0, 1, 1 };
@@ -387,7 +395,7 @@ int qgun_load(struct AAssetManager *am, const char *name) {
     ok = glGetError() == GL_NO_ERROR;
     if (ok) LOGI("gun: %s, %u triangles", name, n[1] / 3);
 done:
-    AAsset_close(a);
+    qasset_close(a);
     free(v); free(idx); free(px);
     if (!ok) { LOGE("gun: %s could not be loaded", name); G.count = 0; }
     return ok;

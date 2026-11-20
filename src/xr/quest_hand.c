@@ -1,17 +1,26 @@
 // The player's hands (quest_hand.h). TCHAND01, written by tools/vr/hands_import.py (the layout is in its header):
 // per hand the vertices at rest (holding the gun's grip), the skeleton at that pose and, for each finger bone, the
 // axis and angle it turns through from open to a fist; one RGBA texture (the skin, the sleeve).
-#include <android/asset_manager.h>
+#include "xr.h"
+#if defined(__ANDROID__)
 #include <GLES3/gl3.h>
 #include <android/log.h>
+#define XR_GLSL "#version 300 es\n"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "hotdvr", __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "hotdvr", __VA_ARGS__)
+#else
+#include "platform/gl.h"
+#include "platform/platform.h"
+#define XR_GLSL PLAT_GLSL_VERSION
+#define LOGI(...) plat_log(PLAT_LOG_INFO, __VA_ARGS__)
+#define LOGE(...) plat_log(PLAT_LOG_ERROR, __VA_ARGS__)
+#endif
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "quest_hand.h"
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "hotdvr", __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "hotdvr", __VA_ARGS__)
 #define MAX_BONES 32
 
 typedef struct { int32_t parent; float local[16], inv[16], axis[3], angle; int32_t finger, joint; } Bone;
@@ -26,7 +35,7 @@ static struct {
 // The swapchain is sRGB: the shaders work in linear light (as quest_gun.c). Back faces (the inside of the sleeve)
 // are dark.
 static const char *VS =
-    "#version 300 es\nprecision highp float;\n"
+    XR_GLSL "precision highp float;\n"
     "layout(location=0) in vec3 position; layout(location=1) in vec3 normal; layout(location=2) in vec2 texcoord;\n"
     "layout(location=3) in vec4 joints; layout(location=4) in vec4 weights;\n"
     "uniform mat4 view, projection, model; uniform mat4 bones[" "32" "];\n"
@@ -38,7 +47,7 @@ static const char *VS =
     "  p = v.xyz; n = mat3(mv) * (mat3(s) * normal); uv = texcoord; gl_Position = projection * v;\n"
     "}\n";
 static const char *FS =
-    "#version 300 es\nprecision highp float;\n"
+    XR_GLSL "precision highp float;\n"
     "in vec3 n, p; in vec2 uv; uniform sampler2D albedo; uniform vec3 tint; out vec4 frag;\n"
     "void main() {\n"
     "  vec3 base = texture(albedo, uv).rgb * tint;\n"
@@ -57,7 +66,7 @@ static GLuint compile(GLenum type, const char *src) {
     if (!ok) { char b[1024]; glGetShaderInfoLog(s, sizeof b, NULL, b); LOGE("hand shader: %s", b); glDeleteShader(s); return 0; }
     return s;
 }
-static int rd(AAsset *a, void *p, size_t n) { return AAsset_read(a, p, n) == (int)n; }
+static int rd(qasset *a, void *p, size_t n) { return qasset_read(a, p, n); }
 
 // column-major 4x4: o = a * b
 static void mul(float *o, const float *a, const float *b) {
@@ -162,8 +171,8 @@ out:
     return holes;
 }
 
-int qhand_load(struct AAssetManager *am, const char *name) {
-    AAsset *a = am ? AAssetManager_open(am, name, AASSET_MODE_STREAMING) : NULL;
+int qhand_load(const char *name) {
+    qasset *a = qasset_open(name);
     if (!a) { LOGE("hands: no asset %s", name); return 0; }
     char magic[8];
     uint32_t hd[4];
@@ -236,7 +245,7 @@ int qhand_load(struct AAssetManager *am, const char *name) {
     ok = glGetError() == GL_NO_ERROR;
     if (ok) LOGI("hands: %s, %d + %d triangles, %u bones", name, H.hand[0].count / 3, H.hand[1].count / 3, hd[0]);
 done:
-    AAsset_close(a);
+    qasset_close(a);
     free(v); free(idx); free(px);
     if (!ok) LOGE("hands: %s could not be loaded", name);
     H.ok = ok;

@@ -8,7 +8,8 @@ Steam Frame's Lepton (com.mrsco.hotdvr.frame, hotdvr-frame.apk: the Quest's mani
 Khronos loader both use); phone, the flat app for Android phones and tablets (com.mrsco.hotdvr.android,
 hotdvr-android.apk: src/flat with its Android front end, no OpenXR).
 
-The app: src/quest (OpenXR, the guns and hands, the cabinet room, voice), src/core (the bridge to the game, the
+The app: src/xr (the VR shell: OpenXR, the guns and hands, the cabinet room), src/quest (its Android host: the
+activity, EGL, crash reports, the updater), src/core (the bridge to the game, the
 Model 2 shading, the menus), src/platform (the OS seam) and src/net (online play), with the runtime and the generated code built by CMake for
 arm64 Android. quest_tools.py finds the Android SDK, fetches the OpenXR loader, SDL2's headers and the voice
 libraries, compiles, packages and signs.
@@ -100,7 +101,7 @@ def main():
             shutil.copy2(s, d)
     target = '--target=aarch64-linux-android%d' % port.QUEST_API
     base = [tools['clang'], target, '-fPIC', '-O2', '-fno-strict-aliasing', '-ffp-contract=off']
-    sflags = ['-Wall', '-Wno-unused-function', '-gline-tables-only', '-DHOTD_ARCADE', '-Isrc', '-Isrc/quest', '-Isrc/core', '-Isrc/net',
+    sflags = ['-Wall', '-Wno-unused-function', '-gline-tables-only', '-DHOTD_ARCADE', '-Isrc', '-Isrc/quest', '-Isrc/xr', '-Isrc/core', '-Isrc/net',
               '-Ibuild_quest/glue', '-I' + sdl_inc, '-I' + xr_inc]
     shared = ['src/core/host_sdl.c', 'build_quest/glue/android_native_app_glue.c',
               'src/core/quest_menu.c', 'src/core/quest_canvas.c', 'src/core/quest_options.c', 'src/core/m2_gl.c',
@@ -111,8 +112,8 @@ def main():
                'src/flat/flat_touch.c']
         sflags = sflags + ['-DHOTD_VOICE']
     else:       # the VR shell
-        app = ['src/quest/quest_xr.c', 'src/quest/quest_gun.c', 'src/quest/quest_hand.c', 'src/quest/quest_report.c',
-               'src/quest/quest_cabinet.c']
+        app = ['src/xr/xr_shell.c', 'src/xr/quest_gun.c', 'src/xr/quest_hand.c', 'src/xr/quest_cabinet.c',
+               'src/quest/quest_main.c', 'src/quest/quest_report.c']
     jobs = [(s, sflags) for s in shared + app] + [(s, sflags) for s in port.net_sources()]
     jobs += port.voice_jobs(sflags)
     objs = port.compile_all(jobs, os.path.join(out, 'obj'), lambda s, o, flags: base + flags + ['-c', s, '-o', o])

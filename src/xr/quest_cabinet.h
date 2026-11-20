@@ -3,8 +3,7 @@
 // Model space: metres, +Y up, the floor at y = 0, the screen's plane at z = 0, the front towards +Z.
 #pragma once
 
-struct AAssetManager;
-int qcab_load(struct AAssetManager *am, const char *asset);   // 0 if missing or broken (the plain cabinet then)
+int qcab_load(const char *asset);   // 0 if missing or broken (the plain cabinet then)
 // view, projection, model: column-major 4x4
 void qcab_draw(const float *view, const float *proj, const float *model);
 // the game's picture: centre x, y, z and half width, half height (model space)

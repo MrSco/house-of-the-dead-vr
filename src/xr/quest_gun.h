@@ -5,13 +5,12 @@
 #pragma once
 #include <math.h>
 
-struct AAssetManager;
 // Two model slots: 0 your gun (the default), 1 your partner's (online). Every call below works on the slot chosen.
 void qgun_use(int slot);
 // The gun in the hand: its model scaled by scale (about the aim pose), then moved (metres, gun space), so the hand's
 // grip and trigger finger meet the gun's. Drawing and every point below (muzzle, grip, cap, butt) take it.
 void qgun_fit(float scale, float dx, float dy, float dz);
-int qgun_load(struct AAssetManager *am, const char *asset);      // 0 if missing or broken (the caller draws boxes)
+int qgun_load(const char *asset);      // 0 if missing or broken (the caller draws boxes)
 // view, projection, model: column-major 4x4. recoil, trigger and flash 0..1; tint multiplies the colours.
 // whole: the gun as loaded, its grip not cut for a magazine (when no magazine reload is on)
 void qgun_draw(const float *view, const float *proj, const float *model, float recoil, float trigger, float flash,

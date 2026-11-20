@@ -76,7 +76,7 @@ jobs:
           prompt: |
             You are triaging an automatic crash report from the Meta Quest 3 VR build of a recompiled PC game
             (The House of the Dead, 1998). The repository is checked out in the working directory: src/ is the port
-            (src/quest/ the Quest layer: OpenXR, the VR menu, the crash reporter), gen/ (not in the repository) is the
+            (src/xr/ the VR shell: OpenXR, the guns, the VR menu; src/quest/ its Android host and the crash reporter), gen/ (not in the repository) is the
             recompiled game code generated from the user's own game files.
 
             Read .triage/context.md first (symbolized frames, the build, the other crash issues), then
@@ -87,7 +87,7 @@ jobs:
 
             1. .triage/analysis.md (GitHub markdown, concise, at most ~60 lines) with these sections:
                ### Summary            one or two sentences
-               ### Likely root cause  the code path, citing repository files as path:line (e.g. src/quest/quest_xr.c:620)
+               ### Likely root cause  the code path, citing repository files as path:line (e.g. src/xr/xr_shell.c:620)
                ### What the player was doing   from port.log's last lines (game state, menu, loading, perf) if it shows
                ### Suggested fix      concrete change(s); a short diff-style snippet if clear
                ### Confidence         high / medium / low, and what would raise it (e.g. symbols missing, more logs)

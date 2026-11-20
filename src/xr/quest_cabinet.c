@@ -2,19 +2,28 @@
 // (uint32; square textures), the screen (5 floats), the cords' anchors (6 floats), per vertex position, normal, uv
 // (8 floats), the indices (uint32), the base colour then the emissive texture (RGBA8, rows from v = 0). Made by
 // tools/cabinet (Blender) from the CC-BY model credited in cabinet.json.
-#include <android/asset_manager.h>
+#include "xr.h"
+#if defined(__ANDROID__)
 #include <GLES3/gl3.h>
 #include <android/log.h>
+#define XR_GLSL "#version 300 es\n"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "hotdvr", __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "hotdvr", __VA_ARGS__)
+#else
+#include "platform/gl.h"
+#include "platform/platform.h"
+#define XR_GLSL PLAT_GLSL_VERSION
+#define LOGI(...) plat_log(PLAT_LOG_INFO, __VA_ARGS__)
+#define LOGE(...) plat_log(PLAT_LOG_ERROR, __VA_ARGS__)
+#endif
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "quest_cabinet.h"
 
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "hotdvr", __VA_ARGS__)
-
 static const char *VS =
-    "#version 300 es\n"
+    XR_GLSL ""
     "uniform mat4 view, projection, model;\n"
     "layout(location = 0) in vec3 pos;\n"
     "layout(location = 1) in vec3 normal;\n"
@@ -28,7 +37,7 @@ static const char *VS =
     "}\n";
 // a dim arcade: a soft light from above and in front, the marquee and the control panel lit from inside
 static const char *FS =
-    "#version 300 es\n"
+    XR_GLSL ""
     "precision mediump float;\n"
     "uniform sampler2D base, emissive;\n"
     "in vec3 v_n;\n"
@@ -58,10 +67,10 @@ static GLuint shader(GLenum type, const char *src) {
     if (!ok) { char log[1024]; glGetShaderInfoLog(s, sizeof log, NULL, log); LOGE("cabinet shader: %s", log); }
     return s;
 }
-static int rd(AAsset *a, void *p, size_t n) { return AAsset_read(a, p, n) == (int)n; }
+static int rd(qasset *a, void *p, size_t n) { return qasset_read(a, p, n); }
 
-int qcab_load(struct AAssetManager *am, const char *name) {
-    AAsset *a = am ? AAssetManager_open(am, name, AASSET_MODE_STREAMING) : NULL;
+int qcab_load(const char *name) {
+    qasset *a = qasset_open(name);
     float *v = NULL;
     uint32_t *idx = NULL, n[3];
     uint8_t *px = NULL;
@@ -124,7 +133,7 @@ int qcab_load(struct AAssetManager *am, const char *name) {
 done:
     if (!ok) LOGE("cabinet: %s missing or broken", name);
     free(v); free(idx); free(px);
-    AAsset_close(a);
+    qasset_close(a);
     return ok;
 }
 
