@@ -145,11 +145,11 @@ static int sight_place(int *vx, int *vy, int *vw, int *vh) {
     if (A.sx < 0) { A.sx = *vx + *vw * 0.5f; A.sy = *vy + *vh * 0.5f; }   // from the middle
     return 1;
 }
-static void sight_move(float dx, float dy) {   // window pixels; a little past the picture's edges (that reloads)
-    int vx, vy, vw, vh;
+static void sight_move(float dx, float dy) {   // window pixels; kept on the picture, so its crosshair always shows
+    int vx, vy, vw, vh;                          // (a TV reloads with a button: Play/Pause, the ring)
     if (!sight_place(&vx, &vy, &vw, &vh)) return;
-    A.sx = fminf(fmaxf(A.sx + dx, vx - vw * 0.06f), vx + vw * 1.06f);
-    A.sy = fminf(fmaxf(A.sy + dy, vy - vh * 0.06f), vy + vh * 1.06f);
+    A.sx = fminf(fmaxf(A.sx + dx, vx + 2.0f), vx + vw - 3.0f);
+    A.sy = fminf(fmaxf(A.sy + dy, vy + 2.0f), vy + vh - 3.0f);
     A.aim_on = 1;
     flat_pointer((int)A.sx, (int)A.sy);
 }
@@ -170,6 +170,16 @@ static struct {
     double play_at;                // Play/Pause held since (coins and Start at half a second)
     int play_started;
     int test;                      // FLAT_TEST_REMOTE: log the presses and the sight
+    int ring;                      // a 2nd generation (or later) remote: the ring clicks (Cardinal Direction Pad)
+    float pdx, pdy;                // the touch's last move, applied when the next reading shows the finger still down
+    int pending;
+    int clicks;                    // clicks held (the surface's moves are frozen meanwhile)
+    double freeze_until;           // ...and a moment after
+    float hx[8], hy[8];            // the sight's last moves (window pixels), undone back to before a click's press
+    double ht[8];
+    int hn;
+    int ring_b;                    // the menu: a ring direction held (RB_UP..), and its repeat
+    double ring_since, ring_last;
 } R;
 
 // the top of the app: the ROM page before the game, or the menu with nothing open in it. Menu goes to the Home screen.
@@ -178,6 +188,21 @@ static int top_level(void) {
     return flat_menu_is_open() && !qmenu_modal();
 }
 
+// The touch surface. As GoldenEye VR found on an Apple TV 4K (#268): the last reading as the finger lifts is not 0
+// but a few hundredths (the sight jumped back towards where the surface's middle is), and pressing a click moves
+// the finger. So a move is applied only when the next reading shows the finger still down; a reading near the
+// middle straight after one far from it is the lift; a jump of more than a quarter of the surface in one reading is
+// a new landing; the surface does nothing while a click is held and a moment after; and a click puts the sight back
+// where it was 60 ms before its press.
+static void sight_history(float dx, float dy, double now) {
+    const int i = R.hn++ & 7;
+    R.hx[i] = dx; R.hy[i] = dy; R.ht[i] = now;
+}
+static void sight_undo_since(double t) {
+    float ux = 0, uy = 0;
+    for (int i = 0; i < 8; i++) if (R.ht[i] >= t) { ux -= R.hx[i]; uy -= R.hy[i]; R.ht[i] = 0; }
+    if (ux || uy) sight_move(ux, uy);
+}
 static void remote_touch(int down, float x, float y, double now) {
     if (!down) {
         if (R.touching && R.test && !flat_menu_is_open() && !A.upload) {
@@ -185,20 +210,25 @@ static void remote_touch(int down, float x, float y, double now) {
             flat_view_rect(&vx, &vy, &vw, &vh);
             LOGI("tv: sight at %.0f,%.0f (the picture %d,%d %dx%d)", A.sx, A.sy, vx, vy, vw, vh);
         }
-        R.touching = 0;
+        R.touching = 0; R.pending = 0;
         return;
     }
     if (!R.touching) {   // it landed: the sight stays where it is (relative, as a mouse)
         R.touching = 1;
         R.tx = x; R.ty = y; R.tt = now;
-        R.step_x = R.step_y = 0;
+        R.step_x = R.step_y = 0; R.pending = 0;
         return;
     }
     const float dx = x - R.tx, dy = y - R.ty;
+    const float was = hypotf(R.tx, R.ty), is = hypotf(x, y);
     const double dt = now - R.tt > 1.0 / 240 ? now - R.tt : 1.0 / 240;
     R.tx = x; R.ty = y; R.tt = now;
+    if (is < 0.08f && was > 0.2f) { R.touching = 0; R.pending = 0; return; }   // the lift's last reading
+    if (hypotf(dx, dy) > 0.5f) { R.pending = 0; return; }                       // a jump: a new landing
+    if (R.clicks || now < R.freeze_until) { R.pending = 0; return; }            // a click: the finger presses
     if (A.upload || A.closing) return;
-    if (flat_menu_is_open()) {   // each third of the surface: one step of the focus
+    if (flat_menu_is_open()) {   // each third of the surface: one step of the focus (a remote with the ring: its clicks)
+        if (R.ring) return;
         R.step_x += dx; R.step_y += dy;
         const float T = 0.6f;
         if (fabsf(R.step_x) >= T && fabsf(R.step_x) >= fabsf(R.step_y)) {
@@ -213,11 +243,16 @@ static void remote_touch(int down, float x, float y, double now) {
     // the sight: a slow swipe across the whole surface (2 units) moves it half the picture; quicker ones up to 3x that
     int vx, vy, vw, vh;
     if (!sight_place(&vx, &vy, &vw, &vh)) return;
+    if (R.pending) {   // the reading before this one: the finger stayed down, so it was a real move
+        const float ox = A.sx, oy = A.sy;
+        sight_move(R.pdx, R.pdy);
+        sight_history(A.sx - ox, A.sy - oy, now);
+    }
     const float v = hypotf(dx, dy) / (float)dt;   // surface units a second
     float accel = (v - 0.5f) / 3.5f;
     accel = 1 + 2 * (accel < 0 ? 0 : accel > 1 ? 1 : accel);
     const float k = (float)vw * 0.25f * accel * (float)flat_opt_get(QOPT_REMOTE_SPEED) / 100.0f;
-    sight_move(dx * k, -dy * k);
+    R.pdx = dx * k; R.pdy = -dy * k; R.pending = 1;
 }
 
 static void button_action(int b, int down, double now) {
@@ -251,17 +286,21 @@ static void button_action(int b, int down, double now) {
     switch (b) {
     case RB_CLICK: {
         int vx, vy, vw, vh;
+        if (down) { R.pending = 0; sight_undo_since(now - 0.06); }   // (the press moved the finger)
         if (sight_place(&vx, &vy, &vw, &vh)) { A.aim_on = 1; flat_pointer((int)A.sx, (int)A.sy); }
         flat_trigger(down);
         break;
     }
+    case RB_UP: case RB_DOWN: case RB_LEFT: case RB_RIGHT:   // the ring's clicks (2nd generation): reload
+        flat_reload(down);
+        break;
     case RB_PLAY:   // reload at once; held: coins and Start (remote_frame)
         flat_reload(down);
         R.play_at = down ? now : 0;
         R.play_started = 0;
         break;
     case RB_MENU: if (down) flat_menu_set_open(1); break;
-    default: break;   // (the arrows: nothing in the game)
+    default: break;
     }
 }
 
@@ -276,10 +315,25 @@ static void remote_button(int b, int down, int src, double now) {
         if (R.owner[b] != src) return;
         R.owner[b] = 0;
     }
+    if (b != RB_PLAY && b != RB_MENU && src != SRC_PAD) {   // a click of the touch surface (the centre or the ring)
+        if (down) R.clicks++;
+        else if (R.clicks > 0 && --R.clicks == 0) R.freeze_until = now + 0.12;
+        R.pending = 0;
+    }
+    if (b >= RB_UP && src == SRC_GC) { R.ring_b = down ? b : 0; R.ring_since = R.ring_last = now; }
     button_action(b, down, now);
 }
 
 static void remote_frame(double now) {
+    if (A.started && !A.upload && A.sx < 0) {   // the sight from the start, in the middle (so its crosshair shows)
+        int vx, vy, vw, vh;
+        if (sight_place(&vx, &vy, &vw, &vh)) flat_pointer((int)A.sx, (int)A.sy);
+    }
+    if (R.ring_b && flat_menu_is_open() && now - R.ring_since > 0.45 && now - R.ring_last > 0.12) {   // a ring held
+        R.ring_last = now;
+        static const int key[] = { FLAT_KEY_UP, FLAT_KEY_DOWN, FLAT_KEY_LEFT, FLAT_KEY_RIGHT };
+        flat_menu_key(key[R.ring_b - RB_UP]);
+    }
     if (R.play_at > 0 && !R.play_started && now - R.play_at >= 0.5 && !flat_menu_is_open()) {
         R.play_started = 1;
         flat_reload(0);
@@ -295,13 +349,27 @@ static void hook_remote(GCController *c) {
     m.reportsAbsoluteDpadValues = YES;   // the finger's place: the travel between two is the move
     m.allowsRotation = NO;
     m.dpad.valueChangedHandler = ^(GCControllerDirectionPad *d, float x, float y) { (void)d; remote_touch(x != 0 || y != 0, x, y, now_s()); };
-    m.buttonA.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_CLICK, p, SRC_GC, now_s()); };
     m.buttonX.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_PLAY, p, SRC_GC, now_s()); };
     m.buttonMenu.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_MENU, p, SRC_GC, now_s()); };
-    // the generation, for the log: a 2nd generation remote's ring clicks as a d-pad too (they shoot here, as any click
-    // does); a 1st generation one is the touch surface alone. Both give the finger's place on the surface the same way.
-    const int ring = c.physicalInputProfile.dpads[@"Cardinal Direction Pad"] != nil;
-    LOGI("tv: remote %s (%s generation)", c.vendorName.UTF8String ?: "(unnamed)", ring ? "2nd or later" : "1st");
+    // A 2nd generation (or later) remote: Button A is any click, the ring's too (GoldenEye VR's log, #268), so its
+    // centre click (Button Center) shoots and the ring's four clicks (Cardinal Direction Pad) are their own: reload in
+    // the game, the focus's steps in the menu. A 1st generation one: Button A, the whole surface's click, shoots.
+    GCPhysicalInputProfile *pf = c.physicalInputProfile;
+    GCControllerButtonInput *centre = pf.buttons[@"Button Center"];
+    GCControllerDirectionPad *ring = pf.dpads[@"Cardinal Direction Pad"];
+    if (centre && ring) {
+        R.ring = 1;
+        m.buttonA.pressedChangedHandler = nil;
+        centre.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_CLICK, p, SRC_GC, now_s()); };
+        ring.up.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_UP, p, SRC_GC, now_s()); };
+        ring.down.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_DOWN, p, SRC_GC, now_s()); };
+        ring.left.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_LEFT, p, SRC_GC, now_s()); };
+        ring.right.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_RIGHT, p, SRC_GC, now_s()); };
+    } else {
+        m.buttonA.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_CLICK, p, SRC_GC, now_s()); };
+    }
+    LOGI("tv: remote %s (%s generation: %s)", c.vendorName.UTF8String ?: "(unnamed)", ring ? "2nd or later" : "1st",
+         centre && ring ? "the centre shoots, the ring reloads" : "a click shoots");
 }
 
 // ---------------------------------------------------------------- FLAT_TEST_REMOTE (tests)
@@ -504,6 +572,7 @@ static NSMutableSet *passed_presses;   // presses UIKit keeps (the Menu that goe
         const char *e = getenv("FLAT_TEST_PICTURE");
         if (e && sscanf(e, "%d,%d", &l, &n) == 2) { flat_picture_limit(l, n); LOGI("tv: the picture at most %d lines, %d samples", l, n); }
     }
+    { extern int port_crosshair_big; port_crosshair_big = 1; }   // (seen from a sofa: larger, outlined)
     self.link = [CADisplayLink displayLinkWithTarget:self selector:@selector(frame)];
     [self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }

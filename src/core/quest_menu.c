@@ -918,12 +918,13 @@ static void controls_page_flat(void) {
     float ly = y + 96, ry = y + 96;
     if (H->tv) {
         text(UI_B20, lx, ly, "SIRI REMOTE", ACCENT); ly += 12;
-        controls_row(lx, &ly, lw, "Swipe the touch surface", "Move the sight (a quicker swipe goes further)");
-        controls_row(lx, &ly, lw, "Click", "Shoot. Off the picture: reload");
+        controls_row(lx, &ly, lw, "Swipe the touch surface", "Move the sight, as a mouse (a quicker swipe goes further)");
+        controls_row(lx, &ly, lw, "Click (newer remote: the centre)", "Shoot");
+        controls_row(lx, &ly, lw, "Click the ring's edge (newer remote)", "Reload");
         controls_row(lx, &ly, lw, "Play/Pause", "Reload");
         controls_row(lx, &ly, lw, "Play/Pause, held", "Coins and Start; skip a scene");
-        controls_row(lx, &ly, lw, "Menu / Back", "This menu (the game pauses, not online)");
-        controls_row(lx, &ly, lw, "In this menu", "Swipe: move \xC2\xB7 click: choose \xC2\xB7 Menu: back, then Home");
+        controls_row(lx, &ly, lw, "Back / Menu", "This menu (the game pauses, not online)");
+        controls_row(lx, &ly, lw, "In this menu", "Ring or swipe: move \xC2\xB7 centre click: choose \xC2\xB7 Back: back, then Home");
         text(UI_B20, rx, ry, "GAME PADS", ACCENT); ry += 12;
         controls_row(rx, &ry, rw, "Either stick", "Move the sight");
         controls_row(rx, &ry, rw, "R2 / R1", "Shoot");

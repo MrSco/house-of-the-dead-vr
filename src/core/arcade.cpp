@@ -62,6 +62,7 @@ extern "C" {
 // the game's own crosshairs on its 2D layer: 0 none; 1 the cabinet's (alone: your own; online: the partner's, your own
 // gun has a laser); 2 your own and, online, the partner's too (the flat apps: a mouse has nothing else to show it)
 int port_draw_crosshairs = 0;
+int port_crosshair_big = 0;   // a TV (src/flat/tvos): the crosshairs larger and outlined in black
 volatile int arcade_view_cabinet = 0; // quest_xr.c: the cabinet view (its picture is the arcade's: no face layer)
 volatile int arcade_screen_scene = 0; // a scene to show on a screen, not round you (build: the game-over scene)
 int arcade_flat = 0;                  // the flat apps (flat_app.c): no cabinet room, so its courtyard isn't made
@@ -970,6 +971,17 @@ void draw_crosshair(std::vector<uint16_t> &px, uint16_t gx, uint16_t gy, uint16_
     auto put = [&](int u, int v) {
         if (u >= 0 && u < rt::Video::W && v >= 0 && v < rt::Video::H) px[size_t(v) * rt::Video::W + size_t(u)] = colour;
     };
+    if (port_crosshair_big) { // a TV: longer ticks, three pixels thick, in a black outline, and a dot in the middle
+        auto tick = [&](uint16_t c, int grow) {
+            for (int d = 4 - grow; d <= 14 + grow; d++)
+                for (int t = -1 - grow; t <= 1 + grow; t++) put(x + d, y + t), put(x - d, y + t), put(x + t, y + d), put(x + t, y - d);
+            for (int v = -1 - grow; v <= 1 + grow; v++)
+                for (int u = -1 - grow; u <= 1 + grow; u++) put(x + u, y + v);
+        };
+        tick(0x0000, 1);
+        tick(colour, 0);
+        return;
+    }
     for (int d = 3; d <= 9; d++) // four ticks around the aim, two pixels thick
         for (int t = 0; t < 2; t++) put(x + d, y + t), put(x - d, y + t), put(x + t, y + d), put(x + t, y - d);
 }

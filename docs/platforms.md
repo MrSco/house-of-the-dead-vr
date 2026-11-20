@@ -391,10 +391,19 @@ libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANG
   game or online play is on (`idleTimerDisabled`: tvOS suspends an app under it, and an online partner would wait).
 - **The Siri Remote** (GameController's micro gamepad, absolute touch positions): the touch surface moves the sight
   like a mouse, relative, a slow swipe across it half the picture and quick ones up to three times that (GAME:
-  Remote speed, 25-300%); a click shoots (off the picture: reload, as on the cabinet); Play/Pause reloads; Play/Pause
-  held half a second gives coins and Start (skips a scene); Menu opens the menu. In the menu (its TV layout: the
-  remote's keys line, GAME = Picture, Crosshair, Brightness, Remote speed, no QUIT) each third of the surface swiped
-  is one focus step, a click chooses, Play/Pause resumes, Menu goes back, and at the menu's top Menu goes to the Home
+  Remote speed, 25-300%); a click shoots (a 2nd generation remote: the centre click, `Button Center`; its ring's four
+  clicks, `Cardinal Direction Pad`, reload: its `Button A` is any click, the ring's too); Play/Pause reloads;
+  Play/Pause held half a second gives coins and Start (skips a scene); Menu opens the menu. The sight stays on the
+  picture (its crosshair, larger and outlined on a TV, always shows; it starts in the middle).
+  After the first test on an Apple TV 4K ("jumping around", the crosshair lost, reloads unreliable), and as GoldenEye
+  VR found on the same TV: the surface's last reading as the finger lifts is a few hundredths, not 0, and a click's
+  press moves the finger. So a move applies only once the next reading shows the finger still down, a reading near
+  the middle right after one far from it is the lift, a jump of over a quarter of the surface is a new landing, the
+  surface is frozen while a click is held and 0.12 s after, and a click puts the sight back where it was 60 ms
+  before the press.
+  In the menu (its TV layout: the remote's keys line, GAME = Picture, Crosshair, Brightness, Remote speed, no QUIT)
+  each third of the surface swiped is one focus step (a 2nd generation remote: the ring's clicks instead, repeating
+  when held), a click chooses, Play/Pause resumes, Menu goes back, and at the menu's top Menu goes to the Home
   screen, as Apple asks: there the controller hands its presses to UIKit (`controllerUserInteractionEnabled`).
   UIKit's own presses (a keyboard, the Simulator's remote) do the same; a press seen by both is counted once.
 - **Pads** as on iOS (either stick moves the sight, R2 / R1 shoot, L2 / L1 / X reload, A / Menu coins and Start,
@@ -497,7 +506,7 @@ depth (figures over the floors and walls they dip into: the girl at the door, th
 mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM dialog, and voice with real speech;
 a real phone (touch, a pad, the ROM picker, voice); a Steam Frame; an iPhone or iPad (a signed build, touch, voice);
 the Mac app by hand; the Apple TVs (both have the build) with the Siri Remote in hand: the touch surface's feel and
-the Remote speed default, a click and the 2nd generation remote's ring clicks (they shoot), the 1st generation
+the Remote speed default, the centre click (shoots) and the 2nd generation remote's ring clicks (reload), the 1st generation
 remote on the Apple TV HD (its touch surface moves the sight the same way; it never connected in the test),
 Play/Pause held, Menu in the game, in the menu and at its top (the Home screen), a pad (and the remote with a pad
 connected), the ROM page from a phone (the QR code; no local-network prompt appeared when the PC sent the set, so
