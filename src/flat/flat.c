@@ -655,12 +655,13 @@ void flat_rumble_frame(int paused) {
         else if (slot == 1 && !flat_player2_in()) continue;
         const int dev = P.last[pl];
         if (!dev) continue;
-        if (trig_on && host_player_playing(slot)) weapon_dev[pl] = dev;
+        const int pad = dev >= FLAT_DEV_PAD;   // (trigger feedback: pads only)
+        if (pad && trig_on && host_player_playing(slot)) weapon_dev[pl] = dev;
         if (!ev || off) continue;
         // one at a time, the strongest: a hit over a shot over a reload
         rumble(slot, dev, ev & 1 << HOST_EV_HIT ? FLAT_RUMBLE_HIT : ev & 1 << HOST_EV_SHOT ? FLAT_RUMBLE_SHOT : FLAT_RUMBLE_RELOAD);
-        if (trig_on && ev & 1 << HOST_EV_SHOT) trig_buzz(dev, 1, 1.0f, TRIG_BUZZ_SHOT_MS, "a shot");
-        if (trig_on && ev & 1 << HOST_EV_RELOAD) trig_buzz(dev, 0, 0.35f, TRIG_BUZZ_RELOAD_MS, "a reload");
+        if (pad && trig_on && ev & 1 << HOST_EV_SHOT) trig_buzz(dev, 1, 1.0f, TRIG_BUZZ_SHOT_MS, "a shot");
+        if (pad && trig_on && ev & 1 << HOST_EV_RELOAD) trig_buzz(dev, 0, 0.35f, TRIG_BUZZ_RELOAD_MS, "a reload");
     }
     // each pad's triggers: a buzz runs out; then the right one is a gun's while its player plays, else loose
     const uint64_t now = plat_now_ns();
