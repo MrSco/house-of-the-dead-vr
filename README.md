@@ -42,7 +42,8 @@ Captured on a Quest 3. Hold the gun hand's thumbstick click to switch between th
   real scale, with your head tracked on top of the rail camera's moves. The game only sends what its screen shows,
   so a hook in its scenery code makes it send the whole area: turn round and the mansion is still there.
 - **Light guns.** The cabinet's own gun model, red for player 1 and blue for player 2, or a pistol with a moving
-  slide. Recoil, rumble and muzzle flash, and shots go where the barrel points.
+  slide. Recoil, rumble and muzzle flash, and shots go where the barrel points. Both controllers rumble hard when
+  you're hit.
 - **Physical reloads.** Drop the magazine, push in a new one, rack the slide. The game's "shoot outside the screen"
   prompt is replaced with step-by-step instructions while you do it. Classic off-screen reloading is one setting away.
 - **Cabinet mode.** Play on a full arcade cabinet with restored, high-resolution marquee, control panel and side art.
@@ -59,6 +60,9 @@ Captured on a Quest 3. Hold the gun hand's thumbstick click to switch between th
   the window's resolution or as the arcade's original 496 x 384 picture. Aim with the mouse, a light gun that acts
   as a mouse (Sinden, GunCon 3, Gun4IR), a game pad (its gyroscope too), a touch screen, the phone's gyroscope, or
   on Apple TV the Siri Remote's touch surface.
+- **Rumble everywhere.** Each player's pad kicks on their own shots, pulses on a reload and rumbles hard when they're
+  hit; an iPhone or Android phone does too while you play by touch. A DualSense's right trigger resists and snaps like
+  a gun's trigger and an Xbox pad's trigger motors buzz on each shot (Windows, Mac, iPhone, iPad, Apple TV).
 - **Updates in the app.** The Quest, Steam Frame and Android apps look for a new release when they start and install
   it from the menu.
 
@@ -179,6 +183,14 @@ the grips switch tabs.
 
 In the menu: the arrow keys or the stick move, Enter or A choose, Esc or B go back, Tab or the bumpers switch tabs;
 the mouse and touch point at it.
+
+**Rumble** (GAME: Rumble, on): the pad (or the phone, playing by touch) you last shot, reloaded or pressed Start with
+gives a short kick on each of your shots, a softer pulse on a reload and a strong, longer rumble when you lose a
+life; in a two-player game each player's pad has only their own. Nothing while the game is paused or the menu is open,
+and online only your own events. **Trigger feedback** (GAME, on; Rumble OFF mutes it too): while you play, a
+DualSense's right trigger resists then snaps like a gun's and buzzes on each shot; an Xbox One or Series pad's right
+trigger motor buzzes on a shot and its left one on a reload (Windows with SDL3, Mac, iPhone, iPad, Apple TV; not on
+Android, which has no API for them, nor with XInput alone). The Siri Remote, iPads and Macs have no motor of their own.
 
 | Siri Remote (Apple TV) | |
 |---|---|

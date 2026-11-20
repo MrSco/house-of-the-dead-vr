@@ -125,6 +125,63 @@ from.
   keyboard and mouse (pad_win.c: `2@40:A,1@45:RT,K@50:0.3;0.4,2@60:OFF,2@65:ON`, ...), logging each pad's player
   and sight a second after each step.
 
+## Rumble and trigger feedback
+
+Every build that has something to vibrate gives the same three events, each player's own, read once from the game:
+arcade.cpp's `update_ammo` compares each player's bullets, lives and state byte (docs/vr.md, "In play or not") from
+one game frame to the next and counts **a shot** (a bullet less), **a reload** (the magazine full again, in play)
+and **a hit** (a life less); steps of exactly one, so a continue, RESTART or an online drop-in's loaded state is none.
+`host_player_events` publishes the counts and quest.h's `host_events_new` gives a shell what's new since it last
+looked (two events between looks are one: no burst).
+
+| Event | Flat pads | Phone by touch (iPhone, Android) | Headsets |
+|---|---|---|---|
+| Shot | Short kick (low 0.25, high 0.75, 70 ms) | iPhone: light impact; Android: the system's click | The firing hand (as before: when the bullet count drops after a pull) |
+| Reload | Softer pulse (0.2, 0.2, 90 ms) | iPhone: soft impact; Android: the system's tick | The reloading hand (as before) |
+| Hit | Strong and long (1.0, 0.7, 450 ms) | iPhone: heavy impact; Android: a 300 ms full buzz | **New:** both hands, full, 400 ms |
+
+- **Which device** (flat.c `flat_player_device`): the one that player last shot, reloaded or pressed Start with.
+  Alone, player 1's events go to whichever device they are using (a pad, touch); with a player 2, player 2's pad
+  gets only player 2's. Online only this player's slot (`net_local`), never the partner's.
+- **Never while paused or in the menu** (online too, where the game runs on): the events of that time are dropped,
+  and a running rumble stops when it opens (`flat_os_rumble(dev, ..., 0)`; the headsets' `xrStopHapticFeedback`, the
+  Sense controllers' player stopped). The app leaving the screen or quitting stops everything (`flat_rumble_stop`).
+- **The setting**: Rumble (`QOPT_RUMBLE`, ON by default), on the headsets' GUN tab as before and now on the flat
+  apps' GAME tab (mouse, touch and TV lists). The mouse builds' GAME tab was full: their Display row moved to SYSTEM.
+- **Never waits**: SDL and XInput return at once; Apple's CoreHaptics engines are made and played on a serial queue
+  of their own; Android's vibrators are called from a thread attached to Java once (the frame only queues).
+
+**Trigger feedback** (GoldenEye VR's, 5a15a50c, made a gun's): the GAME tab's Trigger feedback row (`QOPT_TRIGGER`,
+ON; dimmed and off while Rumble is OFF). Pads only, each player's own:
+- **DualSense**: while that player plays (`host_player_playing`), the right trigger (R2 shoots) is a gun's:
+  resistance from a third of the pull and a snap at about 60% (Apple: `setModeWeaponWithStartPosition:0.3
+  endPosition:0.6 resistiveStrength:0.85`; SDL: the effect packet's weapon mode `25 48 00 06`, zones 3 and 6,
+  strength 7 of 8). Each shot swaps it for 100 ms of vibration (`06 28 ff 00`, GoldenEye's simple vibration), then
+  the weapon again; a reload buzzes the left trigger lightly for 80 ms. Off (`05`) when the player isn't playing
+  (scenes, the continue, the title), paused, in the menu, at the quit and in the background, and when the pad is no
+  longer that player's, so a DualSense is never left stiff. A pad that disconnects is forgotten (it comes back loose).
+- **Xbox One / Series** (impulse triggers): the right trigger's motor buzzes 100 ms at full on a shot, the left one
+  80 ms at 35% on a reload (SDL `SDL_RumbleGamepadTriggers`; Apple: CoreHaptics engines at
+  `GCHapticsLocalityRightTrigger` / `LeftTrigger` where the pad lists them).
+- Windows needs SDL3.dll for it (its type and trigger-rumble capability say which pad is which); XInput alone has no
+  trigger motors, so plain rumble only. Windows waits 60 ms at the quit for SDL's thread to send the last effect.
+  Android has no API for either: none there.
+
+| Platform | Pads | Touch | Triggers | Notes |
+|---|---|---|---|---|
+| Windows | SDL3 `SDL_RumbleGamepad` (SDL3.dll, loaded at run time), else XInput `XInputSetState` (stopped by `pad_poll` at its end) | none (no touch) | SDL3: DualSense effects, Xbox trigger motors | Keyboard and mouse: none |
+| Mac | `GCController.haptics` with CoreHaptics (macOS 11) | none | `GCDualSenseAdaptiveTrigger` (macOS 11.3), Xbox trigger haptics | CoreHaptics imported before AVFoundation (its header names `AVAudioSession`) |
+| iPhone / iPad | as the Mac (iOS 14) | iPhone: `UIImpactFeedbackGenerator` light / soft / heavy; iPad: none | as the Mac (iOS 14.5) | |
+| Apple TV | as the Mac (tvOS 14) | none | as the Mac (tvOS 14.5) | The Siri Remote has no motor |
+| Android phone | `InputDevice.getVibratorManager()` and a `CombinedVibration` (Android 12), else `getVibrator()` | The phone's vibrator: click, tick, a 300 ms buzz | none (no API) | `android.permission.VIBRATE` |
+| Quest, Steam Frame, PC VR | OpenXR `xrApplyHapticFeedback` (as before) | | | The hit: both hands |
+| Vision Pro | Sense controllers' CoreHaptics (as before) | | | The hit: both hands; amplitude 0 stops what's playing |
+
+- **Tests**: `FLAT_TEST_RUMBLE=1` (env.txt) logs each request (`rumble: player 2 shot on device 17 (low 0.25, high
+  0.75, 70 ms)`, `trigger: device 16 right weapon (in play)`); on Windows the virtual SDL pads have motors and log what
+  SDL sends them (start and end), and `FLAT_TEST_PAD_KINDS=ps5,xbox` makes them a DualSense (its effects packets
+  logged) and an Xbox Series pad (its trigger motors). The headsets log `rumble: hit, both hands`.
+
 ## Per platform
 
 | Platform | Package | Mode | Graphics | XR | Input | ROM import | Notes |
@@ -583,6 +640,39 @@ libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANG
     XInput's and GameController's pad ids, a real disconnect and reconnect, the pads' player lights on Apple), the
     Siri Remote as player 2 beside a real pad on both Apple TVs, a light gun (a mouse) beside a pad, and the feel of
     two sights on a TV.
+
+- **Rumble, touch haptics and trigger feedback** (2026-11-20, branch local-2p; "Rumble and trigger feedback" above):
+  - Three bugs first: `host_player_playing` went by 0x51F4A0 == 1 (0 for both players in any two-player game, online
+    too: the headsets' reload hints and the magazine reload's drop never came online), now by each player's state
+    byte; `host_player_ammo(1)` read player 2's lives at 0x51F294, now 0x51F35C; the TV crosshair's outline was drawn
+    in the player's colour (its routine ignored the colour it was given), now black. Callers checked: the flat apps'
+    join rule and the Apple TV screensaver go by the state byte already; on the headsets the reload step, the magazine
+    drop and the empty-gun click now work as player 2 online, and player 2's gun reads -1 (not a stale 0) while out.
+  - Windows (HOTDVR.exe hidden, `FLAT_TEST_PAD=2`, `FLAT_TEST_PAD_KINDS=ps5,xbox`, `FLAT_TEST_RUMBLE=1`): pad 1 starts
+    player 1, pad 2 joins as player 2; each pad's motors got only its own player's shots (70 ms), reloads (90 ms) and
+    hits (450 ms; three each before each continue countdown), as SDL sent them to the virtual pads (start and end).
+    The menu opened 70 ms into a shot's rumble: stopped at once, the DualSense's trigger let go, nothing while it was
+    open, the weapon back when it closed. The DualSense's right trigger was the weapon only while its player played
+    (off in scenes and on the continue), a shot's buzz for 100 ms then the weapon; the Xbox pad's right trigger motor
+    buzzed on each shot, its left on the reload. The quit let the DualSense go; Rumble OFF in options.cfg: no
+    request at all. Without SDL3.dll the XInput path runs (no pads here to rumble).
+  - The GAME tab with Rumble and Trigger feedback (seven rows, a little closer), Display on SYSTEM.
+  - Online, two HOTDVR.exe (`hostlan`, `joinip:127.0.0.1`, a virtual DualSense on the host and an Xbox pad on the
+    guest): the host's pad got only player 1's events, the guest's only player 2's; **80 of 80** checksums, no desync.
+    `crossplay_check.py`: 30 of 30 both ways, save states the same for 600 frames both ways.
+  - PC VR on SteamVR's null driver (a play area and the null driver set for the test, the settings put back after),
+    `QUEST_TEST_PLAY=1`: `rumble: hit, both hands` at each life lost. The Quest 3 ran the new APK without a wearer
+    (the proximity override): the same lines; the 0.5.0 release APK was put back after.
+  - iOS Simulator (iOS 27, a simulator made for the test and deleted after): touch shots asked for the light impact,
+    hits the heavy one; a hidden virtual pad joined as player 2 and got only player 2's events (the simulator's pad
+    has no motors: "none"); the menu stopped the rumble. Apple TV Simulator: the stand-in pad (player 1) got player 1's
+    events and the weapon trigger, the Siri Remote (player 2) only player 2's (no motor). The Mac and visionOS apps
+    build (CoreHaptics imported before AVFoundation on the Mac). The phone APK and the Quest APK build.
+  - Left for real hardware: the feel of each event on real pads (an Xbox One / Series pad's body and trigger motors,
+    a DualSense's adaptive trigger: the weapon's break point and strength, the shot's buzz, never left stiff after a
+    pause, the menu, the quit or a disconnect; a DualShock 4, a Switch Pro) on Windows with SDL3, XInput alone, the Mac,
+    an iPhone, an iPad and both Apple TVs; an iPhone's touch impacts; an Android phone's vibrator by touch and a pad's
+    (VibratorManager); two pads in a two-player game; the hit on the Quest's, a PC headset's and the Sense controllers.
 
 **Left for a player (the end check):** on the headset, a stage and an online game with this build (joining a game under way, both ways: the
 headset here lost tracking on the desk, so its app couldn't be opened for a live join), and the headset's new

@@ -227,11 +227,11 @@ run and a run that ends at game over.
 |---|---|
 | 0x51F4A0 | game mode: 0 title or attract, 1 a game, 2 the attract demo (back to 0 at game over) |
 | 0x51F4B4, 0x51F4B5 | phase for players 1 and 2: 4 a cut scene; 1, 2 and 3 play (taking shots) |
-| 0x51F290, 0x51F294 | lives |
+| 0x51F290, 0x51F35C | lives (0x51F294, long taken for player 2's, isn't: below) |
 | 0x51F2C1, 0x51F38D | bullets |
 
-In play means mode 1, phase 1 to 3, and lives above 0. arcade_quest.cpp's update_ammo publishes it as
-host_player_playing. The magazine only drops in play.
+In play means the player's state byte 5 (below; mode 1 at first), phase 1 to 3, and lives above 0. arcade.cpp's
+update_ammo publishes it as host_player_playing. The magazine only drops in play.
 
 Two players (the flat apps' local player 2, 2026-11-20: 512 KB dumps of 0x500000 on, in each state, diffed) showed
 more. Player 2's block is 0xCC after player 1's: lives 0x51F290 / 0x51F35C, bullets 0x51F2C1 / 0x51F38D (0x51F294,
@@ -240,7 +240,15 @@ player has a state byte, 0x51F284 / 0x51F350: 9 not in the game (the title and a
 joined), 5 in it (playing or in a scene), 4 out (the continue countdown, and after it while the other plays), 6 the
 game over's ranking. 0x51F4A0 counts the players in the game: 2 while both are, so `mode == 1` above is false for
 both in any two-player game, online too (the attract mode's gameplay demo has 2 there as well, with both state bytes
-9). host_player_state publishes the state byte; host_player_playing and host_player_ammo are as before.
+9). host_player_state publishes the state byte. Since then (the rumble work, 2026-11-20) host_player_playing goes by
+the state byte instead of `mode == 1` (it read 0 for both players in every two-player game: on the headsets the
+online reload hints and the magazine reload's drop never came), and player 2's lives are read at 0x51F35C. Checked in
+a scripted two-player game: both players read playing, and both out of play together in a scene; three hits each
+before each player's continue countdown (state 4), so 0x51F35C counts player 2's lives.
+
+From the same bytes update_ammo counts each player's events for every shell's rumble (host_player_events): a
+bullet less (a shot), the magazine back to 6 from less while in play (a reload), a life less (a hit), each only while
+that player's state byte was 5 and only in steps of one (docs/platforms.md, "Rumble and trigger feedback").
 
 The empty gun's message, "SHOOT OUTSIDE OF THE SCREEN !", is orange letters outlined in pure blue. For player 1 it
 sits at x 34-189, y 217-254, under the RELOAD sign (x 34-197, y 163-211). With a reload gesture on, draw_shoot_outside
