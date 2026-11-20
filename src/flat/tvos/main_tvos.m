@@ -10,7 +10,9 @@
 //   controller lets UIKit have the presses (controllerUserInteractionEnabled). UIKit's own presses (a keyboard, the
 //   Simulator's remote, XCUIRemote) do the same as the remote's, a press from both counted once.
 // - Pads (MFi, Xbox, PlayStation) as on iOS: either stick moves the sight, R2 / R1 shoot, L2 / L1 / X reload,
-//   A / Menu coins and Start, Options the menu; in the menu the d-pad and A / B as the remote.
+//   A / Menu coins and Start, Options the menu; in the menu the d-pad and A / B as the remote. Each pad and the remote
+//   is a device of its own (flat.h's players): a second player joins with A on a pad, or Play/Pause held on the
+//   remote while player 1 plays on a pad; that pad (or the remote) keeps a sight of its own.
 // - The ROM set comes from a phone or computer: the TV shows an address and its QR code, and a page served there sends
 //   the file (tv_upload.m). The files folder is Library/Caches/HOTDVR (a tvOS app can't write Documents), which tvOS
 //   may empty when short of space: the settings and saves are kept in the app's defaults too (tv_store.m), and a ROM
@@ -21,7 +23,8 @@
 //
 // Test switches (env.txt, beside flat_app.c's): FLAT_TEST_REMOTE="seconds action [args]; ..." plays the remote through
 // the same code as the real one: swipe DX DY [SECONDS] (the touch surface, -1..1, up is +), click, play, playhold,
-// menu, up, down, left, right; the sight and each press are logged. FLAT_TEST_PICTURE=lines,samples: HD's limit.
+// menu, up, down, left, right; the sight and each press are logged. padstart, padshoot X Y: a stand-in pad (a device
+// of its own, flat.h) presses Start or shoots at X Y (0..1 of the picture), for two players without a real pad. FLAT_TEST_PICTURE=lines,samples: HD's limit.
 #import <GameController/GameController.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <UIKit/UIKit.h>
@@ -39,6 +42,7 @@
 #include "quest_options.h"
 #include "online.h"
 #include "quest.h"
+#include "flat/apple_pads.h"
 
 #ifndef EGL_PLATFORM_ANGLE_ANGLE
 #define EGL_PLATFORM_ANGLE_ANGLE 0x3202
@@ -60,8 +64,7 @@ static struct {
     EGLContext ctx;
     EGLSurface surf;
     int w, h;
-    float sx, sy;                                      // the sight (window pixels), the remote's and the pads'
-    int aim_on, pad_fire, pad_reload;
+    float sx, sy;                                      // the sight (window pixels): the remote's, and its player's pads'
     double last, kept_at;
     // the perf line every 10 s: frames drawn, those later than 1.5 refreshes, the frame's own time on the main thread
     double perf_at, frame_ms, frame_max, gap_max, draw_ms;
@@ -150,8 +153,7 @@ static void sight_move(float dx, float dy) {   // window pixels; kept on the pic
     if (!sight_place(&vx, &vy, &vw, &vh)) return;
     A.sx = fminf(fmaxf(A.sx + dx, vx + 2.0f), vx + vw - 3.0f);
     A.sy = fminf(fmaxf(A.sy + dy, vy + 2.0f), vy + vh - 3.0f);
-    A.aim_on = 1;
-    flat_pointer((int)A.sx, (int)A.sy);
+    flat_dev_pointer(FLAT_DEV_REMOTE, (int)A.sx, (int)A.sy);
 }
 
 // ---------------------------------------------------------------- the Siri Remote
@@ -287,15 +289,15 @@ static void button_action(int b, int down, double now) {
     case RB_CLICK: {
         int vx, vy, vw, vh;
         if (down) { R.pending = 0; sight_undo_since(now - 0.06); }   // (the press moved the finger)
-        if (sight_place(&vx, &vy, &vw, &vh)) { A.aim_on = 1; flat_pointer((int)A.sx, (int)A.sy); }
-        flat_trigger(down);
+        if (sight_place(&vx, &vy, &vw, &vh)) flat_dev_pointer(FLAT_DEV_REMOTE, (int)A.sx, (int)A.sy);
+        flat_dev_trigger(FLAT_DEV_REMOTE, down);
         break;
     }
     case RB_UP: case RB_DOWN: case RB_LEFT: case RB_RIGHT:   // the ring's clicks (2nd generation): reload
-        flat_reload(down);
+        flat_dev_reload(FLAT_DEV_REMOTE, down);
         break;
     case RB_PLAY:   // reload at once; held: coins and Start (remote_frame)
-        flat_reload(down);
+        flat_dev_reload(FLAT_DEV_REMOTE, down);
         R.play_at = down ? now : 0;
         R.play_started = 0;
         break;
@@ -327,7 +329,7 @@ static void remote_button(int b, int down, int src, double now) {
 static void remote_frame(double now) {
     if (A.started && !A.upload && A.sx < 0) {   // the sight from the start, in the middle (so its crosshair shows)
         int vx, vy, vw, vh;
-        if (sight_place(&vx, &vy, &vw, &vh)) flat_pointer((int)A.sx, (int)A.sy);
+        if (sight_place(&vx, &vy, &vw, &vh)) flat_dev_pointer(FLAT_DEV_REMOTE, (int)A.sx, (int)A.sy);
     }
     if (R.ring_b && flat_menu_is_open() && now - R.ring_since > 0.45 && now - R.ring_last > 0.12) {   // a ring held
         R.ring_last = now;
@@ -336,9 +338,9 @@ static void remote_frame(double now) {
     }
     if (R.play_at > 0 && !R.play_started && now - R.play_at >= 0.5 && !flat_menu_is_open()) {
         R.play_started = 1;
-        flat_reload(0);
-        flat_start(1);
-        flat_start(0);
+        flat_dev_reload(FLAT_DEV_REMOTE, 0);
+        flat_dev_start(FLAT_DEV_REMOTE, 1);
+        flat_dev_start(FLAT_DEV_REMOTE, 0);
         if (R.test) LOGI("tv: play held: coins and Start");
     }
 }
@@ -373,7 +375,7 @@ static void hook_remote(GCController *c) {
 }
 
 // ---------------------------------------------------------------- FLAT_TEST_REMOTE (tests)
-typedef struct { double t; int kind, b, down; float x, y; } TestEv;   // kind 0: a button, 1: the touch surface
+typedef struct { double t; int kind, b, down; float x, y; } TestEv;   // kind 0: a button, 1: the touch surface, 2: a pad's
 static TestEv tev[512];
 static int tev_n, tev_i;
 static double tev_t0;
@@ -395,6 +397,11 @@ static void test_remote_load(void) {
         float dx = 0, dy = 0;
         const int n = sscanf(step, " %lf %15s %f %f %lf", &t, what, &dx, &dy, &dur);
         if (n < 2) continue;
+        if (!strcmp(what, "padstart") || !strcmp(what, "padshoot")) {   // a stand-in pad (no virtual pads on tvOS)
+            test_add(t, 2, !strcmp(what, "padshoot"), 1, dx, dy);
+            if (!strcmp(what, "padshoot")) test_add(t + 0.1, 2, 1, 0, dx, dy);   // (the trigger held a few frames)
+            continue;
+        }
         if (!strcmp(what, "swipe")) {   // lands at -d/2, goes to +d/2
             for (int i = 0; i <= 8; i++)
                 test_add(t + dur * i / 8, 1, 0, 1, -dx / 2 + dx * i / 8, -dy / 2 + dy * i / 8);
@@ -417,53 +424,55 @@ static void test_remote(double now) {
     if (!tev_t0) { tev_t0 = now; test_remote_load(); }
     for (; tev_i < tev_n && now - tev_t0 >= tev[tev_i].t; tev_i++) {
         const TestEv *e = &tev[tev_i];
-        if (e->kind) remote_touch(e->down, e->x, e->y, now);
+        if (e->kind == 2) {   // the stand-in pad: Start, or a shot at X Y (0..1 of the picture)
+            const int dev = FLAT_DEV_PAD + 15;
+            int vx, vy, vw, vh;
+            flat_view_rect(&vx, &vy, &vw, &vh);
+            if (!e->b) { flat_dev_start(dev, 1); flat_dev_start(dev, 0); }
+            else if (!e->down) flat_dev_trigger(dev, 0);
+            else { flat_dev_pointer(dev, vx + (int)(e->x * vw), vy + (int)(e->y * vh)); flat_dev_trigger(dev, 1); }
+            if (e->down) LOGI("tv: stand-in pad %s: player %d", e->b ? "shoots" : "Start", flat_dev_player(dev) + 1);
+        } else if (e->kind) remote_touch(e->down, e->x, e->y, now);
         else remote_button(e->b, e->down, SRC_TEST, now);
     }
 }
 
-// ---------------------------------------------------------------- pads (GameController), as on iOS
-static float dz(float v) { const float d = 0.2f; if (fabsf(v) < d) return 0; const float g = (fabsf(v) - d) / (1 - d); return (v < 0 ? -g : g) * g; }
+// ---------------------------------------------------------------- pads (GameController: apple_pads.h)
+// Each pad a device; a pad of the remote's player moves the remote's sight (one sight for player 1, whichever moves
+// it), player 2's pad its own. In the menu its buttons act as the remote's (UIKit sees them too there: counted once).
+enum { PB_MENU = RB_COUNT, PB_OPT, PB_LB, PB_RB };
 static void pad_frame(double dt, double now) {
-    GCExtendedGamepad *g = GCController.current.extendedGamepad;
-    if (!g) for (GCController *c in GCController.controllers) if ((g = c.extendedGamepad)) break;
-    if (!g) return;
-    static int prev[RB_COUNT], prev_menu, prev_opt, prev_lb, prev_rb;
-    // the buttons that act as the remote's in the menu (UIKit sees them too there: counted once)
-    int cur[RB_COUNT] = { 0 };
-    cur[RB_CLICK] = g.buttonA.pressed;
-    cur[RB_MENU] = g.buttonB.pressed;
-    cur[RB_PLAY] = g.buttonOptions.pressed;   // (Options in the menu: back to the game)
-    cur[RB_UP] = g.dpad.up.pressed || g.leftThumbstick.yAxis.value > 0.5f;
-    cur[RB_DOWN] = g.dpad.down.pressed || g.leftThumbstick.yAxis.value < -0.5f;
-    cur[RB_LEFT] = g.dpad.left.pressed || g.leftThumbstick.xAxis.value < -0.5f;
-    cur[RB_RIGHT] = g.dpad.right.pressed || g.leftThumbstick.xAxis.value > 0.5f;
-    const int menu = g.buttonMenu.pressed, opt = g.buttonOptions.pressed;
-    const int lb = g.leftShoulder.pressed, rb = g.rightShoulder.pressed;
-    const int open = flat_menu_is_open() && !A.upload;
-    for (int b = 0; b < RB_COUNT; b++) {
-        if (cur[b] && !prev[b] && open) remote_button(b, 1, SRC_PAD, now);
-        if (!cur[b] && prev[b] && R.owner[b] == SRC_PAD) remote_button(b, 0, SRC_PAD, now);
-    }
-    if (open) {
-        if (rb && !prev_rb) flat_menu_key(FLAT_KEY_TAB);
-        if (lb && !prev_lb) flat_menu_key(FLAT_KEY_TAB_BACK);
-    } else if (!A.upload) {
-        if (opt && !prev_opt) flat_menu_set_open(1);
-        if ((cur[RB_CLICK] && !prev[RB_CLICK]) || (menu && !prev_menu)) { flat_start(1); flat_start(0); }
-        int vx, vy, vw, vh;
-        if (sight_place(&vx, &vy, &vw, &vh)) {
-            const float lx = dz(g.leftThumbstick.xAxis.value), ly = dz(g.leftThumbstick.yAxis.value);
-            const float rx = dz(g.rightThumbstick.xAxis.value), ry = dz(g.rightThumbstick.yAxis.value);
-            const float mx = fabsf(rx) > fabsf(lx) ? rx : lx, my = fabsf(ry) > fabsf(ly) ? ry : ly;
-            if (mx || my) sight_move(mx * vw * 2.0f * (float)dt, -my * vw * 2.0f * (float)dt);
-            const int fire = g.rightTrigger.value > 0.4f || rb, rel = g.leftTrigger.value > 0.4f || lb || g.buttonX.pressed;
-            if (fire != A.pad_fire) { A.aim_on = 1; flat_pointer((int)A.sx, (int)A.sy); flat_trigger(fire); A.pad_fire = fire; }
-            if (rel != A.pad_reload) { flat_reload(rel); A.pad_reload = rel; }
+    apple_pads_each(^(GCExtendedGamepad *g, ApplePad *p) {
+        int cur[16] = { 0 };
+        cur[RB_CLICK] = g.buttonA.pressed;
+        cur[RB_MENU] = g.buttonB.pressed;
+        cur[RB_PLAY] = g.buttonOptions.pressed;   // (Options in the menu: back to the game)
+        cur[RB_UP] = g.dpad.up.pressed || g.leftThumbstick.yAxis.value > 0.5f;
+        cur[RB_DOWN] = g.dpad.down.pressed || g.leftThumbstick.yAxis.value < -0.5f;
+        cur[RB_LEFT] = g.dpad.left.pressed || g.leftThumbstick.xAxis.value < -0.5f;
+        cur[RB_RIGHT] = g.dpad.right.pressed || g.leftThumbstick.xAxis.value > 0.5f;
+        cur[PB_MENU] = g.buttonMenu.pressed; cur[PB_OPT] = g.buttonOptions.pressed;
+        cur[PB_LB] = g.leftShoulder.pressed; cur[PB_RB] = g.rightShoulder.pressed;
+        int pressed[16];
+        for (int i = 0; i < 16; i++) pressed[i] = cur[i] && !p->prev[i];
+        const int open = flat_menu_is_open() && !A.upload;
+        for (int b = 0; b < RB_COUNT; b++) {
+            if (pressed[b] && open) remote_button(b, 1, SRC_PAD, now);
+            if (!cur[b] && p->prev[b] && R.owner[b] == SRC_PAD) remote_button(b, 0, SRC_PAD, now);
         }
-    }
-    memcpy(prev, cur, sizeof prev);
-    prev_menu = menu; prev_opt = opt; prev_lb = lb; prev_rb = rb;
+        memcpy(p->prev, cur, sizeof p->prev);
+        if (open) {
+            apple_pad_release(p);
+            if (pressed[PB_RB]) flat_menu_key(FLAT_KEY_TAB);
+            if (pressed[PB_LB]) flat_menu_key(FLAT_KEY_TAB_BACK);
+        } else if (!A.upload) {
+            if (pressed[PB_OPT]) { flat_menu_set_open(1); return; }
+            int vx, vy, vw, vh;
+            const int shared = flat_dev_player(p->dev) == flat_dev_player(FLAT_DEV_REMOTE);
+            if (shared && !sight_place(&vx, &vy, &vw, &vh)) return;
+            apple_pad_game(g, p, dt, shared ? &A.sx : &p->sx, shared ? &A.sy : &p->sy, -1, pressed[RB_CLICK] || pressed[PB_MENU]);
+        }
+    });
 }
 
 // ---------------------------------------------------------------- UIKit's presses (a keyboard, the Simulator's remote)
@@ -591,8 +600,10 @@ static NSMutableSet *passed_presses;   // presses UIKit keeps (the Menu that goe
     A.last = now;
     self.controllerUserInteractionEnabled = top_level();   // (the top: Menu goes to UIKit, which leaves the app)
     {   // no screensaver while someone plays or online play is on: tvOS suspends an app under it, and online the
-        // partner's game would wait (they may play while this player only watches); the attract scenes alone may have it
-        const BOOL busy = online_session() || host_player_playing(0) || host_player_playing(1);
+        // partner's game would wait (they may play while this player only watches); the attract scenes alone may have it.
+        // (A player in the game by its state: host_player_playing is 0 for both in a two-player game, docs/vr.md.)
+        const BOOL busy = online_session() || host_player_playing(0) || host_player_playing(1) ||
+                          host_player_state(0) == HOST_P_IN || host_player_state(1) == HOST_P_IN;
         if (UIApplication.sharedApplication.idleTimerDisabled != busy) {
             UIApplication.sharedApplication.idleTimerDisabled = busy;
             LOGI("tv: screensaver %s", busy ? "held off (playing or online)" : "allowed");

@@ -11,6 +11,7 @@
 #include <EGL/eglext.h>
 #include <math.h>
 #include "flat/flat.h"
+#include "flat/apple_pads.h"
 #include "platform/gl.h"
 #include "platform/platform.h"
 #include "online.h"
@@ -34,10 +35,8 @@ static struct {
     EGLContext ctx;
     EGLSurface surf;
     int quit, restart, mouse_down, cursor_hidden;
-    float sx, sy;
-    int pad_on, pad_fire, pad_reload;
     double last;
-} A = { .sx = -1 };
+} A;
 
 @interface HotdMacView : NSView
 @end
@@ -142,10 +141,10 @@ static int egl_init(CAMetalLayer *layer) {
 - (void)mouseExited:(NSEvent *)e { if (A.cursor_hidden) { [NSCursor unhide]; A.cursor_hidden = 0; } }
 - (void)moved:(NSEvent *)e {
     const NSPoint p = [self px:e];
-    A.pad_on = 0; A.sx = -1;
+    apple_pads_pointer_moved(FLAT_DEV_KBM);
     [self cursorAt:p];
     flat_menu_mouse((int)p.x, (int)p.y, A.mouse_down);
-    if (!flat_menu_is_open()) flat_pointer((int)p.x, (int)p.y);
+    if (!flat_menu_is_open()) flat_dev_pointer(FLAT_DEV_KBM, (int)p.x, (int)p.y);
 }
 - (void)mouseMoved:(NSEvent *)e { [self moved:e]; }
 - (void)mouseDragged:(NSEvent *)e { [self moved:e]; }
@@ -153,16 +152,16 @@ static int egl_init(CAMetalLayer *layer) {
     A.mouse_down = 1;
     const NSPoint p = [self px:e];
     flat_menu_mouse((int)p.x, (int)p.y, 1);
-    if (!flat_menu_is_open()) { flat_pointer((int)p.x, (int)p.y); flat_trigger(1); }
+    if (!flat_menu_is_open()) { flat_dev_pointer(FLAT_DEV_KBM, (int)p.x, (int)p.y); flat_dev_trigger(FLAT_DEV_KBM, 1); }
 }
 - (void)mouseUp:(NSEvent *)e {
     A.mouse_down = 0;
     const NSPoint p = [self px:e];
     flat_menu_mouse((int)p.x, (int)p.y, 0);
-    flat_trigger(0);
+    flat_dev_trigger(FLAT_DEV_KBM, 0);
 }
-- (void)rightMouseDown:(NSEvent *)e { if (!flat_menu_is_open()) flat_reload(1); }
-- (void)rightMouseUp:(NSEvent *)e { flat_reload(0); }
+- (void)rightMouseDown:(NSEvent *)e { if (!flat_menu_is_open()) flat_dev_reload(FLAT_DEV_KBM, 1); }
+- (void)rightMouseUp:(NSEvent *)e { flat_dev_reload(FLAT_DEV_KBM, 0); }
 - (void)key:(NSEvent *)e down:(int)down {
     const unsigned short k = e.keyCode;   // (kVK_*: Return 36, Tab 48, Space 49, Esc 53, arrows 123-126, F11 103, T 17)
     if (down && k == 103) { [self.window toggleFullScreen:nil]; return; }
@@ -179,58 +178,13 @@ static int egl_init(CAMetalLayer *layer) {
         }
         return;
     }
-    if (k == 36 || k == 49) { if (!(down && e.ARepeat)) flat_start(down); return; }
+    if (k == 36 || k == 49) { if (!(down && e.ARepeat)) flat_dev_start(FLAT_DEV_KBM, down); return; }
     if (k == 17) { online_talk_key(down != 0); return; }
     if (down && k == 53 && !e.ARepeat) flat_menu_set_open(1);
 }
 - (void)keyDown:(NSEvent *)e { [self key:e down:1]; }
 - (void)keyUp:(NSEvent *)e { [self key:e down:0]; }
 @end
-
-// ---------------------------------------------------------------- pads (as on iOS)
-static float dz(float v) { const float d = 0.2f; if (fabsf(v) < d) return 0; const float g = (fabsf(v) - d) / (1 - d); return (v < 0 ? -g : g) * g; }
-static void pad_frame(double dt) {
-    GCController *c = GCController.current ?: GCController.controllers.firstObject;
-    GCExtendedGamepad *g = c.extendedGamepad;
-    if (!g) return;
-    static int prev_a, prev_menu, prev_opt, prev_b, prev_lb, prev_rb, prev_up, prev_down, prev_left, prev_right;
-    const int a = g.buttonA.pressed, menu = g.buttonMenu.pressed, opt = g.buttonOptions.pressed, b = g.buttonB.pressed;
-    const int lb = g.leftShoulder.pressed, rb = g.rightShoulder.pressed;
-    const int up = g.dpad.up.pressed || g.leftThumbstick.yAxis.value > 0.5f, down = g.dpad.down.pressed || g.leftThumbstick.yAxis.value < -0.5f;
-    const int left = g.dpad.left.pressed || g.leftThumbstick.xAxis.value < -0.5f, right = g.dpad.right.pressed || g.leftThumbstick.xAxis.value > 0.5f;
-    if (flat_menu_is_open()) {
-        if (a && !prev_a) flat_menu_key(FLAT_KEY_ENTER);
-        if ((b && !prev_b) || (opt && !prev_opt)) flat_menu_key(FLAT_KEY_BACK);
-        if (rb && !prev_rb) flat_menu_key(FLAT_KEY_TAB);
-        if (lb && !prev_lb) flat_menu_key(FLAT_KEY_TAB_BACK);
-        if (up && !prev_up) flat_menu_key(FLAT_KEY_UP);
-        if (down && !prev_down) flat_menu_key(FLAT_KEY_DOWN);
-        if (left && !prev_left) flat_menu_key(FLAT_KEY_LEFT);
-        if (right && !prev_right) flat_menu_key(FLAT_KEY_RIGHT);
-    } else {
-        if (opt && !prev_opt) flat_menu_set_open(1);
-        if ((a && !prev_a) || (menu && !prev_menu)) { flat_start(1); flat_start(0); }
-        int vx, vy, vw, vh;
-        flat_view_rect(&vx, &vy, &vw, &vh);
-        if (vw > 0) {
-            if (A.sx < 0) { A.sx = vx + vw * 0.5f; A.sy = vy + vh * 0.5f; }
-            const float lx = dz(g.leftThumbstick.xAxis.value), ly = dz(g.leftThumbstick.yAxis.value);
-            const float rx = dz(g.rightThumbstick.xAxis.value), ry = dz(g.rightThumbstick.yAxis.value);
-            const float mx = fabsf(rx) > fabsf(lx) ? rx : lx, my = fabsf(ry) > fabsf(ly) ? ry : ly;
-            if (mx || my) {
-                A.pad_on = 1;
-                A.sx = fminf(fmaxf(A.sx + mx * vw * 2.0f * (float)dt, vx - vw * 0.05f), vx + vw * 1.05f);
-                A.sy = fminf(fmaxf(A.sy - my * vw * 2.0f * (float)dt, vy - vh * 0.05f), vy + vh * 1.05f);
-            }
-            if (A.pad_on) flat_pointer((int)A.sx, (int)A.sy);
-            const int fire = g.rightTrigger.value > 0.4f || rb, rel = g.leftTrigger.value > 0.4f || lb || g.buttonX.pressed;
-            if (fire != A.pad_fire) { A.pad_on = 1; flat_pointer((int)A.sx, (int)A.sy); flat_trigger(fire); A.pad_fire = fire; }
-            if (rel != A.pad_reload) { flat_reload(rel); A.pad_reload = rel; }
-        }
-    }
-    prev_a = a; prev_menu = menu; prev_opt = opt; prev_b = b; prev_lb = lb; prev_rb = rb;
-    prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-}
 
 // ---------------------------------------------------------------- the app
 @implementation HotdMacApp
@@ -283,7 +237,7 @@ static void pad_frame(double dt) {
 - (void)frame {
     if (A.quit || A.restart || flat_app_restart_requested()) { [self finish]; return; }
     const double now = (double)plat_now_ns() * 1e-9;
-    pad_frame(A.last ? now - A.last : 0);
+    apple_pads_frame(A.last ? now - A.last : 0);
     A.last = now;
     const int hidden = self.window.miniaturized || !self.window.visible;
     flat_app_frame(hidden);

@@ -1,7 +1,8 @@
 // The flat app's iOS / iPadOS front end: a UIKit app (a scene, one view on a CAMetalLayer) drawing through ANGLE's
 // OpenGL ES 3 on Metal, a frame each display refresh. Touch as on Android (flat_touch.c: a tap shoots there, a second
-// finger reloads, RELOAD / START / MENU beside the picture); game pads (GameController: either stick moves a sight,
-// R2 / R1 shoot, L2 / L1 / X reload, A / Menu coins and Start, Options the menu). Documents is the files folder
+// finger reloads, RELOAD / START / MENU beside the picture); game pads (apple_pads.h: either stick moves a sight,
+// R2 / R1 shoot, L2 / L1 / X reload, A / Menu coins and Start, Options the menu; a second player on another pad, or
+// the touch screen while player 1 is on a pad). Documents is the files folder
 // (arcade/ holds the ROM set; the Files app shows it), the ROM set chosen in the document picker at the first start.
 // An iOS app cannot start itself again: where the app would restart (online play begins and ends so, a new ROM set),
 // it says so and closes, and the player opens it again (online-session.cfg waits ten minutes).
@@ -15,6 +16,7 @@
 #include <EGL/eglext.h>
 #include <math.h>
 #include "flat/flat.h"
+#include "flat/apple_pads.h"
 #include "platform/gl.h"
 #include "platform/platform.h"
 #include "online.h"
@@ -42,11 +44,8 @@ static struct {
     // touch: the finger that aims, the one that reloads, the button each finger holds
     __unsafe_unretained UITouch *aim, *reload;
     __unsafe_unretained UITouch *held[4];   // by FLAT_BTN_*
-    // pads
-    float sx, sy;
-    int pad_on, pad_fire, pad_reload;
     double last;
-} A = { .sx = -1 };
+} A;
 
 @interface HotdView : UIView
 @end
@@ -110,8 +109,8 @@ static int egl_init(CAMetalLayer *layer) {
 // ---------------------------------------------------------------- touch
 static void button(int b, int down) {
     flat_touch_pressed(b, down);
-    if (b == FLAT_BTN_START) flat_start(down);
-    else if (b == FLAT_BTN_RELOAD) flat_reload(down);
+    if (b == FLAT_BTN_START) flat_dev_start(FLAT_DEV_TOUCH, down);
+    else if (b == FLAT_BTN_RELOAD) flat_dev_reload(FLAT_DEV_TOUCH, down);
     else if (b == FLAT_BTN_MENU && down) { flat_menu_set_open(1); flat_touch_pressed(b, 0); A.held[b] = nil; }
 }
 
@@ -128,8 +127,8 @@ static void button(int b, int down) {
         if (flat_menu_is_open()) { if (!A.aim) { A.aim = t; flat_menu_mouse((int)p.x, (int)p.y, 1); } continue; }
         const int b = flat_touch_button((int)p.x, (int)p.y);
         if (b) { A.held[b] = t; button(b, 1); continue; }
-        if (!A.aim) { A.aim = t; if (!flat_gyro_on()) flat_pointer((int)p.x, (int)p.y); flat_trigger(1); }
-        else if (!A.reload) { A.reload = t; flat_reload(1); }
+        if (!A.aim) { A.aim = t; if (!flat_gyro_on()) flat_dev_pointer(FLAT_DEV_TOUCH, (int)p.x, (int)p.y); flat_dev_trigger(FLAT_DEV_TOUCH, 1); }
+        else if (!A.reload) { A.reload = t; flat_dev_reload(FLAT_DEV_TOUCH, 1); }
     }
 }
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)e {
@@ -137,7 +136,7 @@ static void button(int b, int down) {
         if (t != A.aim) continue;
         const CGPoint p = [self px:t];
         if (flat_menu_is_open()) flat_menu_mouse((int)p.x, (int)p.y, 1);
-        else if (!flat_gyro_on()) flat_pointer((int)p.x, (int)p.y);
+        else if (!flat_gyro_on()) flat_dev_pointer(FLAT_DEV_TOUCH, (int)p.x, (int)p.y);
     }
 }
 - (void)lift:(NSSet<UITouch *> *)touches {
@@ -146,8 +145,8 @@ static void button(int b, int down) {
         if (t == A.aim) {
             A.aim = nil;
             if (flat_menu_is_open()) flat_menu_mouse((int)p.x, (int)p.y, 0);
-            flat_trigger(0);
-        } else if (t == A.reload) { A.reload = nil; flat_reload(0); }
+            flat_dev_trigger(FLAT_DEV_TOUCH, 0);
+        } else if (t == A.reload) { A.reload = nil; flat_dev_reload(FLAT_DEV_TOUCH, 0); }
         for (int b = 1; b < 4; b++) if (A.held[b] == t) { A.held[b] = nil; button(b, 0); }
     }
 }
@@ -155,49 +154,101 @@ static void button(int b, int down) {
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)e { [self lift:touches]; }
 @end
 
-// ---------------------------------------------------------------- pads (GameController)
-static float dz(float v) { const float d = 0.2f; if (fabsf(v) < d) return 0; const float g = (fabsf(v) - d) / (1 - d); return (v < 0 ? -g : g) * g; }
-static void pad_frame(double dt) {
-    GCController *c = GCController.current ?: GCController.controllers.firstObject;
-    GCExtendedGamepad *g = c.extendedGamepad;
-    if (!g) return;
-    static int prev_a, prev_menu, prev_opt, prev_b, prev_lb, prev_rb, prev_up, prev_down, prev_left, prev_right;
-    const int a = g.buttonA.pressed, menu = g.buttonMenu.pressed, opt = g.buttonOptions.pressed, b = g.buttonB.pressed;
-    const int lb = g.leftShoulder.pressed, rb = g.rightShoulder.pressed;
-    const int up = g.dpad.up.pressed || g.leftThumbstick.yAxis.value > 0.5f, down = g.dpad.down.pressed || g.leftThumbstick.yAxis.value < -0.5f;
-    const int left = g.dpad.left.pressed || g.leftThumbstick.xAxis.value < -0.5f, right = g.dpad.right.pressed || g.leftThumbstick.xAxis.value > 0.5f;
-    if (flat_menu_is_open()) {
-        if (a && !prev_a) flat_menu_key(FLAT_KEY_ENTER);
-        if ((b && !prev_b) || (opt && !prev_opt)) flat_menu_key(FLAT_KEY_BACK);
-        if (rb && !prev_rb) flat_menu_key(FLAT_KEY_TAB);
-        if (lb && !prev_lb) flat_menu_key(FLAT_KEY_TAB_BACK);
-        if (up && !prev_up) flat_menu_key(FLAT_KEY_UP);
-        if (down && !prev_down) flat_menu_key(FLAT_KEY_DOWN);
-        if (left && !prev_left) flat_menu_key(FLAT_KEY_LEFT);
-        if (right && !prev_right) flat_menu_key(FLAT_KEY_RIGHT);
-    } else {
-        if (opt && !prev_opt) flat_menu_set_open(1);
-        if ((a && !prev_a) || (menu && !prev_menu)) { flat_start(1); flat_start(0); }
-        int vx, vy, vw, vh;
-        flat_view_rect(&vx, &vy, &vw, &vh);
-        if (vw > 0) {
-            if (A.sx < 0) { A.sx = vx + vw * 0.5f; A.sy = vy + vh * 0.5f; }
-            const float lx = dz(g.leftThumbstick.xAxis.value), ly = dz(g.leftThumbstick.yAxis.value);
-            const float rx = dz(g.rightThumbstick.xAxis.value), ry = dz(g.rightThumbstick.yAxis.value);
-            const float mx = fabsf(rx) > fabsf(lx) ? rx : lx, my = fabsf(ry) > fabsf(ly) ? ry : ly;
-            if (mx || my) {
-                A.pad_on = 1;
-                A.sx = fminf(fmaxf(A.sx + mx * vw * 2.0f * (float)dt, vx - vw * 0.05f), vx + vw * 1.05f);
-                A.sy = fminf(fmaxf(A.sy - my * vw * 2.0f * (float)dt, vy - vh * 0.05f), vy + vh * 1.05f);
+// ---------------------------------------------------------------- tests: virtual pads (iOS 17's GCVirtualController)
+// FLAT_TEST_PAD=n (1..4): n hidden virtual pads, each a GameController pad as a real one; FLAT_TEST_PAD_SCRIPT drives
+// them as on Windows (pad_win.c: WHO@SECONDS:WHAT; A, RT, LT, RX+40, ...), K being the touch screen here (SPACE: its
+// START; X;Y: a tap there, 0..1 of the picture). Each pad's player and sight are logged a second after each step.
+static GCVirtualController *tp_vc[4];
+static struct { int n; double start; struct { int who; double at; char what[16]; } step[64]; int nsteps, done[64], logged[64], let_go[64]; } TP = { .n = -1 };
+static void test_pads(double now) {
+    if (TP.n == -1) {
+        const char *e = getenv("FLAT_TEST_PAD"), *sc = getenv("FLAT_TEST_PAD_SCRIPT");
+        TP.n = e ? atoi(e) : 0;
+        if (TP.n > 4) TP.n = 4;
+        if (TP.n <= 0) { TP.n = 0; return; }
+        if (@available(iOS 17.0, *)) {
+            for (int k = 0; k < TP.n; k++) {
+                GCVirtualControllerConfiguration *cfg = [[GCVirtualControllerConfiguration alloc] init];
+                cfg.elements = [NSSet setWithObjects:GCInputLeftThumbstick, GCInputRightThumbstick, GCInputButtonA, GCInputButtonB,
+                                GCInputButtonX, GCInputLeftTrigger, GCInputRightTrigger, nil];
+                cfg.hidden = YES;
+                tp_vc[k] = [[GCVirtualController alloc] initWithConfiguration:cfg];
+                const int kk = k;
+                [tp_vc[k] connectWithReplyHandler:^(NSError *err) { LOGI("test: virtual pad %d %s", kk + 1, err ? err.localizedDescription.UTF8String : "connected"); }];
             }
-            if (A.pad_on) flat_pointer((int)A.sx, (int)A.sy);
-            const int fire = g.rightTrigger.value > 0.4f || rb, rel = g.leftTrigger.value > 0.4f || lb || g.buttonX.pressed;
-            if (fire != A.pad_fire) { A.pad_on = 1; flat_pointer((int)A.sx, (int)A.sy); flat_trigger(fire); A.pad_fire = fire; }
-            if (rel != A.pad_reload) { flat_reload(rel); A.pad_reload = rel; }
+        } else { LOGI("test: virtual pads need iOS 17"); TP.n = 0; return; }
+        for (const char *q = sc; q && *q && TP.nsteps < 64;) {
+            char who[4] = "";
+            int k = TP.nsteps;
+            if (sscanf(q, "%3[^@]@%lf:%15[^,]", who, &TP.step[k].at, TP.step[k].what) == 3) {
+                TP.step[k].who = who[0] == 'K' || who[0] == 'k' ? 0 : atoi(who);
+                TP.nsteps++;
+            }
+            q = strchr(q, ',');
+            if (q) q++;
+        }
+        TP.start = now;
+        LOGI("test: %d virtual pads, %d steps", TP.n, TP.nsteps);
+        return;
+    }
+    if (!TP.n) return;
+    const double t = now - TP.start;
+    if (@available(iOS 17.0, *)) {
+        for (int k = 0; k < TP.n; k++) {
+            float a = 0, rt = 0, lt = 0, sx[2] = { 0, 0 }, sy[2] = { 0, 0 };
+            for (int i = 0; i < TP.nsteps; i++) {
+                if (TP.step[i].who != k + 1) continue;
+                const double d = t - TP.step[i].at;
+                const char *w = TP.step[i].what;
+                if (d < 0) continue;
+                if (d < 0.2) {
+                    if (!strcmp(w, "A") || !strcmp(w, "START")) a = 1;
+                    else if (!strcmp(w, "RT")) rt = 1;
+                    else if (!strcmp(w, "LT")) lt = 1;
+                }
+                if (d < 0.3 && (w[0] == 'L' || w[0] == 'R') && (w[1] == 'X' || w[1] == 'Y') && (w[2] == '+' || w[2] == '-')) {
+                    const float v = (w[2] == '+' ? 1.f : -1.f) * (w[3] ? (float)atoi(w + 3) / 100.f : 1.f);
+                    if (w[1] == 'X') sx[w[0] == 'R'] = v; else sy[w[0] == 'R'] = v;
+                }
+            }
+            [tp_vc[k] setValue:a forButtonElement:GCInputButtonA];
+            [tp_vc[k] setValue:rt forButtonElement:GCInputRightTrigger];
+            [tp_vc[k] setValue:lt forButtonElement:GCInputLeftTrigger];
+            [tp_vc[k] setPosition:CGPointMake(sx[0], sy[0]) forDirectionPadElement:GCInputLeftThumbstick];
+            [tp_vc[k] setPosition:CGPointMake(sx[1], sy[1]) forDirectionPadElement:GCInputRightThumbstick];
         }
     }
-    prev_a = a; prev_menu = menu; prev_opt = opt; prev_b = b; prev_lb = lb; prev_rb = rb;
-    prev_up = up; prev_down = down; prev_left = left; prev_right = right;
+    for (int i = 0; i < TP.nsteps; i++) {
+        if (!TP.done[i] && t >= TP.step[i].at) {
+            TP.done[i] = 1;
+            LOGI("test: step %d@%.1f:%s", TP.step[i].who, TP.step[i].at, TP.step[i].what);
+            if (!TP.step[i].who) {   // the touch screen
+                float fx, fy;
+                int vx, vy, vw, vh;
+                flat_view_rect(&vx, &vy, &vw, &vh);
+                if (!strcmp(TP.step[i].what, "SPACE")) { flat_dev_start(FLAT_DEV_TOUCH, 1); flat_dev_start(FLAT_DEV_TOUCH, 0); }
+                else if (sscanf(TP.step[i].what, "%f;%f", &fx, &fy) == 2 && vw > 0) {
+                    flat_dev_pointer(FLAT_DEV_TOUCH, vx + (int)(fx * vw), vy + (int)(fy * vh));
+                    flat_dev_trigger(FLAT_DEV_TOUCH, 1);   // (let go a moment later, below)
+                }
+            }
+        }
+        if (!TP.step[i].who && !TP.let_go[i] && t >= TP.step[i].at + 0.1) {
+            TP.let_go[i] = 1;
+            if (strcmp(TP.step[i].what, "SPACE")) flat_dev_trigger(FLAT_DEV_TOUCH, 0);
+        }
+        if (!TP.logged[i] && t >= TP.step[i].at + 1) {
+            TP.logged[i] = 1;
+            char line[256];
+            int n = 0;
+            for (int c = 0; c < APPLE_PADS; c++)
+                if (apple_pad_ctl[c])
+                    n += snprintf(line + n, sizeof line - (size_t)n, " [pad %d: player %d, sight %.0f,%.0f]", apple_pad[c].dev - FLAT_DEV_PAD + 1,
+                                  flat_dev_player(apple_pad[c].dev) + 1, apple_pad[c].sx, apple_pad[c].sy);
+            line[n] = 0;
+            LOGI("test: after %.1f s:%s; player 2 %s", TP.step[i].at, line, flat_player2_in() ? "in" : "out");
+        }
+    }
 }
 
 // ---------------------------------------------------------------- the view controller
@@ -238,7 +289,8 @@ static void pad_frame(double dt) {
         return;
     }
     const double now = (double)plat_now_ns() * 1e-9;
-    pad_frame(A.last ? now - A.last : 0);
+    test_pads(now);
+    apple_pads_frame(A.last ? now - A.last : 0);
     {   // gyro aim: CoreMotion's rotation rate (the device's portrait axes) about the screen's, landscape either way
         if (!motion) { motion = [[CMMotionManager alloc] init]; motion.deviceMotionUpdateInterval = 1.0 / 120; }
         const BOOL want = flat_gyro_on() && !A.background && motion.deviceMotionAvailable;
