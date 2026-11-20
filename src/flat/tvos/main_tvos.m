@@ -37,6 +37,7 @@
 #include "quest_menu.h"
 #include "quest_options.h"
 #include "online.h"
+#include "quest.h"
 
 #ifndef EGL_PLATFORM_ANGLE_ANGLE
 #define EGL_PLATFORM_ANGLE_ANGLE 0x3202
@@ -503,6 +504,14 @@ static NSMutableSet *passed_presses;   // presses UIKit keeps (the Menu that goe
     pad_frame(A.last ? now - A.last : 0, now);
     A.last = now;
     self.controllerUserInteractionEnabled = top_level();   // (the top: Menu goes to UIKit, which leaves the app)
+    {   // no screensaver while someone plays or online play is on: tvOS suspends an app under it, and online the
+        // partner's game would wait (they may play while this player only watches); the attract scenes alone may have it
+        const BOOL busy = online_session() || host_player_playing(0) || host_player_playing(1);
+        if (UIApplication.sharedApplication.idleTimerDisabled != busy) {
+            UIApplication.sharedApplication.idleTimerDisabled = busy;
+            LOGI("tv: screensaver %s", busy ? "held off (playing or online)" : "allowed");
+        }
+    }
     if (now - A.kept_at > 20) { A.kept_at = now; tv_store_save(A.files); }
     flat_app_frame(A.background || A.upload);
     if (A.background) return;
@@ -658,8 +667,11 @@ static void rom_arrived(const char *path) { (void)path; [the_controller romArriv
     self.window.rootViewController = the_controller;
     [self.window makeKeyAndVisible];
 }
-- (void)sceneDidEnterBackground:(UIScene *)scene { A.background = 1; if (A.dpy) glFinish(); tv_store_save(A.files); }
-- (void)sceneWillEnterForeground:(UIScene *)scene { A.background = 0; }
+- (void)sceneDidEnterBackground:(UIScene *)scene {
+    LOGI("tv: to the background (tvOS suspends the app: online, the partner waits)");
+    A.background = 1; if (A.dpy) glFinish(); tv_store_save(A.files);
+}
+- (void)sceneWillEnterForeground:(UIScene *)scene { LOGI("tv: back in front"); A.background = 0; }
 @end
 
 @interface HotdApp : UIResponder <UIApplicationDelegate>
