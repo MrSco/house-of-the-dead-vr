@@ -378,13 +378,17 @@ slices: `~/angle/xcframeworks-visionos`, as GoldenEye VR's `tools/build_angle_ap
     options.cfg (`brightness_level_pct`) so the 50 saved files carry is dropped.
   - The "plain floor" seen on Windows was those two together (the marble's pattern is there).
 
-**Apple TV (2026-11-19): done but for a real Apple TV and Siri Remote.** On the Mac: `python scripts/apple_sync.py
-[--dest DIR]` from the PC, then `python3 scripts/build_tvos.py simulator|device [--app] [--ipa]` there (the
+**Apple TV (2026-11-19; on two real Apple TVs 2026-11-20): done but for a person with the Siri Remote.** On the Mac:
+`python scripts/apple_sync.py [--dest DIR]` from the PC, then `python3 scripts/build_tvos.py simulator|device [--app]
+[--ipa] [--dest UDID]` there (the
 libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANGLE's tvOS slices in
 `~/angle/xcframeworks-tvos`, made by GoldenEye VR's `tools/build_angle_apple.sh tvos-device tvos-simulator`).
 - `src/flat/tvos/main_tvos.m`: the iOS app's shape (a scene, a CAMetalLayer view, ANGLE's EGL, a frame each display
-  refresh), HD by default, 4:3 in the middle of the TV. The controller is a `GCEventViewController`, so the remote's
-  and pads' presses are the game's and Menu doesn't leave the app.
+  refresh), 4:3 in the middle of the TV. Picture HD is drawn at most 1080 lines (1440 x 1080, 4x MSAA) and scaled up
+  on a 4K TV (`flat_picture_limit`); on the Apple TV HD's A8 (Metal's Apple2 family) Picture starts as Original and HD
+  is 720 lines without MSAA (see the hardware check below). The controller is a `GCEventViewController`, so the
+  remote's and pads' presses are the game's and Menu doesn't leave the app. No screensaver while a player is in the
+  game or online play is on (`idleTimerDisabled`: tvOS suspends an app under it, and an online partner would wait).
 - **The Siri Remote** (GameController's micro gamepad, absolute touch positions): the touch surface moves the sight
   like a mouse, relative, a slow swipe across it half the picture and quick ones up to three times that (GAME:
   Remote speed, 25-300%); a click shoots (off the picture: reload, as on the cabinet); Play/Pause reloads; Play/Pause
@@ -412,13 +416,24 @@ libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANG
 - **Online play** as on iOS: rooms, quick match, LAN host and direct IP; an app can't restart itself, so starting or
   leaving online play says "open the app again" and closes. Nothing in the protocol changed (no ONLINE_VER bump).
 - **Install**: SideStore and AltStore don't sign for tvOS, so an Apple TV takes the app from Xcode with a developer
-  account (`DEVELOPMENT_TEAM=<team> python3 scripts/build_tvos.py device --app`, then run it on the paired Apple TV
-  from Xcode, or `xcrun devicectl device install app`; a free account's build lapses after 7 days, a paid one's after
-  a year), or later through TestFlight under the iPhone app's bundle id (`com.mrsco.hotdvr`, with its tvOS platform
-  added in App Store Connect; nothing uploaded). The home-screen icon (the wide banner, 5:3, as a layered stack) and the
-  Top Shelf come from `python scripts/make_icons.py tvos`.
-- Test switch: `FLAT_TEST_REMOTE="seconds action [args]; ..."` in env.txt plays the remote through the same code
-  (swipe DX DY [SECONDS], click, play, playhold, menu, up / down / left / right), logging the presses and the sight.
+  account (`DEVELOPMENT_TEAM=<team> python3 scripts/build_tvos.py device --app --dest <the Apple TV's UDID>`, then
+  `xcrun devicectl device install app --device <UDID> build_tvos/dd/Build/Products/Release-appletvos/HouseOfTheDeadVR.app`;
+  a free account's build lapses after 7 days, a paid one's after a year), or later through TestFlight under the iPhone
+  app's bundle id (`com.mrsco.hotdvr`, with its tvOS platform added in App Store Connect; nothing uploaded). On a Mac
+  with no account in Xcode, automatic signing takes the team's App Store Connect key (`HOTD_ASC_KEY_DIR`,
+  `HOTD_ASC_KEY_ID`, `HOTD_ASC_ISSUER`, as build_apple.py's) and `--dest` registers that Apple TV with the team. The
+  development identity's keychain must be unlocked, so run it from the Mac's desktop session (Terminal, or a
+  `.command` file opened there), not over ssh ("No Accounts" / no profile otherwise). The home-screen icon (the wide
+  banner, 5:3, as a layered stack) and the Top Shelf come from `python scripts/make_icons.py tvos`.
+- Test switches (env.txt in `Library/Caches/HOTDVR`, sent with `devicectl device copy to --domain-type
+  appDataContainer --domain-identifier com.mrsco.hotdvr`): `FLAT_TEST_REMOTE="seconds action [args]; ..."` plays the
+  remote through the same code (swipe DX DY [SECONDS], click, play, playhold, menu, up / down / left / right), logging
+  the presses and the sight; `FLAT_TEST_PICTURE=lines,samples` another limit for HD. port.log has a perf line every
+  10 s (frames drawn, those later than 1.5 refreshes, the main thread's time drawing and waiting for the swap, the
+  drawable, the thermal state) and the game's "frame ms" line every 600 frames (the board's parts, the game's own
+  frames a second, frames not drawn to keep up, and how long the speakers asked for sound the game hadn't made).
+- An Apple TV asleep refuses a launch ("System is asleep - foreground app launch forbidden") and devicectl has no
+  wake; `devicectl device reboot` brings it back awake (and the TV on, by HDMI-CEC).
 - **Checked in the tvOS 27.2 Simulator** (Apple TV 4K, 3840 x 2160; the T3 device tools don't offer tvOS
   simulators, so `simctl` installed, launched and took the pictures):
   - The ROM page: the PC fetched it over the LAN, a README sent to it was refused, hotd.7z (38.4 MB) arrived in
@@ -434,17 +449,62 @@ libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANG
     joined by its code (loaded at frame 2,104): **120 of 120** over 7,200 frames. Voice: the TV received 3,121 Opus
     frames, none lost, and sent none.
   - The iOS simulator app and the Mac app still build with the shared changes.
+- **Checked on real Apple TVs (2026-11-20)**: an Apple TV 4K (3rd generation, A15, tvOS 27.3, a 2nd generation or
+  later Siri Remote) and an Apple TV HD (A8, tvOS 26.6.1, a 1st generation Siri Remote), from the Mac over devicectl
+  (install, launch, files in and out, `devicectl device capture screenshot` for the pictures), test switches for the
+  player:
+  - Install: a signed development build on each (the team's key made the tvOS profile); the asset catalog compiles
+    without a warning or notice, and Assets.car holds the brand assets (the layered App Icon, 400 x 240 and 800 x 480,
+    its flattened and radiosity images, Top Shelf Image and Top Shelf Image Wide at 1x and 2x). The home screen shows
+    the banner icon, and the Top Shelf above it when it has the focus.
+  - The ROM page on the first start, with the TV's address and QR code; no local-network prompt appeared on either.
+    hotd.7z from the PC to `http://<the TV>:8007/upload`: 38.4 MB in 2.0 s (4K) and 2.7 s (HD), the game started by
+    itself. ANGLE gives OpenGL ES 3.0 on both, the A8 too (the Apple2 patch in GoldenEye VR's
+    `tools/build_angle_apple.sh`, already in `~/angle/xcframeworks-tvos`).
+  - **The 4K at 40 to 48 fps, fixed**: HD drew the 3D at the TV's 2880 x 2160 with 4x MSAA; the board took 3 ms, and
+    Picture Original held 60 with the main thread at 2.5 ms, so it was the GPU's fill. HD at most 1080 lines (scaled
+    up), and the multisampled picture invalidated after its resolve: 59.9 to 60 fps, no frame late, in play and in
+    the menu, thermal nominal.
+  - **The HD at 15 fps, fixed as far as an A8 goes**: the game's texture decode in each pixel (m2_gl.c) is more than
+    its GPU fills: HD 15 fps (1080 lines, 4x MSAA), 20 (no MSAA), 28 (720, 4x), 38 (720), 43 (540); Original near
+    60. Each frame's 2D layers went into the one texture the GPU was still reading, and ANGLE's Metal waited 11 to
+    15 ms of the main thread for it: three textures in turn (the upload 4 ms; ANGLE converts RGBA bytes for an sRGB
+    texture on the CPU, 1.35 ms into plain RGBA8). The VR cabinet room's courtyard, made beside the game on the first
+    run (42 s of the A8's two cores), isn't made by the flat apps. Now Picture Original by default there: 59.9 fps,
+    no frame late. Not the cause: the VR geometrizer's all-round scenery (culling it as the arcade does saved 0.5 ms).
+  - **The HD's sound cut out (the user heard it), fixed**: the busiest scenes took the game thread 18 ms a frame of
+    the arcade's 17.4 (the board up to 15.6 ms), so the game ran at 50 to 55 frames a second and the speakers went
+    short, up to 1.4 s in 10 s; an online guest a few frames behind dropped its sound outright (5.6 s). A flat app
+    behind the arcade's time now skips drawing a frame, never two in a row; the game runs every frame. The HD: 57.5
+    frames a second throughout, the speakers 0 ms short (21 to 232 frames of 600 not drawn in the busy parts). The
+    4K: 57.5 and none skipped.
+  - The remote by `FLAT_TEST_REMOTE` on both: Play/Pause held twice gave coins and Start; a slow swipe of 0.8 moved
+    the sight a quarter of the picture (741 px of 2880 on the 4K, 370 of 1440 on the HD), a quick one further (2.3x);
+    a fast swipe down put it under the picture, where a click reloads; Menu opened the TV menu, swipes moved the
+    focus, Remote speed 100% to 125%, Play/Pause resumed, Menu at the top logged the Home screen. The 4K's remote
+    reported a 2nd generation or later; the HD's 1st generation remote never connected (asleep), so it is untested.
+  - Storage: Remote speed changed to 125% in the menu, the app closed and opened again: 125% in options.cfg and the
+    menu, the 4 files kept in the app's defaults (17 KB). (Emptying the caches by hand can't be done with devicectl.)
+  - Online: the 4K hosted on the LAN and HOTDVR.exe joined by IP, twice: **100 of 100** checksums (from frame 1,427)
+    and **220 of 220** (joined under way at frame 3,350, 13,150 frames), the 4K at 59.9 fps hosting. The 4K hosted
+    and the HD joined: **200 of 200** (frames 1,711 to 13,680). With the frame skip: the HD hosted (skipping up to 232
+    of 600) and the 4K joined, **160 of 160**; HOTDVR.exe hosted a zonesync.net room and the HD joined by its code,
+    **160 of 160**, the HD guest at 57.1 to 57.9 frames a second, its speakers at most 174 ms short in 10 s.
 
 **Left for a player (the end check):** on the headset, a stage and an online game with this build (joining a game under way, both ways: the
 headset here lost tracking on the desk, so its app couldn't be opened for a live join), and the headset's new
 depth (figures over the floors and walls they dip into: the girl at the door, the first zombie's feet); on Windows, the
 mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM dialog, and voice with real speech;
 a real phone (touch, a pad, the ROM picker, voice); a Steam Frame; an iPhone or iPad (a signed build, touch, voice);
-the Mac app by hand; an Apple TV with a Siri Remote (a signed build from Xcode): the touch surface's feel and the
-Remote speed default, a click and the ring's clicks, Play/Pause held, Menu in the game, in the menu and at its top
-(the Home screen), a pad (and the remote with a pad connected), the ROM page from a phone (the QR code) and the
-local-network prompt, the storage after tvOS empties the caches, voice with a headset if tvOS offers one, and the 4K
-HD picture's frame time on the device.
+the Mac app by hand; the Apple TVs (both have the build) with the Siri Remote in hand: the touch surface's feel and
+the Remote speed default, a click and the 2nd generation remote's ring clicks (they shoot), the 1st generation
+remote on the Apple TV HD (its touch surface moves the sight the same way; it never connected in the test),
+Play/Pause held, Menu in the game, in the menu and at its top (the Home screen), a pad (and the remote with a pad
+connected), the ROM page from a phone (the QR code; no local-network prompt appeared when the PC sent the set, so
+whether a phone's upload asks is a person's check), the storage after tvOS empties the caches, voice with a headset
+if tvOS offers one, the screensaver held off in a game and coming in the attract scenes, and on the HD the picture and
+the sound in the busiest scenes (frames are skipped there, so the picture is less smooth: is it acceptable?) and HD's
+720-line picture if chosen. In the HD's menu, Picture's reset arrow sets HD (the shared default), not Original.
 
 **Left, later:**
 - Deploy the crash relay and set `REPORT_URL` (Quest and Windows); upload the Windows PDBs beside the Quest's
