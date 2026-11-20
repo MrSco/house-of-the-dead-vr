@@ -1,8 +1,15 @@
-// Apple Vision Pro: the compositor's thread (docs/platforms.md, P5). One thread does every display frame, as the
-// Quest app's main loop does: Compositor Services' frame (its timing and drawable), ARKit's head, hands and Sense
-// controllers at the frame's presentation time, the shell's update (vos_shell.c), one GL pass per eye into a Metal
-// texture of our own, then a Metal pass that copies each eye into the drawable and writes its depth, and the
-// present. The game runs on its own thread (arcade.cpp), never touching GL.
+// Apple Vision Pro (docs/platforms.md, P5): the VR shell's host (src/xr/xr.h, built with XR_OPENXR 0), as
+// src/quest/quest_main.c is the Quest's and src/xr/xr_win.c the PC's. The shell (src/xr/xr_shell.c: the game's world,
+// the cabinet view, guns, hands, the menu, online play's poses) is every headset's; what is the Vision Pro's is here:
+// ANGLE's GL context, Compositor Services' frames, ARKit's head, hands and Sense controllers' poses
+// (VosControllers.swift has their buttons), each eye's picture into the drawable, the document picker
+// (VosApp.swift's window), the app's files and assets, and the app closing.
+//
+// The compositor's thread does every display frame, as the Quest app's main loop does: Compositor Services' frame
+// (its timing and drawable), ARKit's head, hands and Sense controllers at the frame's presentation time (an XrhInput),
+// the shell's update (xr_host_frame), one GL pass per eye into a Metal texture of our own (xr_host_eye), then a Metal
+// pass that copies each eye into the drawable and writes its depth, and the present. The game runs on its own thread
+// (arcade.cpp), never touching GL.
 //
 // Found by GoldenEye VR's native visionOS build (its port/visionos: vos_egl.mm, vos_xr.mm), which found it from
 // Project Midas and Klepton:
@@ -34,7 +41,9 @@
 #include <GLES2/gl2ext.h>
 #include <pthread.h>
 #include <stdatomic.h>
-#include "vos.h"
+#include <unistd.h>
+#include "xr.h"
+#include "quest.h"
 #include "vos_bridging.h"
 #include "platform/platform.h"
 
@@ -47,10 +56,75 @@ static struct {
     int started;
     // the picker's answer, for the compositor's thread (0 none, 1 chosen, 2 cancelled)
     atomic_int picked;
+    // QUEST_TEST_PICK's file (tests): answered as the picker does, at pick_at (CACurrentMediaTime) once it opened
+    char pick_file[128];
+    double pick_at;
 } V;
 
-const char *vos_files_dir(void) { return V.files; }
-struct AAssetManager *vos_assets(void) { return (struct AAssetManager *)V.assets; }
+// ================================================================ xr.h's host
+// the app's models and sounds: the bundle's assets folder (project.yml copies src/quest/assets there)
+struct qasset { uint8_t *data; size_t len, pos; };
+qasset *qasset_open(const char *name) {
+    char p[1200];
+    snprintf(p, sizeof p, "%s/%s", V.assets, name);
+    FILE *f = fopen(p, "rb");
+    if (!f) return NULL;
+    qasset *a = calloc(1, sizeof *a);
+    fseek(f, 0, SEEK_END);
+    const long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (a && n > 0 && (a->data = malloc((size_t)n)) && fread(a->data, 1, (size_t)n, f) == (size_t)n) a->len = (size_t)n;
+    else if (a) { free(a->data); free(a); a = NULL; }
+    fclose(f);
+    return a;
+}
+int qasset_read(qasset *a, void *p, size_t n) {
+    if (a->len - a->pos < n) return 0;
+    memcpy(p, a->data + a->pos, n);
+    a->pos += n;
+    return 1;
+}
+const void *qasset_buffer(qasset *a, size_t *len) { *len = a->len; return a->data; }
+void qasset_close(qasset *a) { if (a) { free(a->data); free(a); } }
+
+void xr_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (Apple's own crash logs)
+void xr_os_online_started(void) {}
+// the app updates through the App Store (TestFlight): no updater in the SYSTEM tab
+const char *xr_os_update_line(void) { return NULL; }
+void xr_os_update_cmd(const char *cmd) { (void)cmd; }
+void xr_os_update_poll(double now) { (void)now; }
+int xr_os_mirror(int *w, int *h) { (void)w; (void)h; return 0; }
+void xr_os_haptic(int hand, float amplitude, int ms) { vosSenseHaptic(hand, amplitude, ms / 1000.0); }
+// the document picker, in a window beside the space; its answer comes to the compositor's thread (V.picked)
+int xr_os_import_rom(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{ vosPickerOpen("Choose your ROM set (hotd.zip or hotd.7z)"); });
+    // QUEST_TEST_PICK=seconds,file (env.txt, tests; the simulator can't pinch): the picker answers with that file, in
+    // Documents, 3 s after it opened, as when you choose it (the shell's switch opened it)
+    const char *e = getenv("QUEST_TEST_PICK");
+    if (e && strchr(e, ',') && !V.pick_at) {
+        snprintf(V.pick_file, sizeof V.pick_file, "%s", strchr(e, ',') + 1);
+        V.pick_at = CACurrentMediaTime() + 3;
+    }
+    return 1;
+}
+// the test's answer: a copy in the temporary folder, as the picker gives one
+static void pick_test(void) {
+    if (V.pick_at <= 0 || CACurrentMediaTime() < V.pick_at) return;
+    V.pick_at = -1;                       // (once)
+    char src[1200], dst[1200];
+    static char buf[1 << 16];
+    snprintf(src, sizeof src, "%s/%s", V.files, V.pick_file);
+    const char *tmp = getenv("TMPDIR");
+    snprintf(dst, sizeof dst, "%s/%s", tmp ? tmp : V.files, strrchr(V.pick_file, '/') ? strrchr(V.pick_file, '/') + 1 : V.pick_file);
+    FILE *in = fopen(src, "rb"), *out = in ? fopen(dst, "wb") : NULL;
+    size_t n;
+    int ok = in && out;
+    while (ok && (n = fread(buf, 1, sizeof buf, in)) > 0) ok = fwrite(buf, 1, n, out) == n;
+    if (in) fclose(in);
+    if (out && fclose(out)) ok = 0;
+    LOGI("test: the picker chose %s (%s)", V.pick_file, ok ? "copied" : "could not copy");
+    vosPickerDone(ok ? 1 : -1, ok ? dst : NULL);
+}
 
 // ================================================================ ANGLE: a GL context with no window
 static EGLDisplay s_dpy = EGL_NO_DISPLAY;
@@ -274,7 +348,7 @@ static simd_float3 pos_of(simd_float4x4 m) { return m.columns[3].xyz; }
 
 // one hand from ARKit's skeleton (LOCAL): its aim ray from the shoulder through the hand, as the Quest's runtime
 // makes it, and the pinches (with hysteresis: on under 1.5 cm between the tips, off over 3 cm)
-static void hand_from(ar_hand_anchor_t a, int h, simd_float4x4 local, simd_float4x4 head, VosHand *out) {
+static void hand_from(ar_hand_anchor_t a, int h, simd_float4x4 local, simd_float4x4 head, XrhHand *out) {
     static int pinch[2], mid[2];
     out->tracked = 0;
     if (!a || !ar_trackable_anchor_is_tracked((ar_trackable_anchor_t)a)) { pinch[h] = mid[h] = 0; return; }
@@ -398,9 +472,21 @@ static int eyes_make(int w, int h) {
 // ================================================================ the frame loop
 static void close_app(const char *why) {
     LOGI("closing: %s", why);
-    vos_shell_quit();
+    xr_quit();
     fflush(NULL);
     _exit(0);   // (the game thread can't be stopped from outside; its saves are written as it goes)
+}
+
+// the shell's frame (xr_host_frame), and what this host does round it each frame: the sound's output stream, online
+// play's start or end (an app on Vision Pro can't start itself again: the page says so, and a pull closes it), the
+// QUEST_TEST_PICK answer
+static void shell_frame(const XrhInput *in) {
+    quest_audio_service();
+    if (xr_restart_requested())
+        xr_close_with("ONLINE PLAY\n\nOnline play starts (or ends) when the app opens again.\n\n"
+                      "Pinch (or pull a trigger) to close the app, then open House of the Dead VR again now.");
+    pick_test();
+    xr_host_frame(in);
 }
 
 static void *render_main(void *arg) {
@@ -410,9 +496,15 @@ static void *render_main(void *arg) {
     cp_layer_renderer_t layer = (__bridge cp_layer_renderer_t)V.layer;
     if (!egl_init()) close_app("no OpenGL ES 3 through ANGLE");
     s_queue = [s_dev newCommandQueue];
-    vos_shell_start(V.files);
+    {   // the files folder (Documents), gone into (port.log is there already: vosAppStart), then the shell's setup and the
+        // game (or the setup page, without a ROM set)
+        plat_mkdir(V.files);
+        if (chdir(V.files)) LOGE("cannot go into %s", V.files);
+        xr_setup(V.files);
+        xr_start();
+    }
     ar_start();
-    static VosInput in;
+    static XrhInput in;
     int gl_ready = 0, set = 0;
     double last_present = 0;
     uint64_t last_idx = 0, frames = 0;
@@ -423,7 +515,7 @@ static void *render_main(void *arg) {
             case cp_layer_renderer_state_paused:
                 LOGI("compositor paused");
                 in.focused = 0;
-                if (gl_ready) vos_shell_frame(&in);   // (the game waits while the space is hidden)
+                if (gl_ready) shell_frame(&in);   // (the game waits while the space is hidden)
                 cp_layer_renderer_wait_until_running(layer);
                 LOGI("compositor running");
                 continue;
@@ -432,7 +524,7 @@ static void *render_main(void *arg) {
                 return NULL;
             default: break;
             }
-            if (vos_shell_exit()) close_app("the game asked");
+            if (xr_should_exit()) close_app("the game asked");
             cp_frame_t frame = cp_layer_renderer_query_next_frame(layer);
             if (!frame) { usleep(1000); continue; }
             cp_frame_start_update(frame);
@@ -494,7 +586,7 @@ static void *render_main(void *arg) {
                 VosSenseHand sh[2];
                 vosSenseSync(present, sh);
                 for (int h = 0; h < 2; h++) {
-                    VosController *c = &in.ctl[h];
+                    XrhController *c = &in.ctl[h];
                     const int was = c->fire;
                     memset(c, 0, sizeof *c);
                     c->connected = sh[h].connected;
@@ -507,27 +599,29 @@ static void *render_main(void *arg) {
                     c->pose_ok = controller_aim(h, present, local, c->aim);
                 }
             }
-            // the picker's answer
+            // the picker's answer: the game starts with the set now, or (the game was running) when the app opens again
             {
                 const int p = atomic_exchange(&V.picked, 0);
-                if (p) vos_shell_rom_chosen(p == 1);
+                if (p && !xr_rom_chosen(p == 1) && p == 1)
+                    xr_close_with("YOUR ROM SET IS IN\n\nIt loads when the app opens again.\n\n"
+                                  "Pinch (or pull a trigger) to close the app, then open House of the Dead VR again.");
             }
             if (!gl_ready) {
                 const int w = (int)vps[0].width, h = (int)vps[0].height;
                 if (!metal_pipes(cp_drawable_get_color_texture(dr, 0).pixelFormat, cp_drawable_get_depth_texture(dr, 0).pixelFormat) ||
-                    !eyes_make(w, h) || !vos_shell_gl_init(w, h))
+                    !eyes_make(w, h) || !xr_host_gl_init(w, h))
                     close_app("the eyes' pictures could not be made");
                 LOGI("compositor: %zu view(s), %dx%d, tangents L(%.3f %.3f %.3f %.3f)", nviews, w, h, tan[0][0], tan[0][1], tan[0][2], tan[0][3]);
                 gl_ready = 1;
             }
-            vos_shell_frame(&in);
+            shell_frame(&in);
             // the eyes, in GL (the set Metal is done with)
             set = (set + 1) % SETS;
             if (s_set[set].last) [s_set[set].last waitUntilCompleted];
             for (size_t v = 0; v < nviews; v++) {
                 float em[16];
                 put_m(em, eye[v]);
-                vos_shell_eye((int)v, em, tan[v], s_set[set].gl[v]);
+                xr_host_eye((int)v, em, tan[v], s_set[set].gl[v]);
             }
             uint64_t gl_value = 0;
             id<MTLSharedEvent> gl_done = gl_fence(&gl_value);
@@ -602,9 +696,6 @@ void vosAppStart(void) {
     LOGI("House of the Dead VR for Vision Pro: files %s", V.files);
 }
 
-void vos_os_pick_rom(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{ vosPickerOpen("Choose your ROM set (hotd.zip or hotd.7z)"); });
-}
 // the picker's file (a copy in the app's temporary folder), into Documents/arcade as hotd.zip or hotd.7z
 void vosPickerDone(int status, const char *path) {
     int ok = 0;
@@ -623,4 +714,3 @@ void vosPickerDone(int status, const char *path) {
     }
     atomic_store(&V.picked, ok ? 1 : 2);
 }
-void vos_os_haptic(int hand, float amplitude, int ms) { vosSenseHaptic(hand, amplitude, ms / 1000.0); }

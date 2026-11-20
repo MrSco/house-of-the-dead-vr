@@ -1,9 +1,10 @@
 # The VR app on Apple Vision Pro (docs/platforms.md, P5), built by scripts/build_visionos.py on the Mac; ANGLE (OpenGL
 # ES 3 on Metal) comes from ANGLE_DIR (~/angle, with its visionOS slices). Everything but the app bundle, as static
 # libraries the Xcode project (src/visionos/project.yml, made by xcodegen) links: the game (arcade_core and what it
-# needs), and hotdvr_visionos: the VR shell (src/visionos: Compositor Services, ARKit, the shell carried over from
-# src/quest/quest_xr.c), the Quest's guns, hands and cabinet models' code, the shared C (src/core), online play
-# (src/net), voice chat and its libraries, the Apple platform (src/platform/apple, posix.c).
+# needs), and hotdvr_visionos: the VR shell (src/xr: every headset's, built without OpenXR, XR_OPENXR=0) on its
+# Vision Pro host (src/visionos/xr_vos.m: Compositor Services, ARKit), the guns, hands and cabinet models' code
+# (src/xr), the shared C (src/core), online play (src/net), voice chat and its libraries, the Apple platform
+# (src/platform/apple, posix.c).
 set(M2_TP ${CMAKE_SOURCE_DIR}/third_party/quest)
 set(M2_OPUS ${M2_TP}/opus-1.5.2)
 set(M2_SPEEX ${M2_TP}/speexdsp-1.2.1)
@@ -31,19 +32,18 @@ target_include_directories(m2_rnnoise PUBLIC ${M2_RNN}/include PRIVATE ${M2_RNN}
 target_compile_options(m2_rnnoise PRIVATE -w)
 
 set(M2_VOS_C
-    src/visionos/vos_shell.c src/visionos/vos_render.m
-    src/quest/quest_gun.c src/quest/quest_hand.c src/quest/quest_cabinet.c
+    src/xr/xr_shell.c src/visionos/xr_vos.m
+    src/xr/quest_gun.c src/xr/quest_hand.c src/xr/quest_cabinet.c
     src/core/host_sdl.c src/core/voice.c src/core/voice_dsp.c src/core/m2_gl.c
     src/core/quest_menu.c src/core/quest_canvas.c src/core/quest_options.c
     src/platform/posix.c src/platform/apple/apple.m)
 add_library(hotdvr_visionos STATIC ${M2_VOS_C} ${M2_NET_C})
-# (src/visionos/shim: the Quest's asset and log calls, so its model loaders build unchanged)
-target_include_directories(hotdvr_visionos PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${CMAKE_SOURCE_DIR}/src/quest
-                           ${CMAKE_SOURCE_DIR}/src/visionos ${CMAKE_SOURCE_DIR}/src/visionos/shim ${M2_NET_SRC} ${M2_QUEST_SDL2}
-                           ${ANGLE_DIR}/include)
-target_compile_definitions(hotdvr_visionos PRIVATE HOTD_ARCADE HOTD_VOICE)
+target_include_directories(hotdvr_visionos PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${CMAKE_SOURCE_DIR}/src/xr
+                           ${CMAKE_SOURCE_DIR}/src/visionos ${M2_NET_SRC} ${M2_QUEST_SDL2} ${ANGLE_DIR}/include)
+# (XR_OPENXR=0: the shell without OpenXR, its frames and input from the host: src/xr/xr.h)
+target_compile_definitions(hotdvr_visionos PRIVATE HOTD_ARCADE HOTD_VOICE XR_OPENXR=0)
 target_link_libraries(hotdvr_visionos PRIVATE opus m2_speexdsp m2_rnnoise)
-set_source_files_properties(src/visionos/vos_render.m src/platform/apple/apple.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+set_source_files_properties(src/visionos/xr_vos.m src/platform/apple/apple.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 # (the shared C: its own warnings, as on the Quest)
 target_compile_options(hotdvr_visionos PRIVATE -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers
                        -Wno-unused-function)

@@ -1,7 +1,7 @@
 // House of the Dead VR for Apple Vision Pro: the app (docs/platforms.md, P5).
 //
 // It opens straight into a full-immersion space, as the Quest app opens into VR (Info.plist: the scene role
-// CPSceneSessionRoleImmersiveSpaceApplication). The space's CompositorLayer hands its layer renderer to vos_render.m,
+// CPSceneSessionRoleImmersiveSpaceApplication). The space's CompositorLayer hands its layer renderer to xr_vos.m,
 // which runs the frames and the game from there.
 //
 // The one window is the document picker's, for your ROM set: opened only when the game asks (vosPickerOpen),
@@ -16,7 +16,7 @@ import UniformTypeIdentifiers
 
 struct VosLayerConfiguration: CompositorLayerConfiguration {
     func makeConfiguration(capabilities: LayerRenderer.Capabilities, configuration: inout LayerRenderer.Configuration) {
-        // sRGB: the eyes' pictures (sRGB too) are copied in unchanged (vos_render.m)
+        // sRGB: the eyes' pictures (sRGB too) are copied in unchanged (xr_vos.m)
         configuration.colorFormat = .bgra8Unorm_srgb
         configuration.depthFormat = .depth32Float
         configuration.isFoveationEnabled = false   // (each view drawn whole: one GL pass an eye)
@@ -95,7 +95,7 @@ struct VosPickerView: View {
         }
     }
 
-    /// the chosen file, copied where the app can read it (vos_render.m moves it into Documents/arcade)
+    /// the chosen file, copied where the app can read it (xr_vos.m moves it into Documents/arcade)
     private func copyIn(_ url: URL) -> String? {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }

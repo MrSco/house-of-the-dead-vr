@@ -1,7 +1,7 @@
 // House of the Dead VR for Apple Vision Pro: PlayStation VR2 Sense controllers' buttons (docs/platforms.md, P5).
 //
 // As GoldenEye VR's port/visionos/VosControllers.swift (from Klepton's KleptonControllers.swift, MIT): the poses are
-// ARKit's (vos_render.m, accessory tracking); the buttons are GameController's input state, read by element name
+// ARKit's (xr_vos.m, accessory tracking); the buttons are GameController's input state, read by element name
 // ("Trigger", "Grip", "Button A" / "B", "Thumbstick" as a d-pad, "Thumbstick Button", "Button Menu" / "Options");
 // the hand from the vendor name's "(L)"; rumble through each controller's CoreHaptics engine.
 
@@ -60,7 +60,7 @@ final class VosControllers: @unchecked Sendable {
     }
 }
 
-/// vos_render.m, each display frame: both hands' buttons and sticks. Returns how many are connected.
+/// xr_vos.m, each display frame: both hands' buttons and sticks. Returns how many are connected.
 @_cdecl("vosSenseSync")
 func vosSenseSync(_ displaySeconds: Double, _ out: UnsafeMutablePointer<VosSenseHand>) -> Int32 {
     for h in 0..<2 { out[h] = VosSenseHand() }

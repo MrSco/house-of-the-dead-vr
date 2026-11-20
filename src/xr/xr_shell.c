@@ -1,6 +1,8 @@
 // The VR shell (docs/vr.md, docs/platforms.md "src/xr"): OpenXR + OpenGL (ES) 3, shared by the Quest app (its host:
-// src/quest/quest_main.c, a NativeActivity with EGL and GL ES) and PCVR (src/xr/xr_win.c: HOTDVR.exe with WGL and
-// desktop GL 3.3 on any OpenXR runtime: SteamVR, Meta's (Link), Virtual Desktop's). xr.h is the seam between the two.
+// src/quest/quest_main.c, a NativeActivity with EGL and GL ES), PCVR (src/xr/xr_win.c: HOTDVR.exe with WGL and
+// desktop GL 3.3 on any OpenXR runtime: SteamVR, Meta's (Link), Virtual Desktop's) and, without OpenXR (XR_OPENXR 0),
+// the Vision Pro (src/visionos/xr_vos.m: Compositor Services, ARKit and ANGLE's GL ES 3, one pass per eye; its hands
+// and Sense controllers come in an XrhInput each frame). xr.h is the seam between the shell and its host.
 //
 // The recompiled arcade game runs on its own thread (SDL_main in arcade.cpp, against host_sdl.c) at the
 // arcade's 57.52 frames a second, publishing each frame's world in 3D (m2_vr.h, drawn by m2_gl.c; d3d_vr.h's VrScene
@@ -29,8 +31,18 @@
 // Files: the files folder (Quest: the app's external files dir, /sdcard/Android/data/<package>/files; PC: "files"
 // beside HOTDVR.exe) holds arcade/ (your ROM set), save/, port.log, vr-options.cfg (the menu's settings) and env.txt
 // (KEY=VALUE lines, the PORT_* switches of the other builds plus QUEST_HZ, QUEST_RES_SCALE, QUEST_SCALE, which
-// override the settings).
-#if defined(__ANDROID__)
+// override the settings). Vision Pro: the app's Documents (the Files app shows it).
+#ifndef XR_OPENXR
+#define XR_OPENXR 1          // (as xr.h has it)
+#endif
+#if !XR_OPENXR
+#include <EGL/egl.h>         // (ANGLE's)
+#include <GLES3/gl3.h>
+#include <GLES2/gl2ext.h>
+#include <stdint.h>
+#define XR_GLES 1
+#define XR_GLSL "#version 300 es\n"
+#elif defined(__ANDROID__)
 #include <android/log.h>
 #include <android/native_activity.h>
 #include <jni.h>
@@ -53,8 +65,10 @@
 #define XR_GLES 0
 #define XR_GLSL PLAT_GLSL_VERSION
 #endif
+#if XR_OPENXR
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+#endif
 #include <SDL.h>
 #include "xr.h"
 #include "quest.h"
@@ -76,7 +90,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if XR_GLES
+#if !XR_OPENXR
+// what the shell takes from OpenXR's types: times in nanoseconds, poses, fields of view; the controllers' actions and
+// hands (get_bool, get_float, get_stick read them from the host's XrhInput)
+typedef int64_t XrTime;
+typedef struct { struct { float x, y, z, w; } orientation; struct { float x, y, z; } position; } XrPosef;
+typedef struct { float angleLeft, angleRight, angleUp, angleDown; } XrFovf;
+typedef int XrAction, XrPath;
+#define XR_NULL_PATH (-1)
+enum { A_FIRE, A_RELOAD, A_BACK, A_SKIP, A_MENU, A_MODE, A_STICK, A_TRIG, A_THUMB };
+#elif XR_GLES
 typedef XrSwapchainImageOpenGLESKHR XrSwapchainImageGL;
 #define XR_TYPE_SWAPCHAIN_IMAGE_GL XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR
 #define XR_GL_ENABLE_EXTENSION_NAME XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME
@@ -86,7 +109,7 @@ typedef XrSwapchainImageOpenGLKHR XrSwapchainImageGL;
 #define XR_GL_ENABLE_EXTENSION_NAME XR_KHR_OPENGL_ENABLE_EXTENSION_NAME
 #endif
 
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) && XR_OPENXR
 #define TAG "hotdvr"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
@@ -118,12 +141,15 @@ static float scr_w = 2.0f, scr_h = 1.5f, scr_y = -0.05f, scr_z = -2.4f;
 static struct {
     char files[512];
     volatile int exit_requested, game_done, game_failed, game_tid;
+    int sc_w, sc_h;                      // the eyes' pictures
+    XrAction a_fire, a_reload, a_back, a_skip, a_menu, a_mode, a_stick; XrPath hand[2];
+#if XR_OPENXR
     // OpenXR
     XrInstance inst; XrSystemId sys; XrSession sess; XrSessionState state; int running;
     XrSpace local, stage;
     XrViewConfigurationView vcv[2];
-    XrSwapchain sc[2]; uint32_t sc_count[2]; XrSwapchainImageGL *sc_img[2]; int sc_w, sc_h;
-    XrActionSet aset; XrAction a_aim, a_fire, a_reload, a_back, a_skip, a_menu, a_mode, a_stick, a_haptic; XrPath hand[2]; XrSpace aim[2];
+    XrSwapchain sc[2]; uint32_t sc_count[2]; XrSwapchainImageGL *sc_img[2];
+    XrActionSet aset; XrAction a_aim, a_haptic; XrSpace aim[2];
     XrSpace viewsp;
     PFN_xrEnumerateDisplayRefreshRatesFB enum_rates; PFN_xrRequestDisplayRefreshRateFB req_rate;
 #if XR_GLES
@@ -131,6 +157,12 @@ static struct {
 #endif
     PFN_xrPerfSettingsSetPerformanceLevelEXT perf_level;
     int steamvr;                         // the runtime is SteamVR (its quirks: xr_win.c, the menu's double click)
+#else
+    // the host's frames (xr_host_frame)
+    const XrhInput *in;                  // this display frame's input
+    int focused;                         // the app shows and takes input
+    int closing;                         // a last page is up (xr_close_with): a pull or the menu closes the app
+#endif
     // GL
     GLuint fbo, depth_rb, prog_col, prog_tex, screen_tex; int tex_w, tex_h, ms;
     GLint u_col_mvp, u_tex_mvp, u_tex_size;
@@ -195,7 +227,12 @@ static struct {
     GLuint prog_menu, menu_tex; GLint u_menu_mvp;
     // comfort: the vignette's program and strength now
     GLuint prog_vig; GLint u_vig, u_vig_k; float vig;
-} S = { .active = 1, .floor_y = -1.6f, .scale = 0.11f, .panel_m = 1.5f };
+} S = { .active = 1, .floor_y = -1.6f, .scale = 0.11f, .panel_m = 1.5f,
+#if !XR_OPENXR
+        .hand = { 0, 1 }, .a_fire = A_FIRE, .a_reload = A_RELOAD, .a_back = A_BACK, .a_skip = A_SKIP, .a_menu = A_MENU,
+        .a_mode = A_MODE, .a_stick = A_STICK, .a_trig = A_TRIG, .a_thumb = A_THUMB,
+#endif
+};
 
 // hand h holds a gun (the HANDS tab)
 static int is_gun(int h) {
@@ -220,6 +257,7 @@ static float slide_by_hand(void) {
     float t = S.rack_end ? (float)(S.now - S.rack_end) / 1e9f : 1;
     return t < 0.06f ? S.rack_from * (1 - t / 0.06f) : 0;
 }
+#if XR_OPENXR
 static int xr_ok(XrResult r, const char *what) {
     if (XR_SUCCEEDED(r)) return 1;
     char s[XR_MAX_RESULT_STRING_SIZE] = "";
@@ -228,6 +266,11 @@ static int xr_ok(XrResult r, const char *what) {
     return 0;
 }
 #define XR(call) xr_ok((call), #call)
+// the headset shows this app and gives it the input
+static int focused(void) { return S.state == XR_SESSION_STATE_FOCUSED; }
+#else
+static int focused(void) { return S.focused; }
+#endif
 
 // ---------------------------------------------------------------- files and settings
 #if XR_GLES   // (HOTDVR.exe: flat_app.c's, linked beside it)
@@ -246,7 +289,11 @@ static void mkdirs(const char *p) {
 void xr_setup(const char *files) {
     snprintf(S.files, sizeof S.files, "%s", files);
     char p[600];
+#if XR_OPENXR
     snprintf(p, sizeof p, "%s/game", S.files); mkdirs(p);
+#else
+    snprintf(p, sizeof p, "%s/arcade", S.files); mkdirs(p);   // (Vision Pro: the Files app shows where the set goes)
+#endif
     snprintf(p, sizeof p, "%s/save", S.files); mkdirs(p);
     // env.txt: KEY=VALUE per line
     FILE *f = fopen("env.txt", "r");
@@ -304,10 +351,17 @@ static void show_setup(const char *why) {
     snprintf(msg, sizeof msg,
              "LOAD YOUR ROM SET\n\n"
              "This app holds none of The House of the Dead: it plays the 1996 arcade game from your own MAME ROM set.\n\n"
+#if XR_OPENXR
              "1. Copy hotd.zip or hotd.7z (MAME's set, Revision A) to the headset (into Download, say).\n\n"
              "2. Pull the trigger here and choose it. It is copied into the app and the game starts. You can then "
              "delete the original.\n\n"
              "%s\n\nMenu button: quit.", why);
+#else   // (Vision Pro: the document picker, in a window beside the space)
+             "1. Put hotd.zip or hotd.7z (MAME's set, Revision A) in the Files app (iCloud Drive, say).\n\n"
+             "2. Pinch here (or pull a trigger) and choose it in the window that opens. It is copied into the app and "
+             "the game starts.\n\n"
+             "%s\n\nTo leave: press the Digital Crown.", why);
+#endif
     quest_show_message(msg);
 }
 // ---------------------------------------------------------------- the game thread
@@ -1708,6 +1762,12 @@ static void draw_message(const float *proj, const float *view, const float *pv) 
     draw_guns(proj, view);
 }
 static float arcade_eye_x[2];   // the eyes' offsets from the middle of the head (metres, left negative)
+#if !XR_OPENXR
+// Passthrough (the cabinet room's PASSTHROUGH): not on Vision Pro yet (it would be the space's mixed immersion)
+static struct { int running; } PT;
+static int pt_available(void) { return 0; }
+static void pt_update(void) {}
+#else
 // Passthrough (XR_FB_passthrough): your room round the cabinet (Cabinet room: PASSTHROUGH). A reconstruction layer
 // under the eyes' layer, which is then blended by its alpha (clear: 0).
 static struct {
@@ -1754,6 +1814,7 @@ static void pt_update(void) {
     }
     LOGI("passthrough: %s", PT.running ? "on" : "off");
 }
+#endif
 #if !XR_GLES
 // XR_SHOT=seconds[,seconds...] (env.txt, tests): the left eye's whole picture that long after the first frame, to
 // xr_shot.ppm (then xr_shot2.ppm, ...) in the files folder
@@ -1801,14 +1862,8 @@ static void mirror(GLuint tex) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 #endif
-static void render_eye(int e, const XrView *view) {
-    uint32_t idx;
-    XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-    if (!XR(xrAcquireSwapchainImage(S.sc[e], &ai, &idx))) return;
-    XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
-    wi.timeout = XR_INFINITE_DURATION;
-    XR(xrWaitSwapchainImage(S.sc[e], &wi));
-    GLuint tex = S.sc_img[e][idx].image;
+// one eye (fov; v: eye <- LOCAL) into the colour texture tex (S.sc_w x S.sc_h, sRGB) through the eyes' framebuffer
+static void draw_eye(int e, GLuint tex, XrFovf fov, float *v) {
     glBindFramebuffer(GL_FRAMEBUFFER, S.fbo);
 #if XR_GLES
     if (S.ms > 1) S.fb_tex_ms(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0, S.ms);
@@ -1816,7 +1871,7 @@ static void render_eye(int e, const XrView *view) {
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, S.depth_rb);
 #endif
     glViewport(0, 0, S.sc_w, S.sc_h);
-    if (!S.cabinet && S.scene) {
+    if (!S.cabinet && S.scene && !S.need_files && !S.game_failed) {
         uint32_t c = S.scene->clear;      // the game's background colour beyond what it draws
         glClearColor(lin(c >> 16), lin(c >> 8), lin(c), 1);
     } else if (PT.running) {
@@ -1826,9 +1881,8 @@ static void render_eye(int e, const XrView *view) {
     }
     glClearDepthf(1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-    float p[16], v[16], pv[16];
-    mat_proj(p, view->fov, 0.05f, S.cabinet && cabinet_room() != QROOM_COURTYARD ? 100.0f : 1000.0f);
-    mat_view(v, view->pose);
+    float p[16], pv[16];
+    mat_proj(p, fov, 0.05f, S.cabinet && cabinet_room() != QROOM_COURTYARD ? 100.0f : 1000.0f);
     mat_mul(v, v, S.home);                  // the world, where RECENTER put it
     mat_mul(pv, p, v);
     if (S.need_files || S.game_failed) draw_message(p, v, pv);   // the setup page (or why the game didn't start)
@@ -1840,11 +1894,32 @@ static void render_eye(int e, const XrView *view) {
     if (e == 0) { shot(tex); mirror(tex); }
 #endif
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+#if XR_OPENXR
+static void render_eye(int e, const XrView *view) {
+    uint32_t idx;
+    XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+    if (!XR(xrAcquireSwapchainImage(S.sc[e], &ai, &idx))) return;
+    XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+    wi.timeout = XR_INFINITE_DURATION;
+    XR(xrWaitSwapchainImage(S.sc[e], &wi));
+    float v[16];
+    mat_view(v, view->pose);
+    draw_eye(e, S.sc_img[e][idx].image, view->fov, v);
     XrSwapchainImageReleaseInfo ri = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     XR(xrReleaseSwapchainImage(S.sc[e], &ri));
 }
+#else
+void xr_host_eye(int e, const float *eye, const float tan[4], unsigned tex) {
+    const XrFovf fov = { atanf(tan[0]), atanf(tan[1]), atanf(tan[2]), atanf(tan[3]) };
+    float v[16];
+    rigid_inv(v, eye);
+    draw_eye(e, tex, fov, v);
+}
+#endif
 
 // ---------------------------------------------------------------- input: controllers as light guns
+#if XR_OPENXR
 static XrPath path(const char *s) { XrPath p = XR_NULL_PATH; xrStringToPath(S.inst, s, &p); return p; }
 static void haptic(int h, float amp, int ms) {
     if (!S.opt[QOPT_RUMBLE]) return;
@@ -1929,6 +2004,123 @@ static void ht_update(XrTime t) {
         if (h == off && !gesture && (aim.status & XR_HAND_TRACKING_AIM_MIDDLE_PINCHING_BIT_FB) && !HT.fire[h]) HT.skip = 1;
     }
 }
+static int sync_actions(void) {
+    XrActiveActionSet as = { S.aset, XR_NULL_PATH };
+    XrActionsSyncInfo si = { XR_TYPE_ACTIONS_SYNC_INFO };
+    si.countActiveActionSets = 1; si.activeActionSets = &as;
+    return xrSyncActions(S.sess, &si) == XR_SUCCESS;
+}
+// the head (LOCAL <- head), for the menu and RECENTER: 0 when not tracked
+static int head_pose(XrTime t, float *lm) {
+    XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+    const XrSpaceLocationFlags need = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+    if (!S.viewsp || !XR_SUCCEEDED(xrLocateSpace(S.viewsp, S.local, t, &loc)) || (loc.locationFlags & need) != need) return 0;
+    mat_pose(lm, loc.pose);
+    return 1;
+}
+// hand h's aim (LOCAL <- aim): the controller's, else a tracked hand's aim ray; 0 when neither
+static int aim_pose(int h, XrTime t, float *lm) {
+    XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+    const XrSpaceLocationFlags need = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+    int ok = XR_SUCCEEDED(xrLocateSpace(S.aim[h], S.local, t, &loc)) && (loc.locationFlags & need) == need;
+    HT.ctl_ok[h] = ok && !HT.active[h];
+    if (!ok && HT.valid[h]) { loc.pose = HT.aim[h]; ok = 1; }   // a tracked hand's aim ray
+    if (ok) mat_pose(lm, loc.pose);
+    return ok;
+}
+static void get_stick(int h, float *x, float *y) {
+    XrActionStateGetInfo gi = { XR_TYPE_ACTION_STATE_GET_INFO };
+    gi.action = S.a_stick; gi.subactionPath = S.hand[h];
+    XrActionStateVector2f st = { XR_TYPE_ACTION_STATE_VECTOR2F };
+    *x = *y = 0;
+    if (XR_SUCCEEDED(xrGetActionStateVector2f(S.sess, &gi, &st)) && st.isActive) { *x = st.currentState.x; *y = st.currentState.y; }
+}
+#else
+// ---- the host's input (XrhInput): its controllers laid out as Touch's, its hands as the Quest's hand tracking
+static void haptic(int h, float amp, int ms) {
+    if (!S.opt[QOPT_RUMBLE]) return;
+    xr_os_haptic(h, amp, ms);
+}
+// a controller's button (sub: the hand, or XR_NULL_PATH: either)
+static int ctl_bool(XrAction a, int h) {
+    const XrhController *c = &S.in->ctl[h];
+    if (!c->connected) return 0;
+    switch (a) {
+    case A_FIRE: return c->fire;
+    case A_BACK: return c->b;
+    case A_SKIP: return c->a;
+    case A_MENU: return c->menu;
+    case A_MODE: return c->stick_click;
+    case A_THUMB: return c->thumb;
+    default: return 0;
+    }
+}
+static int get_bool(XrAction a, XrPath sub) {
+    if (!S.in) return 0;
+    if (sub == XR_NULL_PATH) return ctl_bool(a, 0) || ctl_bool(a, 1);
+    return ctl_bool(a, sub);
+}
+static float get_float(XrAction a, XrPath sub) {
+    if (!S.in || sub < 0 || sub > 1 || !S.in->ctl[sub].connected) return 0;
+    const XrhController *c = &S.in->ctl[sub];
+    return a == A_RELOAD ? c->squeeze : a == A_TRIG ? c->trigger : 0;
+}
+static void get_stick(int h, float *x, float *y) {
+    *x = *y = 0;
+    if (S.in && h >= 0 && h < 2 && S.in->ctl[h].connected) { *x = S.in->ctl[h].stick_x; *y = S.in->ctl[h].stick_y; }
+}
+// Hand tracking (the host's: on Vision Pro ARKit's skeleton, the aim ray and the pinches made in xr_vos.m): your bare
+// hands as guns, as the Quest's. Added to the controllers, not instead: whichever is in your hands works.
+static struct {
+    int ok;
+    int active[2], valid[2], fire[2], menu;   // this frame: the hand tracked; its aim ray; an index pinch; the menu gesture
+    int skip;                            // a middle-finger pinch (the off hand): A / X, coins and Start
+    int touch;                           // controllers are connected
+    int ctl_ok[2];                       // the controllers' own aim poses this frame
+    float pinch[2];                      // the index pinch's strength (the hand model's trigger finger)
+    float aim[2][16];                    // the aim ray's pose (LOCAL)
+} HT = { .touch = 1 };
+static void ht_update(XrTime t) {
+    (void)t;
+    HT.menu = HT.skip = 0;
+    HT.ok = S.in->hands_ok;
+    HT.touch = S.in->ctl[0].connected || S.in->ctl[1].connected;
+    for (int h = 0; h < 2; h++) {
+        const XrhHand *in = &S.in->hand[h];
+        HT.active[h] = HT.valid[h] = HT.fire[h] = 0; HT.pinch[h] = 0;
+        if (!in->tracked) continue;
+        HT.active[h] = HT.valid[h] = 1;
+        memcpy(HT.aim[h], in->aim, sizeof HT.aim[h]);
+        // the left palm turned to your face is the menu gesture: that hand neither fires nor aims at anything, and a
+        // pinch made so opens the menu (the Quest's menu gesture)
+        const int gesture = in->palm_to_face;
+        HT.fire[h] = !gesture && in->pinch;
+        HT.pinch[h] = gesture ? 0 : in->pinch_strength;
+        if (gesture && h == 0 && in->pinch) HT.menu = 1;
+        if (gesture) HT.valid[h] = 0;
+        // thumb to middle finger on the off hand (the one without a gun; a gun in each: the left), the index not
+        // pinching too: the skip button. Never the gun hand's: it shoots.
+        const int off = free_hand() >= 0 ? free_hand() : 0;
+        if (h == off && !gesture && in->middle_pinch && !HT.fire[h]) HT.skip = 1;
+    }
+}
+static int sync_actions(void) { return 1; }
+static int head_pose(XrTime t, float *lm) {
+    (void)t;
+    if (!S.in->head_ok) return 0;
+    memcpy(lm, S.in->head, 16 * sizeof(float));
+    return 1;
+}
+static int aim_pose(int h, XrTime t, float *lm) {
+    (void)t;
+    const XrhController *c = &S.in->ctl[h];
+    int ok = c->connected && c->pose_ok;
+    if (ok) memcpy(lm, c->aim, 16 * sizeof(float));
+    HT.ctl_ok[h] = ok && !HT.active[h];
+    if (!ok && HT.valid[h]) { memcpy(lm, HT.aim[h], 16 * sizeof(float)); ok = 1; }   // a tracked hand's aim ray
+    return ok;
+}
+#endif
 // which plays, after the poses: a tracked hand makes it the hands; a controller tracked while no hand is (the
 // controllers' profile current) makes it the controllers again. A hand lost from view changes nothing.
 static void ht_who_plays(void) {
@@ -2027,6 +2219,10 @@ static void apply_options(void) {
     }
 }
 // the display's refresh rate: the setting's, else the fastest up to 90 (QUEST_HZ overrides it at start)
+#if !XR_OPENXR
+// (the system's: Vision Pro's 90, 96 or 100 Hz; the GRAPHICS tab shows it)
+static void request_rate(int first) { (void)first; }
+#else
 static void request_rate(int first) {
     if (!S.enum_rates || !S.req_rate || !S.sess) return;
     float rates[16], want = 0;
@@ -2038,6 +2234,7 @@ static void request_rate(int first) {
     for (uint32_t i = 0; i < n && !want; i++) if (rates[i] <= 90.5f && rates[i] > want) want = rates[i];
     if (want && XR(S.req_rate(S.sess, want))) { S.hz_now = (int)(want + 0.5f); LOGI("display refresh %.0f Hz (of %u rates)", want, n); }
 }
+#endif
 static int opt_get(int o) { return o >= 0 && o < QOPT_COUNT ? S.opt[o] : 0; }
 static void opt_set(int o, int v) {
     if (o < 0 || o >= QOPT_COUNT) return;
@@ -2053,7 +2250,7 @@ static void opt_set(int o, int v) {
 }
 // The game pauses while the menu is open, and while the headset isn't showing this app; not online (a partner's game
 // goes on: yours, a guest's, follows it)
-static void update_pause(void) { quest_set_paused(!online_session() && (S.state != XR_SESSION_STATE_FOCUSED || S.menu_open)); }
+static void update_pause(void) { quest_set_paused(!online_session() && (!focused() || S.menu_open)); }
 // a pose in the world facing where the head looks (turned about y only), at its position plus (0, up, -ahead)
 static void facing_pose(float *m, float up, float ahead) {
     const float *h = S.head_m;
@@ -2131,13 +2328,6 @@ static int menu_hit(int h, float *px, float *py) {
     *px = (x / MENU_W_M + 0.5f) * QMENU_W; *py = (0.5f - y / MENU_H_M) * QMENU_H;
     S.menu_t[h] = t;
     return *px >= 0 && *px < QMENU_W && *py >= 0 && *py < QMENU_H;
-}
-static void get_stick(int h, float *x, float *y) {
-    XrActionStateGetInfo gi = { XR_TYPE_ACTION_STATE_GET_INFO };
-    gi.action = S.a_stick; gi.subactionPath = S.hand[h];
-    XrActionStateVector2f st = { XR_TYPE_ACTION_STATE_VECTOR2F };
-    *x = *y = 0;
-    if (XR_SUCCEEDED(xrGetActionStateVector2f(S.sess, &gi, &st)) && st.isActive) { *x = st.currentState.x; *y = st.currentState.y; }
 }
 static void menu_input(XrTime t) {
     QMenuInput in = { 0 };
@@ -2407,20 +2597,20 @@ static int test_talk = -1;   // QUEST_TEST_TALK (the frame loop)
 static void update_input(XrTime t) {
     S.now = t;
     {   // the head, for the menu and RECENTER
-        XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
-        const XrSpaceLocationFlags need = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
-        if (S.viewsp && XR_SUCCEEDED(xrLocateSpace(S.viewsp, S.local, t, &loc)) && (loc.locationFlags & need) == need) {
-            float lm[16];
-            mat_pose(lm, loc.pose);
+        float lm[16];
+        if (head_pose(t, lm)) {
+#if !XR_OPENXR
+            const int first = !S.head_ok;
+#endif
             mat_mul(S.head_m, S.home_inv, lm);
             S.head_ok = 1;
+#if !XR_OPENXR
+            if (first) recenter();          // the world's origin where your eyes first are, as OpenXR's LOCAL
+#endif
         }
     }
-    if (S.state != XR_SESSION_STATE_FOCUSED) { release_all(); return; }
-    XrActiveActionSet as = { S.aset, XR_NULL_PATH };
-    XrActionsSyncInfo si = { XR_TYPE_ACTIONS_SYNC_INFO };
-    si.countActiveActionSets = 1; si.activeActionSets = &as;
-    if (xrSyncActions(S.sess, &si) != XR_SUCCESS) return;
+    if (!focused()) { release_all(); return; }
+    if (!sync_actions()) return;
     ht_update(t);
     int fw, fh;
     qframe_size(&fw, &fh);
@@ -2439,11 +2629,8 @@ static void update_input(XrTime t) {
     }
     int px[2], py[2];
     for (int h = 0; h < 2; h++) {
-        XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
-        const XrSpaceLocationFlags need = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
-        S.aim_ok[h] = XR_SUCCEEDED(xrLocateSpace(S.aim[h], S.local, t, &loc)) && (loc.locationFlags & need) == need;
-        HT.ctl_ok[h] = S.aim_ok[h] && !HT.active[h];
-        if (!S.aim_ok[h] && HT.valid[h]) { loc.pose = HT.aim[h]; S.aim_ok[h] = 1; }   // a tracked hand's aim ray
+        float lm[16];
+        S.aim_ok[h] = aim_pose(h, t, lm);
         S.on_screen[h] = 0;
         static double shot_at = -2;
         static XrTime shot_t0;
@@ -2461,8 +2648,6 @@ static void update_input(XrTime t) {
             mat_mul(S.aim_m[h], S.head_m, r);
         } else {
             if (!S.aim_ok[h]) continue;
-            float lm[16];
-            mat_pose(lm, loc.pose);
             mat_mul(S.aim_m[h], S.home_inv, lm);          // into the world
         }
         {   // the gun in your hand: moved (controller axes: + y up, + z back) and tilted about there (+ raises the barrel)
@@ -2633,6 +2818,137 @@ static void update_input(XrTime t) {
     if (skip != S.skip) quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, skip);
     S.skip = skip;
 }
+
+// ---------------------------------------------------------------- each display frame, before the eyes
+// The game's newest picture, the input at the frame's display time t (ns), the test switches, the cabinet's picture
+// (render: the frame will be shown), the guns, online play's poses, the comfort vignette
+static void frame_update(XrTime t, int render) {
+    upload_frame();
+    game_sync();
+    update_input(t);
+    {   // QUEST_MENU_AT=seconds[,tab] (env.txt, tests): open the VR menu (on that tab) that long after the first frame
+        static double at = -1; static XrTime t0; static int tab = -1;
+        if (at < 0) { const char *e = getenv("QUEST_MENU_AT"); at = e ? atof(e) : 0; if (e && strchr(e, ',')) tab = atoi(strchr(e, ',') + 1); t0 = t; }
+        if (at > 0 && (double)(t - t0) / 1e9 >= at) { at = 0; menu_set_open(1); if (tab >= 0) qmenu_open(tab); }
+    }
+    {   // QUEST_TEST_UPDATE=seconds (env.txt, tests): the SYSTEM tab's UPDATE that long after the first frame (the update
+        // the launch's check found; none: a check)
+        static double at = -1; static XrTime t0;
+        if (at < 0) { const char *e = getenv("QUEST_TEST_UPDATE"); at = e ? atof(e) : 0; t0 = t; }
+        if (at > 0 && (double)(t - t0) / 1e9 >= at) { at = 0; LOGI("test: update"); xr_os_update_cmd("update"); }
+    }
+    {   // QUEST_TEST_ONLINE=seconds,host|hostlan|join:CODE|joinip:IP|leave (env.txt, tests): that ONLINE tab action that long after the
+        // first frame. env.txt goes first, so the restart the action makes starts as a player would have it.
+        static double at = -1; static XrTime t0; static char what[64];
+        if (at < 0) { const char *e = getenv("QUEST_TEST_ONLINE"); at = e ? atof(e) : 0; if (e && strchr(e, ',')) snprintf(what, sizeof what, "%s", strchr(e, ',') + 1); t0 = t; }
+        if (at > 0 && (double)(t - t0) / 1e9 >= at) {
+            at = 0;
+            remove("env.txt");
+            plat_setenv("QUEST_TEST_ONLINE", "");   // (PC: the restart inherits this process's environment)
+            LOGI("test: online %s", what);
+            if (!strcmp(what, "host")) online_host_room();
+            else if (!strcmp(what, "hostlan")) online_host_lan();
+            else if (!strncmp(what, "joinip:", 7)) { online_set_join_ip(what + 7); online_join_ip(); }
+            else if (!strcmp(what, "leave")) online_leave();
+            else if (!strncmp(what, "join:", 5)) online_join_code(what + 5);
+        }
+    }
+    {   // QUEST_TEST_PICK=seconds[,file] (env.txt, tests): on the setup page, that long after the first frame, the ROM
+        // set's import as a pull of the trigger starts it (Quest: ImportActivity; PC: the Open dialog; Vision Pro: the
+        // document picker, whose host answers with the file, in the files folder, 3 s later: xr_vos.m)
+        static double at = -1; static XrTime t0;
+        if (at < 0) { const char *e = getenv("QUEST_TEST_PICK"); at = e ? atof(e) : 0; t0 = t; }
+        if (at > 0 && (double)(t - t0) / 1e9 >= at) {
+            at = 0;
+            if (S.need_files && !S.import_started) { LOGI("test: the ROM set's import"); S.import_started = xr_os_import_rom(); }
+        }
+    }
+    {   // QUEST_TEST_TALK=1 (env.txt, tests): push to talk, held the whole time (voice frames sent without a voice)
+        if (test_talk < 0) { test_talk = getenv("QUEST_TEST_TALK") && atoi(getenv("QUEST_TEST_TALK")); if (test_talk) online_set_voice_mode(2); }
+        if (test_talk) online_talk_key(true);
+    }
+    {   // QUEST_TEST_PLAY=1 (env.txt, tests): plays as the flat apps' FLAT_TEST_PLAY does, without a player: coins and
+        // Start every few seconds, shots round the screen, every eighth off it (a reload)
+        static int play = -1, down, shots; static XrTime t0; static double next_start = 3, next_shot = 4; static uint32_t rng = 12345;
+        if (play < 0) { play = getenv("QUEST_TEST_PLAY") && atoi(getenv("QUEST_TEST_PLAY")); t0 = t; }
+        const double s = (double)(t - t0) / 1e9;
+        if (play && !S.need_files && !S.game_failed) {
+            if (s >= next_start) { quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, 1); quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, 0); next_start = s + 2.5; }
+            if (down) { quest_mouse_button(SDL_BUTTON_LEFT, 0); down = 0; }
+            else if (s >= next_shot) {
+                rng = rng * 1103515245u + 12345u;
+                int x = 40 + (int)((rng >> 8) % 416), y = 40 + (int)((rng >> 18) % 304);
+                if (++shots % 8 == 0) x = -20;
+                quest_pointer(x, y);
+                quest_mouse_button(SDL_BUTTON_LEFT, 1);
+                down = 1;
+                next_shot = s + 0.3;
+            }
+        }
+    }
+    if ((S.cabinet || S.screen_scene) && render) render_cabinet_view();
+    if (gun_slot != net_local || gun_kind != S.opt[QOPT_GUN_MODEL]) load_gun();   // the setting, or your player online
+    else if (gun_size != S.opt[QOPT_GUN_SIZE]) { gun_size = S.opt[QOPT_GUN_SIZE]; gun_fit(gun_cabinet, gun_size); }
+    {   // online: ours out (as drawn last frame), the partner's in
+        static XrTime last;
+        const float dt = last ? (float)(t - last) / 1e9f : 0.0f;
+        last = t;
+        pose_send();
+        pose_recv(dt > 0 && dt < 0.2f ? dt : 0.0f);
+        partner_gun_load();
+    }
+    pt_update();
+    {
+        static XrTime last;
+        float dt = last ? (float)(t - last) / 1e9f : 0.0f;
+        last = t;
+        update_vignette(dt > 0 && dt < 0.2f ? dt : 0.0f);
+    }
+}
+
+#if !XR_OPENXR
+// ---------------------------------------------------------------- the host's frames (no OpenXR: Vision Pro)
+int xr_host_gl_init(int eye_w, int eye_h) {
+    S.sc_w = eye_w; S.sc_h = eye_h;
+    return gl_init();
+}
+void xr_host_frame(const XrhInput *in) {
+    S.in = in;
+    const XrTime t = (XrTime)(in->time * 1e9);
+    if (in->focused != S.focused) {
+        S.focused = in->focused;
+        update_pause();                     // the game waits while the app is hidden (not online)
+        if (!S.focused) release_all();
+        LOGI("%s", S.focused ? "focused" : "not focused");
+    }
+    S.floor_y = in->floor_y;
+    if (in->hz) S.hz_now = in->hz;
+    frame_update(t, 1);
+    if (S.closing) {                        // the last page: a pull (or a pinch) closes the app
+        static int was = 1;
+        const int f = fire_down(0) || fire_down(1);
+        if (f && !was) S.exit_requested = 1;
+        was = f;
+    }
+    arcade_eye_x[0] = -in->ipd / 2; arcade_eye_x[1] = in->ipd / 2;   // (the face layer, m2_gl.c)
+    build_scene();
+}
+void xr_close_with(const char *text) {
+    if (S.closing) return;
+    S.closing = 1;
+    quest_show_message(text);
+    S.game_failed = 1;                      // (the message page instead of the game: draw_message)
+    LOGI("closing: %s", text);
+}
+int xr_rom_chosen(int ok) {
+    S.import_started = 0;
+    if (!ok || !S.need_files) return 0;
+    S.need_files = 0;                       // the first set: the game starts now
+    quest_clear_message();
+    start_game();
+    return 1;
+}
+#else
 
 // ---------------------------------------------------------------- OpenXR setup
 static XrAction mk_action(const char *name, const char *label, XrActionType type) {
@@ -2957,58 +3273,7 @@ void xr_frame(void) {
     if (!XR(xrWaitFrame(S.sess, &wi, &fs))) return;
     XrFrameBeginInfo bi = { XR_TYPE_FRAME_BEGIN_INFO };
     if (!XR(xrBeginFrame(S.sess, &bi))) return;
-    upload_frame();
-    game_sync();
-    update_input(fs.predictedDisplayTime);
-    {   // QUEST_MENU_AT=seconds[,tab] (env.txt, tests): open the VR menu (on that tab) that long after the first frame
-        static double at = -1; static XrTime t0; static int tab = -1;
-        if (at < 0) { const char *e = getenv("QUEST_MENU_AT"); at = e ? atof(e) : 0; if (e && strchr(e, ',')) tab = atoi(strchr(e, ',') + 1); t0 = fs.predictedDisplayTime; }
-        if (at > 0 && (double)(fs.predictedDisplayTime - t0) / 1e9 >= at) { at = 0; menu_set_open(1); if (tab >= 0) qmenu_open(tab); }
-    }
-    {   // QUEST_TEST_UPDATE=seconds (env.txt, tests): the SYSTEM tab's UPDATE that long after the first frame (the update
-        // the launch's check found; none: a check)
-        static double at = -1; static XrTime t0;
-        if (at < 0) { const char *e = getenv("QUEST_TEST_UPDATE"); at = e ? atof(e) : 0; t0 = fs.predictedDisplayTime; }
-        if (at > 0 && (double)(fs.predictedDisplayTime - t0) / 1e9 >= at) { at = 0; LOGI("test: update"); xr_os_update_cmd("update"); }
-    }
-    {   // QUEST_TEST_ONLINE=seconds,host|hostlan|join:CODE|joinip:IP|leave (env.txt, tests): that ONLINE tab action that long after the
-        // first frame. env.txt goes first, so the restart the action makes starts as a player would have it.
-        static double at = -1; static XrTime t0; static char what[32];
-        if (at < 0) { const char *e = getenv("QUEST_TEST_ONLINE"); at = e ? atof(e) : 0; if (e && strchr(e, ',')) snprintf(what, sizeof what, "%s", strchr(e, ',') + 1); t0 = fs.predictedDisplayTime; }
-        if (at > 0 && (double)(fs.predictedDisplayTime - t0) / 1e9 >= at) {
-            at = 0;
-            remove("env.txt");
-            plat_setenv("QUEST_TEST_ONLINE", "");   // (PC: the restart inherits this process's environment)
-            LOGI("test: online %s", what);
-            if (!strcmp(what, "host")) online_host_room();
-            else if (!strcmp(what, "hostlan")) online_host_lan();
-            else if (!strncmp(what, "joinip:", 7)) { online_set_join_ip(what + 7); online_join_ip(); }
-            else if (!strcmp(what, "leave")) online_leave();
-            else if (!strncmp(what, "join:", 5)) online_join_code(what + 5);
-        }
-    }
-    {   // QUEST_TEST_TALK=1 (env.txt, tests): push to talk, held the whole time (voice frames sent without a voice)
-        if (test_talk < 0) { test_talk = getenv("QUEST_TEST_TALK") && atoi(getenv("QUEST_TEST_TALK")); if (test_talk) online_set_voice_mode(2); }
-        if (test_talk) online_talk_key(true);
-    }
-    if ((S.cabinet || S.screen_scene) && fs.shouldRender) render_cabinet_view();
-    if (gun_slot != net_local || gun_kind != S.opt[QOPT_GUN_MODEL]) load_gun();   // the setting, or your player online
-    else if (gun_size != S.opt[QOPT_GUN_SIZE]) { gun_size = S.opt[QOPT_GUN_SIZE]; gun_fit(gun_cabinet, gun_size); }
-    {   // online: ours out (as drawn last frame), the partner's in
-        static XrTime last;
-        const float dt = last ? (float)(fs.predictedDisplayTime - last) / 1e9f : 0.0f;
-        last = fs.predictedDisplayTime;
-        pose_send();
-        pose_recv(dt > 0 && dt < 0.2f ? dt : 0.0f);
-        partner_gun_load();
-    }
-    pt_update();
-    {
-        static XrTime last;
-        float dt = last ? (float)(fs.predictedDisplayTime - last) / 1e9f : 0.0f;
-        last = fs.predictedDisplayTime;
-        update_vignette(dt > 0 && dt < 0.2f ? dt : 0.0f);
-    }
+    frame_update(fs.predictedDisplayTime, fs.shouldRender);
     XrCompositionLayerProjectionView pv[2];
     XrCompositionLayerProjection layer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
     const XrCompositionLayerBaseHeader *layers[2];
@@ -3074,6 +3339,7 @@ void xr_frame(void) {
 // ---------------------------------------------------------------- the host's loop
 int xr_running(void) { return S.running && S.inst; }
 void xr_end_session(void) { if (S.running) XR(xrRequestExitSession(S.sess)); }
+#endif   // XR_OPENXR
 void xr_menu_toggle(void) {
     if (S.game_failed || S.need_files) S.exit_requested = 1;
     else menu_set_open(!S.menu_open);

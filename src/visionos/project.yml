@@ -40,7 +40,7 @@ targets:
       - path: VosApp.swift
       - path: VosControllers.swift
       - path: PrivacyInfo.xcprivacy
-      # the guns, the hands, the cabinet and the reload lines (vos_assets())
+      # the guns, the hands, the cabinet and the reload lines (xr_vos.m's qasset_open)
       - path: ../quest/assets
         type: folder
         buildPhase: resources
