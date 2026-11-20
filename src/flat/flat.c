@@ -24,7 +24,10 @@ static struct {
     GLuint vao, vbo;
     GLuint prog_col, prog_tex, prog_out;
     GLint u_col_mvp, u_tex_mvp, u_tex_size, u_tex_alpha, u_out_size, u_out_sharp;
-    GLuint screen_tex; int tex_w, tex_h;       // the game's 2D layers
+    GLuint screen_tex; int tex_w, tex_h;       // the game's 2D layers: the newest of the ring's
+    // three in turn: a frame never goes into a texture the GPU may still be reading (ANGLE's Metal then waited for it:
+    // 11 to 15 ms a frame on the Apple TV HD's main thread, 2026-11-20)
+    GLuint ring[3]; int ring_w[3], ring_h[3], ring_i;
     uint32_t *frame;
     // the picture: a resolved sRGB texture (and a multisampled framebuffer drawn into first, in HD)
     GLuint pic_fbo, pic_tex, pic_depth, ms_fbo, ms_col, ms_depth;
@@ -163,12 +166,15 @@ int flat_gl_init(void) {
     glUniform1i(glGetUniformLocation(F.prog_out, "tex"), 0);
     glUniformMatrix4fv(glGetUniformLocation(F.prog_out, "mvp"), 1, GL_FALSE, identity);
     if (!F.prog_col || !F.prog_tex || !F.prog_out) return 0;
-    glGenTextures(1, &F.screen_tex);
-    glBindTexture(GL_TEXTURE_2D, F.screen_tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glGenTextures(3, F.ring);
+    for (int i = 0; i < 3; i++) {
+        glBindTexture(GL_TEXTURE_2D, F.ring[i]);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    F.screen_tex = F.ring[0];
     F.frame = malloc(FRAME_MAX * 4);
     GLint max_samples = 0;
     glGetIntegerv(GL_MAX_SAMPLES, &max_samples);
@@ -367,13 +373,16 @@ void flat_draw(int w, int h, unsigned framebuffer) {
     }
     int fw, fh;
     if (qframe_take(F.frame, FRAME_MAX, &fw, &fh)) {
+        const int r = F.ring_i = (F.ring_i + 1) % 3;
+        F.screen_tex = F.ring[r];
         glBindTexture(GL_TEXTURE_2D, F.screen_tex);
-        if (fw != F.tex_w || fh != F.tex_h) {
+        if (fw != F.ring_w[r] || fh != F.ring_h[r]) {
             glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, fw, fh, 0, GL_RGBA, GL_UNSIGNED_BYTE, F.frame);
-            F.tex_w = fw; F.tex_h = fh;
+            F.ring_w[r] = fw; F.ring_h[r] = fh;
         } else {
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, fw, fh, GL_RGBA, GL_UNSIGNED_BYTE, F.frame);
         }
+        F.tex_w = fw; F.tex_h = fh;
         F.dirty = 1;
     }
     // the picture's place: 4:3 (the arcade monitor's shape), as large as the window allows
