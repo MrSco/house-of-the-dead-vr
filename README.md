@@ -6,9 +6,9 @@
 # The House of the Dead VR
 
 **Sega's 1996 arcade original, running natively on a standalone Meta Quest 3.** You stand inside its world in full
-stereo 3D with a light gun in your hand, and a friend can join you online with voice chat. The same game also plays
-flat on **Windows, the Mac, Android phones and tablets, and iPhone and iPad**, and every version plays online with
-every other.
+stereo 3D with a light gun in your hand, and a friend can join you online with voice chat. The same VR game plays on
+**PC VR headsets** and **Apple Vision Pro**, and flat on **Windows, the Mac, Android phones and tablets, iPhone and
+iPad, and Apple TV**, and every version plays online with every other.
 
 This isn't an emulator. The arcade board's programs were **statically recompiled** ahead of time into native code
 (ARM64 for the headset, phones and Macs, x64 for Windows), and the board's graphics and sound hardware were rebuilt
@@ -49,12 +49,16 @@ Captured on a Quest 3. Hold the gun hand's thumbstick click to switch between th
   Grab it with both hands to move, turn or resize it. Put it in a dark room, in your own room (passthrough), or in the
   mansion's courtyard, captured from the game itself on your headset.
 - **Online co-op with voice, across platforms.** Two players over the internet (room codes, quick match) or on your
-  own network with no server. A Quest player and a PC, Mac, phone or iPad player share the same game, frame for frame.
-  A partner can join a game already under way. Voice chat has echo cancellation, noise suppression and push to talk.
+  own network with no server. A Quest player and a PC, Mac, phone, iPad, Apple TV or Vision Pro player share the same
+  game, frame for frame, and the game browser shows each game's platform. A partner can join a game already under
+  way. Voice chat has echo cancellation, noise suppression and push to talk.
 - **Made for the headset.** In-VR menus for the guns, hands, view, comfort, graphics and sound. Settings are saved.
+  The same VR app runs on a PC headset through OpenXR (SteamVR, Quest Link, Virtual Desktop) and on Apple Vision Pro
+  (hand tracking, PlayStation VR2 Sense controllers).
 - **Flat on every screen.** On a PC, Mac, phone or tablet the game fills the window at its 4:3 shape, drawn in HD at
   the window's resolution or as the arcade's original 496 x 384 picture. Aim with the mouse, a light gun that acts
-  as a mouse (Sinden, GunCon 3, Gun4IR), a game pad (its gyroscope too), a touch screen or the phone's gyroscope.
+  as a mouse (Sinden, GunCon 3, Gun4IR), a game pad (its gyroscope too), a touch screen, the phone's gyroscope, or
+  on Apple TV the Siri Remote's touch surface.
 - **Updates in the app.** The Quest, Steam Frame and Android apps look for a new release when they start and install
   it from the menu.
 
@@ -66,11 +70,11 @@ Captured on a Quest 3. Hold the gun hand's thumbstick click to switch between th
 | Motorola 68000 sound CPU and the SCSP's DSP | Recompiled; the SCSP sound chip reimplemented |
 | Fujitsu MB86235 (TGPx4) geometry DSP | An interpreter derived from MAME's |
 | Geometrizer, rasterizer, tilemaps | Reimplemented in C++; the rasterizer's texturing and colour rules as an OpenGL ES 3.0 shader that draws in 3D |
-| The cabinet | On the headsets, a native OpenXR app: guns, hands, menus, passthrough, the cabinet room. On screens, a flat app per OS (Win32, AppKit, UIKit, Android) round the same game and menu |
+| The cabinet | On the headsets, one VR app: guns, hands, menus, passthrough, the cabinet room; OpenXR on the Quest, the Steam Frame and PC headsets, Compositor Services and ARKit on Vision Pro. On screens, a flat app per OS (Win32, AppKit, UIKit on iPhone, iPad and Apple TV, Android) round the same game and menu |
 | Two cabinets linked | Deterministic lockstep: the host sends each frame's inputs, and both run the same frame, checked against a checksum of the game's memory. Every compiler builds it with strict floating point, so an x64 PC and an ARM64 headset compute the same game bit for bit |
 
 The renderer is one OpenGL ES 3.0 code path everywhere: native on the Quest and Android, desktop GL 3.3 on Windows,
-and ANGLE on Metal on the Mac, iPhone and iPad.
+and ANGLE on Metal on the Mac, iPhone, iPad, Apple TV and Vision Pro.
 
 MAME, the reference arcade emulator, is used only to check that the results match the real board.
 
@@ -96,10 +100,12 @@ own MAME ROM set, `hotd.zip` or `hotd.7z`, Revision A.
 | Platform | Download | Status |
 |---|---|---|
 | **Meta Quest 3** (and 3S) | `house-of-the-dead-vr-<version>.apk` | The main version, tested on a Quest 3. The 3S has the same processor but hasn't been tested |
-| **Windows PC** | `house-of-the-dead-vr-<version>-windows-x64.zip` | Flat: mouse, pads, light guns |
+| **Windows PC** | `house-of-the-dead-vr-<version>-windows-x64.zip` | Flat (mouse, pads, light guns), or VR in a PC headset through OpenXR; VR tested with SteamVR's test driver |
 | **Mac** (Apple silicon) | `house-of-the-dead-vr-<version>-mac.zip` | Flat; experimental |
 | **Android phones and tablets** (64-bit, Android 10+) | `house-of-the-dead-vr-<version>-android.apk` | Flat: touch, gyro, pads; experimental, tested in an emulator |
 | **iPhone and iPad** | `house-of-the-dead-vr-<version>-ios.ipa` (SideStore), or TestFlight if invited | Flat; experimental, tested in the simulator |
+| **Apple TV** (tvOS 17+) | TestFlight, if invited | Flat: the Siri Remote as the gun, pads; experimental, tested on an Apple TV 4K and an Apple TV HD |
+| **Apple Vision Pro** | TestFlight, if invited | VR: hands, PlayStation VR2 Sense controllers; experimental, tested in the simulator |
 | **Steam Frame** | `house-of-the-dead-vr-<version>-frame.apk` | The Quest app for Valve's headset; experimental, not yet run on a Frame |
 
 **On the Quest:**
@@ -111,6 +117,8 @@ own MAME ROM set, `hotd.zip` or `hotd.7z`, Revision A.
 
 **On Windows:** unzip anywhere and run `HOTDVR/HOTDVR.exe`; it asks for the ROM set the first time (or put `hotd.zip`
 in `HOTDVR/files/arcade` first). It isn't code-signed: if SmartScreen warns, choose **More info**, then **Run anyway**.
+It starts in VR when a PC headset is connected (start SteamVR, Quest Link or Virtual Desktop first) and on the screen
+otherwise; **PLAY IN VR** / **PLAY ON THE SCREEN** in the menu's SYSTEM tab switches (`--vr` and `--flat` force one).
 
 **On the Mac:** unzip, move **House of the Dead VR** to Applications and open it. It isn't notarized: the first time,
 open **System Settings > Privacy & Security** and choose **Open Anyway**.
@@ -118,8 +126,12 @@ open **System Settings > Privacy & Security** and choose **Open Anyway**.
 **On a phone, iPhone or iPad:** install the APK, or the IPA with SideStore (which signs it with your Apple ID), and
 choose the ROM set when the app asks for it.
 
-Online play is on the menu's ONLINE tab, and any platform can join any other. The VR menu's CONTROLS button lists
-every control, as your settings make them.
+**On Apple TV and Vision Pro:** TestFlight, if you've been invited (SideStore can't install on either). Vision Pro
+takes the ROM set from the Files picker. An Apple TV has no Files app, so it shows a web address and a QR code: open
+it on a phone or computer on the same network and send it the ROM set.
+
+Online play is on the menu's ONLINE tab, and any platform can join any other; the game browser shows each game's
+platform. The VR menu's CONTROLS button lists every control, as your settings make them.
 
 **Updates:** the Quest, Steam Frame and Android apps look for one when they start, and the menu's SYSTEM tab shows it
 (UPDATE TO ...). It downloads the new APK, checks it and hands it to the installer; your ROM set, settings and saves
@@ -137,7 +149,7 @@ The gun is in your right hand unless the HANDS tab says otherwise; "other hand" 
 | Reload (POINT DOWN / OFF) | Aim at the floor / shoot off the screen, B or Y, or a firm grip squeeze |
 | B / Y | Drop the magazine (MAGAZINE); reload (Reload gesture OFF) |
 | A / X | Coins and Start; skip a scene |
-| Left menu button | The VR menu (the game pauses, except online) |
+| Left menu button | The VR menu (the game pauses, except online). Under SteamVR, which keeps that button: double-click a thumbstick |
 | Gun hand's thumbstick click, held | Switch between standing in the game and the cabinet |
 | Other hand's thumbstick click | Online, PUSH TO TALK: talk while held |
 | Other hand's grip, at the gun | Hold the gun in both hands |
@@ -168,6 +180,16 @@ the grips switch tabs.
 In the menu: the arrow keys or the stick move, Enter or A choose, Esc or B go back, Tab or the bumpers switch tabs;
 the mouse and touch point at it.
 
+| Siri Remote (Apple TV) | |
+|---|---|
+| Swipe the touch surface | Move the sight, as a mouse (a quicker swipe goes further; GAME: Remote speed) |
+| Click (the newer remote: the centre) | Shoot |
+| Click the ring's edge (the newer remote) | Reload |
+| Play/Pause | Reload; held: coins and Start, skip a scene |
+| Back / Menu | The menu; at its top, the Home screen |
+
+In the menu: the ring (or a swipe on the older remote) moves, a click chooses, Play/Pause goes back to the game.
+
 ## Building from source
 
 The PC recompiles the game and builds the Quest, Android and Windows apps; the Apple apps are built on a Mac from the
@@ -183,8 +205,9 @@ PC's checkout. [docs/getting-started.md](docs/getting-started.md) goes through i
 |---|---|---|
 | Quest | `python scripts/build_quest.py` (builds, installs and starts it over USB; `--apk-only` only builds) | The Android SDK with an NDK, build-tools, a platform and platform-tools; Java 17 or later. The script fetches the OpenXR loader, SDL2's headers and the voice libraries into `third_party/quest` |
 | Steam Frame, Android phones | `python scripts/build_quest.py --flavor frame` or `--flavor phone` | As the Quest |
-| Windows | `python scripts/build_windows.py [--run] [--zip]` (`build_windows/HOTDVR.exe`) | Visual Studio with the C++ tools (MSVC); the script uses its CMake and Ninja |
+| Windows (flat and PC VR) | `python scripts/build_windows.py [--run] [--zip]` (`build_windows/HOTDVR.exe`) | Visual Studio with the C++ tools (MSVC); the script uses its CMake and Ninja, and fetches the OpenXR loader |
 | iPhone, iPad, Mac | `python scripts/apple_sync.py` on the PC, then `python3 scripts/build_apple.py simulator`, `device` or `mac` on the Mac (`--app`, `--ipa`) | Xcode, xcodegen, and ANGLE built in `~/angle` |
+| Apple TV, Vision Pro | As above, then `python3 scripts/build_tvos.py` or `python3 scripts/build_visionos.py`, `simulator` or `device` (`--app`) | As above, with ANGLE's tvOS and visionOS slices |
 
 `python scripts/release.py` builds every platform's download from one commit for a release, and
 `python scripts/crossplay_check.py` checks that the PC and the Quest compute the same game, bit for bit (run it after
@@ -194,8 +217,10 @@ any compiler, flag or runtime change).
 |---|---|
 | `src/runtime`, `src/games` | The Model 2 runtime, and The House of the Dead's game definition and hooks |
 | `src/core` | What every app shares: the bridge to the game (`arcade.cpp`), online play's lockstep, the 3D renderer (`m2_gl.c`), the menu, voice chat |
-| `src/quest` | The VR app for the Quest and the Steam Frame: OpenXR, the guns and hands, the cabinet room, the Android activities |
-| `src/flat` | The flat app for screens, with a front end per OS: `win`, `mac`, `ios`, `android` |
+| `src/xr` | The VR app every headset shares: the guns and hands, the views, the cabinet room, the VR menu; OpenXR, and its Windows binding |
+| `src/quest` | The Quest and Steam Frame host: Android, EGL, the activities, the updater |
+| `src/visionos` | The Vision Pro host: Compositor Services, ARKit, hands and Sense controllers |
+| `src/flat` | The flat app for screens, with a front end per OS: `win`, `mac`, `ios`, `tvos`, `android` |
 | `src/platform` | The OS seam (`platform.h`): files, threads, sound, the microphone, GL; its Android, Windows and Apple bodies |
 | `src/net` | Online play: the lobby and relay client, the local-network host, rooms |
 | `tools` | The recompilers, desktop test tools (`m2gpushot`, `m2probe`, `m2nettest`, `m2netguest`, `m2statetest`), the cabinet and gun model pipelines, the crash-report relay |
