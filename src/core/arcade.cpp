@@ -64,6 +64,7 @@ extern "C" {
 int port_draw_crosshairs = 0;
 volatile int arcade_view_cabinet = 0; // quest_xr.c: the cabinet view (its picture is the arcade's: no face layer)
 volatile int arcade_screen_scene = 0; // a scene to show on a screen, not round you (build: the game-over scene)
+int arcade_flat = 0;                  // the flat apps (flat_app.c): no cabinet room, so its courtyard isn't made
 float port_music_gain = 1.0f, port_sfx_gain = 1.0f;
 // Player p's bullets (0-6), -1 while that player isn't in the game: what the app's guns go by (the empty gun's
 // locked slide and silent laser, the magazine, the reload hints). The game thread keeps these (update_ammo).
@@ -1288,6 +1289,8 @@ extern "C" int SDL_main(int argc, char **argv) {
         courtyard_path = cy;
         if (exists(cy)) {
             courtyard_ready.store(courtyard_path.c_str(), std::memory_order_release);
+        } else if (arcade_flat) {
+            // a screen has no cabinet room: not made (the Apple TV HD's two cores took 42 s over it beside the game)
         } else if (exists(images + "/stamp.txt")) {
             // made on a spare core while you play (about 15 s on the Quest 3; the game being played is not touched:
             // two games side by side give the same frames, m2gpushot M2_TWIN=1). The cabinet room is dark till then;

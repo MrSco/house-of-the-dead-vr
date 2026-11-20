@@ -19,14 +19,15 @@
 // An app can't start itself again: where the app would restart (online play begins and ends so, a new ROM set), it
 // says so and closes, and the player opens it again (online-session.cfg waits ten minutes).
 //
-// Test switch (env.txt, beside flat_app.c's): FLAT_TEST_REMOTE="seconds action [args]; ..." plays the remote through
+// Test switches (env.txt, beside flat_app.c's): FLAT_TEST_REMOTE="seconds action [args]; ..." plays the remote through
 // the same code as the real one: swipe DX DY [SECONDS] (the touch surface, -1..1, up is +), click, play, playhold,
-// menu, up, down, left, right; the sight and each press are logged.
+// menu, up, down, left, right; the sight and each press are logged. FLAT_TEST_PICTURE=lines,samples: HD's limit.
 #import <GameController/GameController.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <CoreImage/CoreImage.h>
+#import <Metal/Metal.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <math.h>
@@ -63,7 +64,7 @@ static struct {
     int aim_on, pad_fire, pad_reload;
     double last, kept_at;
     // the perf line every 10 s: frames drawn, those later than 1.5 refreshes, the frame's own time on the main thread
-    double perf_at, frame_ms, frame_max, gap_max;
+    double perf_at, frame_ms, frame_max, gap_max, draw_ms;
     int perf_frames, perf_late;
 } A = { .sx = -1 };
 
@@ -427,8 +428,9 @@ static const char *thermal_name(void) {
     }
     return "?";
 }
-static void perf_frame(double start, double refresh) {   // after a frame drawn: start is when it began
+static void perf_frame(double start, double drawn, double refresh) {   // after a frame: begun, drawn (before the swap)
     const double end = now_s(), ms = (end - start) * 1000;
+    A.draw_ms += (drawn - start) * 1000;
     static double prev;
     if (prev) {
         const double gap = start - prev;
@@ -441,12 +443,13 @@ static void perf_frame(double start, double refresh) {   // after a frame drawn:
     if (ms > A.frame_max) A.frame_max = ms;
     if (!A.perf_at) A.perf_at = start;
     if (end - A.perf_at < 10) return;
-    LOGI("tv: perf: %.1f fps (refresh %.0f Hz), %d late, longest gap %.1f ms; main thread %.2f ms a frame (most %.1f); "
-         "%dx%d; thermal %s", A.perf_frames / (end - A.perf_at), refresh > 0 ? 1 / refresh : 0, A.perf_late,
-         A.gap_max * 1000, A.frame_ms / A.perf_frames, A.frame_max, A.w, A.h, thermal_name());
+    LOGI("tv: perf: %.1f fps (refresh %.0f Hz), %d late, longest gap %.1f ms; main thread %.2f ms a frame (most %.1f; "
+         "%.2f drawing, the rest the swap's wait); %dx%d; thermal %s", A.perf_frames / (end - A.perf_at),
+         refresh > 0 ? 1 / refresh : 0, A.perf_late, A.gap_max * 1000, A.frame_ms / A.perf_frames, A.frame_max,
+         A.draw_ms / A.perf_frames, A.w, A.h, thermal_name());
     A.perf_at = end;
     A.perf_frames = A.perf_late = 0;
-    A.frame_ms = A.frame_max = A.gap_max = 0;
+    A.frame_ms = A.frame_max = A.gap_max = A.draw_ms = 0;
 }
 
 @implementation HotdView
@@ -479,6 +482,13 @@ static NSMutableSet *passed_presses;   // presses UIKit keeps (the Menu that goe
 - (void)startGame {
     A.started = 1;
     tv_store_set_had_rom(has_rom());
+    // the Apple TV HD (A8: Metal's Apple2 family, below Apple3) has the GPU of a 2014 phone: the game's texture decode
+    // in each pixel (m2_gl.c) kept it at 15 fps for HD's 1440 x 1080 with 4x MSAA, 38 at 720 lines without, and 43 at
+    // 540; the arcade's own size holds 60 (2026-11-20). There Picture starts as Original, and HD is 720 lines at most.
+    id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();
+    const int small_gpu = gpu && ![gpu supportsFamily:MTLGPUFamilyApple3];
+    if (small_gpu) flat_app_default(QOPT_PICTURE, QPICTURE_ORIGINAL);
+    LOGI("tv: GPU %s%s", gpu ? gpu.name.UTF8String : "?", small_gpu ? " (Apple2: Picture Original by default)" : "");
     if (!flat_app_start(A.files)) { close_with(@"The game could not start", @"See port.log in the app's folder."); return; }
     flat_menu_tv(1);
     CAMetalLayer *layer = (CAMetalLayer *)self.view.layer;
@@ -487,7 +497,13 @@ static NSMutableSet *passed_presses;   // presses UIKit keeps (the Menu that goe
     if (!egl_init(layer) || !flat_gl_init()) { close_with(@"No graphics", @"OpenGL ES 3 through ANGLE did not start."); return; }
     // the HD picture at most 1080 lines (1440 x 1080, 4x MSAA), scaled up on a 4K TV: the whole 2160 lines with 4x
     // MSAA kept the Apple TV 4K (A15) at 40 to 48 fps, its GPU filling 25 million samples a frame (2026-11-20)
-    flat_picture_limit(1080, 0);
+    if (small_gpu) flat_picture_limit(720, 1);
+    else flat_picture_limit(1080, 0);
+    {   // FLAT_TEST_PICTURE=lines,samples (tests): another limit
+        int l, n;
+        const char *e = getenv("FLAT_TEST_PICTURE");
+        if (e && sscanf(e, "%d,%d", &l, &n) == 2) { flat_picture_limit(l, n); LOGI("tv: the picture at most %d lines, %d samples", l, n); }
+    }
     self.link = [CADisplayLink displayLinkWithTarget:self selector:@selector(frame)];
     [self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
@@ -521,8 +537,9 @@ static NSMutableSet *passed_presses;   // presses UIKit keeps (the Menu that goe
     A.w = (int)layer.drawableSize.width;
     A.h = (int)layer.drawableSize.height;
     flat_draw(A.w, A.h, 0);
+    const double drawn = now_s();
     eglSwapBuffers(A.dpy, A.surf);
-    perf_frame(now, self.link.duration);
+    perf_frame(now, drawn, self.link.duration);
 }
 
 // UIKit's presses: what the remote's buttons do, but Menu at the top, which UIKit takes (the Home screen)
@@ -671,7 +688,7 @@ static void rom_arrived(const char *path) { (void)path; [the_controller romArriv
     LOGI("tv: to the background (tvOS suspends the app: online, the partner waits)");
     A.background = 1; if (A.dpy) glFinish(); tv_store_save(A.files);
 }
-- (void)sceneWillEnterForeground:(UIScene *)scene { LOGI("tv: back in front"); A.background = 0; }
+- (void)sceneWillEnterForeground:(UIScene *)scene { if (A.background) LOGI("tv: back in front"); A.background = 0; }
 @end
 
 @interface HotdApp : UIResponder <UIApplicationDelegate>

@@ -12,6 +12,9 @@ extern "C" {
 // Once at start, before the window shows: files_dir is where the ROM set (arcade/), the saves, the settings and
 // port.log live (made when missing). 0 when the game cannot start at all.
 int flat_app_start(const char *files_dir);
+// before flat_app_start: option o (quest_options.h) starts at v where options.cfg doesn't have it yet (the player's
+// own choice, once saved, stays). Apple TV HD: Picture Original (src/flat/tvos)
+void flat_app_default(int o, int v);
 // Every frame of the front end, before drawing: minimized = nothing of the window shows (the game pauses, unless
 // online, where pausing would stall the partner).
 void flat_app_frame(int minimized);

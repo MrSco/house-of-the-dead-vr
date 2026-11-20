@@ -121,7 +121,14 @@ static int game_main(void *arg) {
     return 0;
 }
 
+static int def_opt[QOPT_COUNT], def_set[QOPT_COUNT];
+void flat_app_default(int o, int v) {
+    if (o >= 0 && o < QOPT_COUNT) { def_opt[o] = v; def_set[o] = 1; }
+}
+
 int flat_app_start(const char *files_dir) {
+    extern int arcade_flat;
+    arcade_flat = 1;                        // (arcade.cpp: no cabinet room, so no courtyard for it)
     snprintf(files, sizeof files, "%s", files_dir);
     char p[700];
     plat_mkdir(files);
@@ -148,6 +155,8 @@ int flat_app_start(const char *files_dir) {
         char t[4096] = "";
         if (o) { t[fread(t, 1, sizeof t - 1, o)] = 0; fclose(o); }
         if (!strstr(t, qopt_defs[QOPT_CROSSHAIR].key)) A.opt[QOPT_CROSSHAIR] = 1;
+        for (int o = 0; o < QOPT_COUNT; o++)   // the front end's defaults (flat_app_default)
+            if (def_set[o] && !strstr(t, qopt_defs[o].key)) A.opt[o] = def_opt[o];
     }
     flat_os_crash_reports(files, A.opt);   // (a crash of the last run: reported before this run's port.log)
     // online co-op (src/net/online.c): this run may be the restart into an online game (online-session.cfg), whose
