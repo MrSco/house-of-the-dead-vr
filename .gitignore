@@ -13,6 +13,9 @@ third_party/
 build_quest/
 # the iOS app's Xcode project, made by xcodegen beside its spec (scripts/build_apple.py)
 src/flat/ios/*.xcodeproj/
+# the Vision Pro app's, and its libraries (scripts/build_visionos.py)
+src/visionos/*.xcodeproj/
+build_visionos/
 vendor/
 
 # ---- ROMs and anything derived from them — LEGAL, not tidiness ----

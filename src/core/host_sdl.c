@@ -343,6 +343,8 @@ void quest_show_message(const char *text) {
     message_shown = 1;
     publish(page, W, H);
 }
+// the game's own pictures again (Vision Pro: the ROM set chosen while the setup page showed, then the game started)
+void quest_clear_message(void) { message_shown = 0; }
 
 
 // ---------------------------------------------------------------- audio: the platform's output stream
