@@ -203,6 +203,48 @@ generated code and the fetched libraries over ssh; `python3 scripts/build_apple.
 - Apple clang computes the same game: `m2nettest` built on the Mac replayed the PC's and the Quest's runs (30 of 30
   each), and the PC the Mac's (30 of 30).
 
+**P4, PCVR (2026-11-19): done but for a headset.** HOTDVR.exe plays in a VR headset through OpenXR, on whatever
+runtime is active (SteamVR, Meta's for Quest Link / Air Link, Virtual Desktop's), immersive and cabinet views as on
+the Quest.
+- **`src/xr`**: the Quest's VR shell left `src/quest` (`quest_xr.c` is `src/xr/xr_shell.c`; the guns, hands and
+  cabinet beside it). `xr.h` is the seam to its host: `src/quest/quest_main.c` on the Quest (the NativeActivity, EGL,
+  logcat, the crash handler, multicast lock, updater, restart and ROM import, the loader's JavaVM, the APK's assets)
+  and `src/xr/xr_win.c` on Windows. The models load through `qasset` (the APK's assets; `assets\` beside the exe).
+  The Quest's code paths are unchanged; on the Quest 3 the new build starts as 0.4.1 did, line for line in the log,
+  and runs the game in 3D (only one run got past the Guardian dialog: see below).
+- **Windows**: Khronos's loader (`openxr_loader.dll` 1.1.53, from the OpenXR SDK's release, hash pinned in
+  `build_windows.py`) is delay-loaded, so the flat app runs without it. A WGL 3.3 compatibility context (the shell
+  draws some things from client memory, which a core profile refuses) on a window that mirrors the left eye (Esc:
+  the VR menu). The eyes draw 4x MSAA into renderbuffers resolved into the sRGB swapchains (GL_FRAMEBUFFER_SRGB on).
+  Index, Vive and WMR controllers are bound besides Touch and the simple profile.
+- **VR or flat**: VR when the active runtime has a headset (`xrGetSystem` succeeds), flat otherwise; no loader, no
+  runtime, or no headset all fall back to flat (checked: Virtual Desktop's runtime without its headset answers
+  `XR_ERROR_FORM_FACTOR_UNAVAILABLE`, a missing runtime JSON, the DLL taken away). `--vr` / `--flat` override it; the
+  SYSTEM tab's **PLAY IN VR** / **PLAY ON THE SCREEN** (beside CHANGE ROM SET) starts the app again in the other mode
+  and remembers it in `pc-mode.cfg`. Without a ROM set the screen asks for it first. VR keeps its settings in
+  `vr-options.cfg` as on the Quest.
+- **SteamVR's quirks** (GoldenEye VR's notes): its dashboard takes the left menu button, and the Index has none, so
+  on a PC a thumbstick's double click also opens the VR menu (a held click still switches the view). The shell uses
+  no quad layers (the HUD and menu are drawn into the eye buffers), so GoldenEye's quad-slot and sub-rectangle
+  troubles don't arise.
+- **Checked without a headset** on SteamVR 2.18.4's null driver (forced for the test with `XR_RUNTIME_JSON` and
+  settings put back after): the session runs focused, every frame drawn (about 320 frames in each 10 s, the null
+  driver's pace), the immersive view and the VR menu render with the right colours (`XR_SHOT` pictures of the left
+  eye). Online: HOTDVR.exe in VR hosted a LAN game and a flat copy (`--files`) joined by IP and played by script: 180
+  of 180 checksums over 10,800 frames. `crossplay_check.py`: PC x64 and Quest arm64 30 of 30 both ways, save states
+  the same for 600 frames both ways. The link version stays 3.
+- Test switches (env.txt): `XR_SHOT=seconds[,...]` (the left eye to `xr_shot.ppm`), `XR_QUIT_AT=seconds`, and the
+  shell's `QUEST_MENU_AT`, `QUEST_TEST_ONLINE`, `QUEST_TEST_TALK` work on the PC too. The PC's port.log has an `xr:`
+  line every 10 s (frames, drawn, session state, view, controllers).
+- Fixed on the way: the Windows app's restart (online play, a new ROM set) runs from the folder it started in, so a
+  relative `--files` still names the same folder (it made `files2\files2` before).
+- **Left for a player** (a headset on): on a PC, Quest Link and SteamVR (a Quest through Virtual Desktop or Steam
+  Link, or an Index): both views, the controllers (aim, trigger, reload by grip / B / Y and the gestures, A / X skip),
+  the thumbstick double click under SteamVR, haptics, the mirror window, PLAY ON THE SCREEN and PLAY IN VR; voice in
+  VR on a PC. On the Quest 3, this build's menu, guns, hands, cabinet room and passthrough (the shell moved; the
+  desk runs here kept being stopped by a Guardian dialog). Seen on SteamVR: the attract mode's title logo draws over
+  the VR menu (the game's face layer comes after the menu; probably the Quest's too).
+
 **Since (2026-11-16):**
 - **The 3D was too dark everywhere**: the shared renderer decoded the arcade's colours with a 2.2 power and the sRGB
   framebuffer encoded them with the sRGB curve, which crushed the shadows (5% showed under 2%). It uses the exact
@@ -256,7 +298,6 @@ the Mac app by hand.
 **Left, later:**
 - Deploy the crash relay and set `REPORT_URL` (Quest and Windows); upload the Windows PDBs beside the Quest's
   symbols.
-- `src/xr`: the OpenXR shell (`quest_xr.c`, guns, hands, cabinet room) leaves `src/quest` when PCVR (P4) needs it.
 - The crossplay check with clang-cl too (CI's compiler; not installed on the dev PC).
 - The Quest's `QUEST_TEST_ONLINE` deletes all of env.txt before its restart, so other switches don't survive it;
   the flat hook drops only its own line.
