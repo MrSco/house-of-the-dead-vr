@@ -14,7 +14,10 @@ member's bytes (executables, libraries, frameworks, assets) for:
     (comma-separated)
 
 in 8-bit text and in UTF-16 strings (Windows' wide ones). The shared folders (C:\\Users\\Public, /Users/Shared, ...)
-don't count. Exit status 1 when anything is found (it prints where, with the text around it), 0 when clean.
+don't count, nor does the signing of a signed Apple app (its provisioning profile and the executables' code signatures
+name the Apple developer team that signs it, as the App Store shows it), nor an App Store .ipa's Symbols/ (Apple's
+crash symbols, for App Store Connect only). Exit status 1 when anything is found (it prints where, with the text around
+it), 0 when clean.
 
 The builds keep these out (docs/platforms.md, "Releases"): every compiler maps the checkout's folder to . and the home
 folder to ~ (cmake/prefix_map.cmake, scripts/build_info.py), and the Apple builds strip ANGLE's libraries
@@ -33,6 +36,35 @@ ARCHIVES = ('.zip', '.apk', '.ipa', '.aar', '.jar', '.aab')
 SHARED = {'public', 'default', 'default user', 'all users', 'shared', 'guest'}
 NAME_CH = rb'[^\\/\x00-\x1f"<>|:*?]{1,64}'      # one folder's name
 WIDE = re.compile(rb'(?:[\x20-\x7e]\x00){4,}')   # a UTF-16 string (ASCII letters)
+SIGNING = ('.mobileprovision', '.provisionprofile')   # (Apple's signing: the team's name, not a build machine's)
+
+
+def macho_signatures(data):
+    """[(start, end)]: the code signatures (LC_CODE_SIGNATURE's data) of a Mach-O file, thin or universal"""
+    import struct
+    out = []
+
+    def thin(off):
+        if data[off:off + 4] not in (b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe'): return
+        is64 = data[off:off + 4] == b'\xcf\xfa\xed\xfe'
+        ncmds = struct.unpack_from('<I', data, off + 16)[0]
+        p = off + (32 if is64 else 28)
+        for _ in range(ncmds):
+            if p + 8 > len(data): return
+            cmd, size = struct.unpack_from('<II', data, p)
+            if cmd == 0x1d:   # LC_CODE_SIGNATURE: linkedit_data_command
+                dataoff, datasize = struct.unpack_from('<II', data, p + 8)
+                out.append((off + dataoff, off + dataoff + datasize))
+            if size < 8: return
+            p += size
+    if data[:4] == b'\xca\xfe\xba\xbe' and len(data) > 8:   # universal: big-endian fat header
+        n = struct.unpack_from('>I', data, 4)[0]
+        if n < 32:   # (not a Java class file, which shares the magic)
+            for i in range(n):
+                thin(struct.unpack_from('>I', data, 8 + 20 * i + 8)[0])
+    else:
+        thin(0)
+    return out
 
 
 def own_names(extra=()):
@@ -66,7 +98,16 @@ def patterns(names):
 
 def scan_bytes(name, data, pats, hits):
     """data's 8-bit text, then its UTF-16 strings (Windows' wide ones: MSVC's assert messages, resources)"""
-    wide = b'\n'.join(m.group(0)[::2] for m in WIDE.finditer(data))
+    if name.lower().endswith(SIGNING): return
+    # (an App Store .ipa's Symbols/: App Store Connect's own crash symbols, which name the archive's dSYM on the Mac;
+    # Apple keeps them, no device ever gets them)
+    if re.search(r'\.ipa!Symbols/[^/]+\.symbols$', name): return
+    sigs = macho_signatures(data)
+    if sigs:   # (the signature blanked: the signing certificate names the team)
+        data = bytearray(data)
+        for a, b in sigs: data[a:b] = bytes(len(data[a:b]))
+        data = bytes(data)
+    wide =b'\n'.join(m.group(0)[::2] for m in WIDE.finditer(data))
     for text, enc in ((data, ''), (wide, ' (UTF-16)')):
         for what, p in pats:
             for m in p.finditer(text):

@@ -176,7 +176,7 @@ def main():
     import check_paths
     leaks = check_paths.check([out], log=log)   # (before anything is sent anywhere: TestFlight, the symbols)
     if leaks:
-        sys.exit('release: build machine paths or names in %d files of build_release/%s (above): not published; '
+        sys.exit('release: build machine paths or names in %d binaries in build_release/%s (above): not published; '
                  'fix the build (docs/platforms.md, "Releases") and build again' % (len(leaks), v))
     if a.testflight and not a.no_build:
         if not ('mac' in keys or 'ios' in keys):

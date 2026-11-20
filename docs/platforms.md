@@ -749,6 +749,9 @@ dylibs in their debug maps (the object files' paths on the Mac that built ANGLE)
 - **The guard**: `python scripts/check_paths.py [PATH ...]` looks through every file of `build_release/<version>/`,
   into the zips, APKs and IPAs, for `C:\Users\<name>\`, `/Users/<name>/`, `/home/<name>/` and this machine's user and
   host names (from the environment, and `$HOTD_MAC`'s: none is written in the script), in 8-bit and UTF-16 text.
+  A signed Apple app's signing (its provisioning profile and code signatures name the developer team, as the App
+  Store does) and an App Store .ipa's `Symbols/` (Apple's crash symbols, which name the archive's place on the Mac;
+  App Store Connect keeps them, no device gets them) don't count.
   `release.py` runs it once the downloads are built and stops on any hit, before anything is uploaded or published;
   the TestFlight archives (`build_apple.py`, `build_tvos.py`, `build_visionos.py --archive`) check their .ipa before
   sending it.
