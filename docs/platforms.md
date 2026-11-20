@@ -204,7 +204,7 @@ Linux is out of scope.
 | Lobby, rooms, LAN host | `src/net` sockets | same | same | same (LAN: entitlement) |
 | Voice capture | AAudio + JNI permission | SDL2 capture (WASAPI) | AAudio, as Quest | SDL2 CoreAudio, `AVAudioSession` playAndRecord, `NSMicrophoneUsageDescription` |
 | Voice DSP (Opus, SpeexDSP, RNNoise) | `voice_dsp.c` | same | same | same |
-| Crash reports | HTTP via JNI | WinHTTP | JNI, as Quest | NSURLSession |
+| Crash reports | HTTP via JNI (`quest_report.c`) | WinHTTP (`crash_win.c`) | the Quest's `quest_report.c` | NSURLSession (`crash_apple.m`) |
 | Files dir | external files dir | beside the exe or `%LOCALAPPDATA%` | external files dir | Documents |
 | Restart to apply settings | `RestartActivity` | re-run the exe | as Quest | Not possible: say "reopen the app" |
 
@@ -459,8 +459,26 @@ slices: `~/angle/xcframeworks-visionos`, as GoldenEye VR's `tools/build_angle_ap
 - **Gyro aim on phones and tablets** (GAME: Gyro aim, Gyro speed): turning the device moves the sight, a tap
   shoots at it. Android (the gyroscope, by the display's rotation) checked in the emulator; iOS (CoreMotion) builds.
 - **Crash reports on Windows** (`crash_win.c`): the Quest's JSON to the same relay, the PDB kept by build id in
-  `build_windows/symbols/`; checked end to end against a stand-in relay, frames symbolized. The relay itself is
-  still to be deployed (`REPORT_URL` is empty for the Quest too).
+  `build_windows/symbols/`; checked end to end against a stand-in relay, frames symbolized.
+- **Crash reports on every platform** (2026-11-20, `tools/vr/crash-relay/README.md`): the relay is the project's own
+  Worker at `https://hotdvr.roccojuliano.com/v1/reports` (deployed; it files issues once its GitHub token is set),
+  `REPORT_URL` set in `quest_report.c` (Quest, Steam Frame, and now the Android phones: its signal handler moved there
+  from `quest_main.c`), `crash_win.c` (Windows flat and PC VR, `platform` windows / pcvr; version and commit stamped
+  by `scripts/build_info.py`) and the new `src/platform/apple/crash_apple.m` (iPhone and iPad, Mac, Apple TV, Vision
+  Pro: a signal handler writing crash.txt with the executable's LC_UUID and image+offset frames, the last run's
+  port.log kept as port.prev.log, NSURLSession). The SYSTEM tab's Crash reports row now shows on every flat app
+  (`flat_os_has_reports`). The relay labels issues `platform:<platform>` and keys Windows and Apple crashes by offsets
+  and build id (their shipped binaries have no names); the private repository's triage workflow writes a
+  deterministic digest (symbols, disassembly, the source at the report's commit, a `sig-` label across builds and
+  platforms, duplicates closed). Symbols for every platform go to the private `crash-symbols` release on each release
+  (`quest_tools.py symbols [--apple]`, run by `release.py`: the Android libraries, Windows' PDB and exe, the Apple
+  dSYMs from the Mac's builds and TestFlight archives via `scripts/apple_symbols.py`); the Apple builds now compile
+  with line tables for their dSYMs, and the Mac app gets its dSYM and is stripped of its debug map. Checked: the relay's
+  tests, `wrangler dev` against a mock GitHub, a forced crash (`FLAT_CRASH_TEST`) on Windows, in the iOS simulator and
+  in the Mac app sent through it (issues filed, then symbolized with the build's PDB or dSYM), the phone APK in the
+  emulator sending its report to the deployed Worker over HTTPS (the 503 of a relay without its token: kept for
+  later), and the digest on GitHub's runner for a Quest, a Windows and an iOS report. Not run: the Quest, Apple TV and
+  Vision Pro apps' crash path (tvOS and visionOS compile).
 - **The Mac's microphone** (AVAudioEngine, AVCaptureDevice permission); this Mac mini has no microphone, so only its
   receiving is checked. **Android phones** take Wi-Fi's multicast lock in an online run, as the Quest does.
 
@@ -699,8 +717,10 @@ the sound in the busiest scenes (frames are skipped there, so the picture is les
 720-line picture if chosen. In the HD's menu, Picture's reset arrow sets HD (the shared default), not Original.
 
 **Left, later:**
-- Deploy the crash relay and set `REPORT_URL` (Quest and Windows); upload the Windows PDBs beside the Quest's
-  symbols.
+- Crash reports: the relay's GitHub token (the live test in `tools/vr/crash-relay/README.md`, "Live check"); a forced
+  crash on a Quest, a phone, the Mac, an Apple TV and a Vision Pro. The published 0.6.0 Windows build's PDB was not
+  kept (only later builds' are), so its reports get no names; its exe also names the build folder's paths (Opus'
+  `__FILE__` and, before `/PDBALTPATH`, the PDB's).
 - The crossplay check with clang-cl too (CI's compiler; not installed on the dev PC).
 - The Quest's `QUEST_TEST_ONLINE` deletes all of env.txt before its restart, so other switches don't survive it;
   the flat hook drops only its own line.

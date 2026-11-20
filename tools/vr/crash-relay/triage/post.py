@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Crash triage, step 3 (.github/workflows/crash-triage.yml): post what the analysis wrote, and act on a duplicate.
+"""Crash triage, the GitHub side (.github/workflows/crash-triage.yml): what digest.py wrote, onto the issue.
 
-The analysis (step 2, Claude) only writes files and has no GitHub access; this script, run from a copy made before
-step 2, is what touches the issues:
-    <dir>/analysis.md    posted as a comment on the issue
-    <dir>/result.json    {"duplicate_of": N or null, "confidence": "high|medium|low"}
-A new issue judged a duplicate of another crash issue (high confidence only) gets "Duplicate of #N", is closed as a
-duplicate, and its signatures are added to #N's body so the relay counts later reports of it there.
+    post.py --dir OUT                 the digest: OUT/digest.md as a comment, OUT/labels.txt as labels (sig-xxxxxxxx,
+                                      made when missing); for a new issue that digest.py found an older open crash
+                                      issue with the same signature for (meta.json duplicate_of): "Duplicate of #N",
+                                      closed as a duplicate, its relay signatures added to #N so the relay counts later
+                                      reports of it there
+    post.py --dir OUT --analysis      the optional AI analysis (OUT/analysis.md, when the workflow has an
+                                      ANTHROPIC_API_KEY): a comment, nothing else
 
+digest.py and the analysis only write files; this script, copied before the analysis runs, is what touches GitHub.
 --dry-run prints the GitHub calls instead of making them (tests).
 """
 import argparse, json, os, re, subprocess, sys
@@ -24,56 +26,69 @@ def gh(*args, input=None):
 
 
 def clean(md):
-    """The analysis as a comment: no hidden markers of ours (only the relay and this script write those)."""
-    md = re.sub(r'<!--.*?-->', '', md, flags=re.S)
-    return md.strip()[:60000]
+    """text from the analysis as a comment: no hidden markers (only the relay and the digest write those)"""
+    return re.sub(r'<!--.*?-->', '', md, flags=re.S).strip()[:60000]
+
+
+def post_digest(a, meta):
+    n = meta['issue']
+    digest = open(os.path.join(a.dir, 'digest.md'), encoding='utf-8').read()
+    gh('issue', 'comment', str(n), '--repo', a.repo, '--body-file', '-', input=digest)
+    for label in meta.get('labels', []):
+        try:
+            gh('label', 'create', label, '--repo', a.repo, '--color', 'ededed', '--description', 'Crash signature (triage digest)')
+        except subprocess.CalledProcessError:
+            pass   # (there already)
+        gh('issue', 'edit', str(n), '--repo', a.repo, '--add-label', label)
+    dup = meta.get('duplicate_of')
+    if meta.get('mode') != 'new' or not isinstance(dup, int) or dup == n: return
+    target = json.load(open(a.target_json)) if a.target_json else \
+        json.loads(gh('issue', 'view', str(dup), '--repo', a.repo, '--json', 'number,labels,body,state'))
+    if 'crash' not in [l['name'] for l in target.get('labels', [])] or target.get('state', 'OPEN').upper() != 'OPEN':
+        sys.stderr.write('#%d is not an open crash issue: not closing #%d\n' % (dup, n))
+        return
+    have = set(SIG.findall(target.get('body') or ''))
+    add = [s for s in meta.get('signatures', []) if s not in have]
+    if add:
+        body = (target.get('body') or '') + '\n' + '\n'.join('<!-- crash-sig: %s -->' % s for s in add)
+        gh('api', '-X', 'PATCH', 'repos/%s/issues/%d' % (a.repo, dup), '--input', '-', input=json.dumps({'body': body}))
+    gh('issue', 'comment', str(n), '--repo', a.repo, '--body',
+       'Duplicate of #%d: the same crash signature (%s). Its later reports are counted there.' % (dup, ', '.join(meta.get('labels', []))))
+    try:
+        gh('label', 'create', 'duplicate', '--repo', a.repo, '--color', 'cfd3d7')
+    except subprocess.CalledProcessError:
+        pass
+    gh('issue', 'edit', str(n), '--repo', a.repo, '--add-label', 'duplicate')
+    try:
+        gh('api', '-X', 'PATCH', 'repos/%s/issues/%d' % (a.repo, n), '-f', 'state=closed', '-f', 'state_reason=duplicate')
+    except subprocess.CalledProcessError:
+        gh('issue', 'close', str(n), '--repo', a.repo, '--reason', 'not planned')
+
+
+def post_analysis(a, meta):
+    try:
+        text = clean(open(os.path.join(a.dir, 'analysis.md'), encoding='utf-8').read())
+    except OSError:
+        text = ''
+    if not text:
+        print('no analysis written: nothing posted')
+        return
+    gh('issue', 'comment', str(meta['issue']), '--repo', a.repo, '--body-file', '-',
+       input='<!-- crash-analysis -->\n**AI analysis** (optional; the digest above is the deterministic part)\n\n' + text)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--repo', default=os.environ.get('GITHUB_REPOSITORY', ''))
     ap.add_argument('--dir', required=True)
-    ap.add_argument('--meta', help='meta.json from prep.py (default: in --dir)')
+    ap.add_argument('--meta', help='meta.json from digest.py (default: in --dir)')
+    ap.add_argument('--analysis', action='store_true', help='post the AI analysis instead of the digest')
     ap.add_argument('--dry-run', action='store_true')
-    ap.add_argument('--target-json', help='dry run: the duplicate target issue as gh issue view --json number,labels,body')
+    ap.add_argument('--target-json', help='dry run: the duplicate target as gh issue view --json number,labels,body,state')
     a = ap.parse_args()
     DRY['on'] = a.dry_run
     meta = json.load(open(a.meta or os.path.join(a.dir, 'meta.json')))
-    n = meta['issue']
-    try:
-        analysis = open(os.path.join(a.dir, 'analysis.md'), encoding='utf-8').read()
-    except OSError:
-        analysis = ''
-    try:
-        result = json.load(open(os.path.join(a.dir, 'result.json')))
-    except (OSError, ValueError):
-        result = {}
-    body = clean(analysis) or '_The automatic analysis produced nothing this time (see the workflow run)._'
-    head = '<!-- crash-triage -->\n**Automatic triage** (%s%s)\n\n' % (
-        'new report' if meta['mode'] == 'new' else 'occurrence on a new build',
-        '' if meta.get('symbols') else ', without symbols for this build')
-    gh('issue', 'comment', str(n), '--repo', a.repo, '--body-file', '-', input=head + body)
-
-    dup = result.get('duplicate_of')
-    if meta['mode'] != 'new' or not isinstance(dup, int) or dup == n or result.get('confidence') != 'high':
-        return
-    if a.target_json:
-        target = json.load(open(a.target_json))
-    else:
-        target = json.loads(gh('issue', 'view', str(dup), '--repo', a.repo, '--json', 'number,labels,body'))
-    if 'crash' not in [l['name'] for l in target.get('labels', [])]:
-        sys.stderr.write('#%d is not a crash issue: not closing #%d\n' % (dup, n))
-        return
-    have = set(SIG.findall(target.get('body') or ''))
-    add = [s for s in meta.get('signatures', []) if s not in have]
-    if add:
-        new_body = (target.get('body') or '') + '\n' + '\n'.join('<!-- crash-sig: %s -->' % s for s in add)
-        gh('api', '-X', 'PATCH', 'repos/%s/issues/%d' % (a.repo, dup), '--input', '-', input=json.dumps({'body': new_body}))
-    gh('issue', 'comment', str(n), '--repo', a.repo, '--body', 'Duplicate of #%d (same crash; its reports are counted there from now on).' % dup)
-    try:
-        gh('api', '-X', 'PATCH', 'repos/%s/issues/%d' % (a.repo, n), '-f', 'state=closed', '-f', 'state_reason=duplicate')
-    except subprocess.CalledProcessError:
-        gh('issue', 'close', str(n), '--repo', a.repo, '--reason', 'not planned')
+    (post_analysis if a.analysis else post_digest)(a, meta)
 
 
 if __name__ == '__main__':
