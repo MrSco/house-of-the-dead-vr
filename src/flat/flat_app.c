@@ -258,7 +258,9 @@ void flat_app_frame(int minimized) {
     port_draw_crosshairs = A.opt[QOPT_CROSSHAIR] ? 2 : online_session() ? 1 : 0;
     arcade_view_cabinet = 1;                // the arcade's picture: a zombie's hit is in it, as on the cabinet
     // the game pauses while the menu is open or nothing shows; not online (a partner's game would stall)
-    quest_set_paused((minimized || flat_menu_is_open()) && !online_session());
+    const int paused = (minimized || flat_menu_is_open()) && !online_session();
+    quest_set_paused(paused);
+    flat_rumble_frame(minimized || paused);
     quest_audio_service();
 }
 

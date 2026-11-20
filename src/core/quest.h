@@ -32,6 +32,26 @@ int host_player_playing(int p);                 // 1 while the game takes player
 // as a player comes in, 0 at the boot)
 enum { HOST_P_OUT = 4, HOST_P_IN = 5, HOST_P_RANKING = 6, HOST_P_NONE = 9 };
 int host_player_state(int p);
+// Player p's events, read from the game's RAM each game frame (arcade.cpp update_ammo): counts that only rise, for
+// the rumble of every shell. HOST_EV_SHOT a bullet spent, HOST_EV_RELOAD the magazine full again (in play),
+// HOST_EV_HIT a life lost. (A save state loaded or a jump of more than one is none of them.)
+enum { HOST_EV_SHOT, HOST_EV_RELOAD, HOST_EV_HIT, HOST_EV_COUNT };
+unsigned host_player_events(int p, int ev);
+// The events new since a shell last looked (seen: its own, zeroed at first; the first look takes the counts as they
+// are, so a shell that starts late doesn't get the past): a bit (1 << HOST_EV_*) each. Several at once (the game ran
+// two frames between looks) are one.
+typedef struct { unsigned n[2][HOST_EV_COUNT]; int primed[2]; } HostEventsSeen;
+static inline int host_events_new(HostEventsSeen *seen, int p) {
+    int bits = 0;
+    if (p < 0 || p > 1) return 0;
+    for (int e = 0; e < HOST_EV_COUNT; e++) {
+        const unsigned n = host_player_events(p, e);
+        if (seen->primed[p] && n != seen->n[p][e]) bits |= 1 << e;
+        seen->n[p][e] = n;
+    }
+    seen->primed[p] = 1;
+    return bits;
+}
 // While paused (system menu open, headset off) the game thread waits in its next present and audio is silent.
 void quest_set_paused(int paused);
 void quest_audio_service(void);                 // reopen the audio stream after the output device changed

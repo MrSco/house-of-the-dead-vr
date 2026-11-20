@@ -7,7 +7,8 @@
 //    the right trigger or R1 shooting, the left trigger, L1 or X / Square reloading, A / Cross or Start for coins and
 //    Start, Back / Select / Share for the menu;
 //  - in the menu: the stick or the D-pad moves, A selects, B goes back, the bumpers switch tabs.
-// The game's own crosshair shows where each pad's sight is (player 1 red, player 2 blue).
+// The game's own crosshair shows where each pad's sight is (player 1 red, player 2 blue). Each pad rumbles for its own
+// player's shots, reloads and hits (flat.h's rumble: SDL_RumbleGamepad, or XInputSetState's motors without SDL3).
 //
 // FLAT_TEST_PAD=n (tests): n virtual SDL gamepads (1..4). FLAT_TEST_PAD_SCRIPT=steps drives them (else, with one
 // pad: the right stick pushed right for half a second at 3 s, the right trigger at 5 s, A at 6 s). A step is
@@ -15,7 +16,8 @@
 // START, RT, LT, BACK (pressed for 0.2 s), RX+ RX- RY+ RY- LX+ LX- LY+ LY- (that stick pushed for 0.3 s; RX+40: 40%
 // of the way), OFF or ON
 // (unplugged, plugged in again); the keyboard's is SPACE (Space pressed), or X;Y (the mouse to that point of the
-// picture, 0..1 each, and its left button clicked). Each pad's sight is logged a second after each step.
+// picture, 0..1 each, and its left button clicked). Each pad's sight is logged a second after each step, and with
+// FLAT_TEST_RUMBLE=1 each change of a virtual pad's motors as SDL sends it (its rumble's start and end).
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <math.h>
@@ -61,6 +63,7 @@ static struct {
     bool (*GamepadHasSensor)(SDLGamepad *, int);
     bool (*SetGamepadSensorEnabled)(SDLGamepad *, int, bool);
     bool (*GetGamepadSensorData)(SDLGamepad *, int, float *, int);
+    bool (*RumbleGamepad)(SDLGamepad *, uint16_t, uint16_t, uint32_t);
     void (*free_)(void *);
     // tests: virtual pads
     SDLJoystickID (*AttachVirtualJoystick)(const VirtualDesc *);
@@ -79,7 +82,7 @@ static int load_sdl(void) {
     GET(OpenGamepad, "SDL_OpenGamepad") GET(CloseGamepad, "SDL_CloseGamepad") GET(GamepadConnected, "SDL_GamepadConnected")
     GET(GetGamepadName, "SDL_GetGamepadName") GET(GetGamepadAxis, "SDL_GetGamepadAxis") GET(GetGamepadButton, "SDL_GetGamepadButton")
     GET(GamepadHasSensor, "SDL_GamepadHasSensor") GET(SetGamepadSensorEnabled, "SDL_SetGamepadSensorEnabled")
-    GET(GetGamepadSensorData, "SDL_GetGamepadSensorData") GET(free_, "SDL_free")
+    GET(GetGamepadSensorData, "SDL_GetGamepadSensorData") GET(free_, "SDL_free") GET(RumbleGamepad, "SDL_RumbleGamepad")
     GET(AttachVirtualJoystick, "SDL_AttachVirtualJoystick") GET(DetachVirtualJoystick, "SDL_DetachVirtualJoystick")
     GET(OpenJoystick, "SDL_OpenJoystick") GET(CloseJoystick, "SDL_CloseJoystick")
     GET(SetJoystickVirtualAxis, "SDL_SetJoystickVirtualAxis") GET(SetJoystickVirtualButton, "SDL_SetJoystickVirtualButton")
@@ -92,8 +95,11 @@ static int load_sdl(void) {
 // ---- XInput, without SDL3.dll
 typedef struct { WORD wButtons; BYTE bLeftTrigger, bRightTrigger; SHORT sThumbLX, sThumbLY, sThumbRX, sThumbRY; } XGamepad;
 typedef struct { DWORD dwPacketNumber; XGamepad Gamepad; } XState;
+typedef struct { WORD wLeftMotorSpeed, wRightMotorSpeed; } XVibration;
 typedef DWORD (WINAPI *PFN_XInputGetState)(DWORD, XState *);
+typedef DWORD (WINAPI *PFN_XInputSetState)(DWORD, XVibration *);
 static PFN_XInputGetState xinput;
+static PFN_XInputSetState xinput_set;
 
 // one frame of a pad, in SDL's terms (sticks -1..1, y up; triggers 0..1)
 typedef struct { float lx, ly, rx, ry, lt, rt; int b[16]; } Pad;
@@ -110,6 +116,7 @@ static struct Conn {
     int prev[16], fire_was, reload_was, active;
     float sx, sy;                // its sight, window pixels (-1: not yet: from the middle)
     double menu_repeat;
+    double rumble_end;           // XInput: when its motors stop (it has no duration of its own)
 } C[MAX_PADS];
 
 static struct Conn *conn_add(void) {
@@ -172,6 +179,7 @@ static void scan_xinput(double now) {
         HMODULE m = LoadLibraryW(L"xinput1_4.dll");
         if (!m) m = LoadLibraryW(L"xinput9_1_0.dll");
         if (m) xinput = (PFN_XInputGetState)GetProcAddress(m, "XInputGetState");
+        if (m) xinput_set = (PFN_XInputSetState)GetProcAddress(m, "XInputSetState");
         if (!xinput) return;
         next = 0;
     }
@@ -212,6 +220,13 @@ static struct {
     int nsteps;
     int legacy;   // FLAT_TEST_PAD=1 without a script: the old one
 } T = { .n = -1 };
+static double test_now;
+static bool __cdecl test_rumble(void *userdata, uint16_t low, uint16_t high) {   // (SDL's, on this thread)
+    static int log = -1;
+    if (log < 0) log = getenv("FLAT_TEST_RUMBLE") && atoi(getenv("FLAT_TEST_RUMBLE"));
+    if (log) LOGI("test: virtual pad %d motors low %u high %u at %.2f s", (int)(intptr_t)userdata + 1, low, high, test_now - T.start);
+    return true;
+}
 static void test_attach(int k) {
     VirtualDesc d;
     memset(&d, 0, sizeof d);
@@ -224,6 +239,8 @@ static void test_attach(int k) {
     d.name = name[k];
     d.button_mask = (1u << 15) - 1;   // SOUTH .. DPAD_RIGHT
     d.axis_mask = 0x3f;               // both sticks, both triggers
+    d.userdata = (void *)(intptr_t)k;
+    d.Rumble = (void *)test_rumble;   // (a pad with motors: SDL_RumbleGamepad reaches it)
     T.id[k] = S.AttachVirtualJoystick(&d);
     T.joy[k] = T.id[k] ? S.OpenJoystick(T.id[k]) : NULL;
     LOGI("test: virtual pad %d %s", k + 1, T.joy[k] ? "attached" : "failed");
@@ -237,6 +254,7 @@ static void test_detach(int k) {
 }
 static const char *const stick_names[] = { "LX", "LY", "RX", "RY" };
 static void test_pad(double now) {
+    test_now = now;
     if (T.n == -1) {
         const char *e = getenv("FLAT_TEST_PAD"), *sc = getenv("FLAT_TEST_PAD_SCRIPT");
         T.n = e ? atoi(e) : 0;
@@ -392,13 +410,36 @@ static void pad_frame(struct Conn *c, const Pad *p, double now, double dt) {
     if (reload != c->reload_was) { flat_dev_reload(c->dev, reload); c->reload_was = reload; }
 }
 
+// ---- rumble (flat.h): the pad that is device dev, by SDL (which stops it after ms itself) or XInput (pad_poll does)
+static double rumble_now;
+void flat_os_rumble(int dev, int what, float low, float high, int ms) {
+    (void)what;
+    for (int i = 0; i < MAX_PADS; i++) {
+        struct Conn *c = &C[i];
+        if (!c->used || c->dev != dev) continue;
+        const uint16_t lo = (uint16_t)(fminf(fmaxf(low, 0), 1) * 65535), hi = (uint16_t)(fminf(fmaxf(high, 0), 1) * 65535);
+        if (c->gp) S.RumbleGamepad(c->gp, ms ? lo : 0, ms ? hi : 0, ms > 0 ? (uint32_t)ms : 0);
+        else if (c->xslot >= 0 && xinput_set) {
+            XVibration v = { ms ? lo : 0, ms ? hi : 0 };   // (left: the heavy motor, right: the light one)
+            xinput_set((DWORD)c->xslot, &v);
+            c->rumble_end = ms ? rumble_now + ms / 1000.0 : 0;
+        }
+    }
+}
+
 void pad_poll(double now, double dt) {
     if (!S.tried) { S.tried = 1; S.on = load_sdl(); LOGI("pad: %s", S.on ? "SDL3 gamepads" : "XInput (no SDL3.dll)"); }
+    rumble_now = now;
     test_pad(now);
     if (S.on) scan_sdl(now); else scan_xinput(now);
     for (int i = 0; i < MAX_PADS; i++) {
         struct Conn *c = &C[i];
         if (!c->used) continue;
+        if (c->rumble_end && now >= c->rumble_end && xinput_set) {   // XInput's rumble over
+            XVibration v = { 0, 0 };
+            xinput_set((DWORD)c->xslot, &v);
+            c->rumble_end = 0;
+        }
         Pad p;
         memset(&p, 0, sizeof p);
         if (c->gp) read_sdl(c, &p);

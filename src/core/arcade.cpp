@@ -93,6 +93,11 @@ int host_player_playing(int p) { return p >= 0 && p < 2 ? g_playing[p].load() : 
 // Player p's place in the game (docs/vr.md, "In play or not"): the byte at 0x51f284, player 2's 0xcc on (0x51f350).
 static std::atomic<int> g_state[2] = {0, 0};
 int host_player_state(int p) { return p >= 0 && p < 2 ? g_state[p].load() : 0; }
+// Player p's shots, reloads and hits so far (update_ammo; quest.h host_player_events): the shells' rumble
+static std::atomic<unsigned> g_events[2][HOST_EV_COUNT];
+unsigned host_player_events(int p, int ev) {
+    return p >= 0 && p < 2 && ev >= 0 && ev < HOST_EV_COUNT ? g_events[p][ev].load(std::memory_order_relaxed) : 0;
+}
 void host_log(const char *fmt, ...) {
     va_list a;
     va_start(a, fmt);
@@ -1171,7 +1176,19 @@ void update_ammo(rt::GameLoop &game) {
         // 2: 4 a cut scene, 1..3 play), alive. Found by which trigger pulls the game takes (m2probe RAM dumps,
         // docs/vr.md). (0x51f4a0 counts the players in the game: 2 in any two-player game, so it can't say this.)
         const uint8_t phase = b.read_byte(p ? 0x0051f4b5 : 0x0051f4b4);
-        g_playing[p] = state == HOST_P_IN && phase >= 1 && phase <= 3 && lives > 0;
+        const bool playing = state == HOST_P_IN && phase >= 1 && phase <= 3 && lives > 0;
+        // the events (host_player_events), from the last game frame to this one, in the game (the attract demo's
+        // players are state 9): a bullet less, a full magazine again in play, a life less. Steps of exactly one
+        // (a save state loaded online, RESTART, the start of a game or a continue are none of them).
+        static uint8_t was_lives[2], was_ammo[2], was_state[2];
+        static bool was_playing[2];
+        if (was_state[p] == HOST_P_IN && was_lives[p] > 0) {
+            if (was_ammo[p] <= 6 && ammo + 1 == was_ammo[p]) g_events[p][HOST_EV_SHOT]++;
+            if (was_playing[p] && was_ammo[p] < 6 && ammo == 6 && lives == was_lives[p]) g_events[p][HOST_EV_RELOAD]++;
+            if (lives + 1 == was_lives[p]) g_events[p][HOST_EV_HIT]++;
+        }
+        was_lives[p] = lives, was_ammo[p] = ammo, was_state[p] = state, was_playing[p] = playing;
+        g_playing[p] = playing;
         g_state[p] = state;
     }
 }

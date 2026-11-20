@@ -51,7 +51,7 @@ static const RowDef GUN_ROWS[] = {
       T_SEG, { "CABINET", "PISTOL" }, 2, 1, "", false },
     { QOPT_PITCH, "Gun angle", "Lower it if shots land high", "Tilts the barrel about your hand. + raises it.", T_SLIDER, { 0 }, 0, 1, "\xC2\xB0", true },
     { QOPT_GUN_SIZE, "Gun size", "Smaller or bigger in your hand", "Scales the gun about your hand, so your hand fits its grip.", T_SLIDER, { 0 }, 0, 5, "%", false },
-    { QOPT_RUMBLE, "Rumble", "A kick in your hand on each shot", "The controller vibrates when you shoot and reload.", T_SEG, { "ON", "OFF" }, 2, 1, "", false },
+    { QOPT_RUMBLE, "Rumble", "A kick in your hand on each shot", "The controller vibrates when you shoot and reload, and both do when you're hit.", T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
 static const RowDef HANDS_ROWS[] = {
     { QOPT_HAND, "Gun hand", "One gun, as on the cabinet, or one in each hand",
@@ -129,6 +129,9 @@ static const RowDef PICTURE_ROWS[] = {
       T_SEG, { "OFF", "ON" }, 2, 1, "", false },
     { QOPT_GYRO_SPEED, "Gyro speed", "How far the sight goes for a turn", "100%: a turn of about 40 degrees crosses the picture.",
       T_SLIDER, { 0 }, 0, 25, "%", false },
+    { QOPT_RUMBLE, "Rumble", "The game pad kicks on each shot",
+      "ON: your game pad vibrates when you shoot and reload, and hard when you're hit (each player's own pad). OFF: never.",
+      T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
 // ...on a touch screen: no window; the gyro aims if you like
 static const RowDef TOUCH_ROWS[] = {
@@ -146,6 +149,9 @@ static const RowDef TOUCH_ROWS[] = {
       T_SEG, { "OFF", "ON" }, 2, 1, "", false },
     { QOPT_GYRO_SPEED, "Gyro speed", "How far the sight goes for a turn", "100%: a turn of about 40 degrees crosses the picture.",
       T_SLIDER, { 0 }, 0, 25, "%", false },
+    { QOPT_RUMBLE, "Rumble", "A kick on each shot",
+      "ON: a game pad vibrates when you shoot and reload, and hard when you're hit; playing by touch, so does a phone. OFF: never.",
+      T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
 // ...on Apple TV: the Siri Remote's touch surface moves the sight, at this speed
 static const RowDef TV_ROWS[] = {
@@ -161,6 +167,9 @@ static const RowDef TV_ROWS[] = {
     { QOPT_REMOTE_SPEED, "Remote speed", "How far the sight goes for a swipe",
       "100%: a slow swipe across the remote's touch surface moves the sight about half the picture; a quick one goes further.",
       T_SLIDER, { 0 }, 0, 25, "%", false },
+    { QOPT_RUMBLE, "Rumble", "The game pad kicks on each shot",
+      "ON: a game pad vibrates when you shoot and reload, and hard when you're hit (the Siri Remote has no motor). OFF: never.",
+      T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
 static const RowDef SYSTEM_ROWS[] = {
     { QOPT_VOLUME, "Game volume", "Everything the game plays", "All of the game's sound: music, voices and guns. Voice chat isn't in it.",
@@ -578,8 +587,9 @@ static void settings_row(const RowDef *r, float y, float h) {
     ev_click = saved_click; ev_adjust = saved_adjust; ev_drag = saved_drag;
     next_row();
 }
-// the rows' spacing for a tab of n rows (slots: rows and anything under them, as SYSTEM's button); six fit closer
-static float row_step(int slots) { return slots > 5 ? 68 : 78; }
+// the rows' spacing for a tab of n rows (slots: rows and anything under them, as SYSTEM's button); six fit closer,
+// seven (the flat apps' GAME tab with a mouse) closer still
+static float row_step(int slots) { return slots > 6 ? 58 : slots > 5 ? 68 : 78; }
 static void settings_in(const RowDef *rows, int n, int slots) {
     float y = CY0;
     const float step = row_step(slots);

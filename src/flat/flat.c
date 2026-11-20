@@ -9,6 +9,7 @@
 #include "d3d_vr.h"
 #include "m2_vr.h"
 #include "online.h"
+#include "quest_options.h"
 #include <SDL.h>
 #include <math.h>
 #include <stdbool.h>
@@ -490,6 +491,7 @@ static struct {
     int p2;            // player 2's device (0: none)
     int game_on;       // a game on (flat_players_frame), as last seen
     int pads;          // pad ids handed out (FLAT_DEV_PAD + 0 .. pads - 1)
+    int last[2];       // the device each player used last (flat_player_device)
 } P;
 static int dev_slot(int dev) {
     for (int i = 0; i < P.n; i++) if (P.d[i].dev == dev) return i;
@@ -498,6 +500,7 @@ static int dev_slot(int dev) {
     P.d[P.n].dev = dev;
     return P.n++;
 }
+extern int net_local;   // (arcade_net.cpp: this player's slot online)
 static int seat_open(void) { return !online_session(); }   // online, player 2 is the partner
 int flat_dev_player(int dev) { return P.p2 && dev == P.p2 && seat_open() ? 1 : 0; }
 int flat_player2_in(void) { return P.p2 && seat_open(); }
@@ -516,8 +519,11 @@ static void p2_leave(const char *why) {
     const int i = dev_slot(P.p2);
     P.d[i].fire = P.d[i].reload = 0;
     P.p2 = 0;
+    P.last[1] = 0;
     quest_player2(0);
 }
+int flat_player_device(int p) { return p >= 0 && p < 2 ? P.last[p] : 0; }
+static void used(int dev) { P.last[flat_dev_player(dev)] = dev; }
 // every frame (flat_app_frame): online, or the game over (the ranking, the title), ends player 2's seat and forgets
 // which devices were player 1's
 void flat_players_frame(void) {
@@ -550,12 +556,14 @@ void flat_dev_pointer(int dev, int x, int y) {
 void flat_dev_trigger(int dev, int down) {
     const int i = dev_slot(dev), pl = flat_dev_player(dev);
     if (down && P.d[i].aimed) gun_aim(pl, P.d[i].x, P.d[i].y);   // the shot goes where this device aims
+    if (down) used(dev);
     P.d[i].fire = down;
     gun_button(pl, SDL_BUTTON_LEFT, down);
 }
 void flat_dev_reload(int dev, int down) {
     const int i = dev_slot(dev);
     P.d[i].reload = down;
+    if (down) used(dev);
     gun_button(flat_dev_player(dev), SDL_BUTTON_RIGHT, down);
 }
 // Start: player 2's on player 2's device. While player 1 plays (host_player_playing: not the continue countdown, a
@@ -566,18 +574,68 @@ void flat_dev_reload(int dev, int down) {
 void flat_dev_start(int dev, int down) {
     const int i = dev_slot(dev);
     if (!down) { if (!flat_dev_player(dev)) quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, 0); return; }
-    if (flat_dev_player(dev)) { quest_start2(); return; }
+    if (flat_dev_player(dev)) { used(dev); quest_start2(); return; }
     if (seat_open() && !P.d[i].p1 && host_player_playing(0) && host_player_state(1) != HOST_P_IN) {
         if (P.p2) p2_leave("another device's Start");
         P.p2 = dev;
         LOGI("players: device %d joins as player 2", dev);
         quest_player2(1);
+        used(dev);
         if (P.d[i].aimed) gun_aim(1, P.d[i].x, P.d[i].y);
         quest_start2();
         return;
     }
     P.d[i].p1 = 1;
+    used(dev);
     quest_key(SDL_SCANCODE_SPACE, SDLK_SPACE, 1);
+}
+
+// ---- rumble (flat.h): each event's feel, the same on every pad; touch's haptics go by the event
+static const struct { float low, high; int ms; const char *name; } rumble_feel[] = {
+    [FLAT_RUMBLE_SHOT] = { 0.25f, 0.75f, 70, "shot" },      // a short kick
+    [FLAT_RUMBLE_RELOAD] = { 0.20f, 0.20f, 90, "reload" },  // a softer pulse
+    [FLAT_RUMBLE_HIT] = { 1.00f, 0.70f, 450, "hit" },       // strong and longer
+};
+static struct { int dev; uint64_t until; } running[4];   // rumbles that may still be going (stopped on a pause)
+static int rumble_log = -1;
+static void rumble(int pl, int dev, int what) {
+    const uint64_t now = plat_now_ns();
+    flat_os_rumble(dev, what, rumble_feel[what].low, rumble_feel[what].high, rumble_feel[what].ms);
+    if (rumble_log) LOGI("rumble: player %d %s on device %d (low %.2f, high %.2f, %d ms)", pl + 1, rumble_feel[what].name, dev,
+                         rumble_feel[what].low, rumble_feel[what].high, rumble_feel[what].ms);
+    int k = -1;   // the device's slot, else the one that ends first
+    for (int i = 0; i < 4; i++) if (running[i].dev == dev) k = i;
+    if (k < 0) { k = 0; for (int i = 1; i < 4; i++) if (running[i].until < running[k].until) k = i; running[k].until = 0; }
+    const uint64_t until = now + (uint64_t)rumble_feel[what].ms * 1000000u;
+    running[k].dev = dev;
+    if (running[k].until < until) running[k].until = until;
+}
+void flat_rumble_frame(int paused) {
+    static HostEventsSeen seen;
+    if (rumble_log < 0) rumble_log = getenv("FLAT_TEST_RUMBLE") && atoi(getenv("FLAT_TEST_RUMBLE"));
+    const int off = paused || flat_menu_is_open() || !flat_opt_get(QOPT_RUMBLE);
+    const int online = online_session();
+    for (int slot = 0; slot < 2; slot++) {
+        const int ev = host_events_new(&seen, slot);   // (taken while off too: they don't come later)
+        // the player here who is this slot: online only this player (every device here drives it: player 0's
+        // devices); alone player 1, and player 2 while a device holds the seat
+        int pl = slot;
+        if (online) { if (slot != net_local) continue; pl = 0; }
+        else if (slot == 1 && !flat_player2_in()) continue;
+        const int dev = P.last[pl];
+        if (!ev || off || !dev) continue;
+        // one at a time, the strongest: a hit over a shot over a reload
+        rumble(slot, dev, ev & 1 << HOST_EV_HIT ? FLAT_RUMBLE_HIT : ev & 1 << HOST_EV_SHOT ? FLAT_RUMBLE_SHOT : FLAT_RUMBLE_RELOAD);
+    }
+    if (off) {   // paused, the menu, Rumble OFF: what's still going stops
+        const uint64_t now = plat_now_ns();
+        for (int i = 0; i < 4; i++)
+            if (running[i].dev && running[i].until > now) {
+                flat_os_rumble(running[i].dev, FLAT_RUMBLE_SHOT, 0, 0, 0);
+                if (rumble_log) LOGI("rumble: stopped on device %d (%s)", running[i].dev, paused ? "paused" : "the menu or Rumble off");
+                running[i].until = 0;
+            }
+    }
 }
 
 // pads: an id each; a pad that comes back gets a gone pad's (player 2's first), so it drives the same player

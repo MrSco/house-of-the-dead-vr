@@ -53,6 +53,17 @@ void flat_players_frame(void);                  // (flat_app_frame)
 int flat_pad_attach(void);
 void flat_pad_detach(int dev);
 
+// ---- rumble (flat.c): each player's shots, reloads and hits (quest.h host_player_events) on the device that player
+// used last (shot, reloaded or pressed Start with: a pad's motors, a phone's for touch). Only the players here (online:
+// this one, never the partner), never while the game is paused or the menu is open (a running one stops), the GAME
+// tab's Rumble. FLAT_TEST_RUMBLE=1 (tests) logs each request.
+enum { FLAT_RUMBLE_SHOT, FLAT_RUMBLE_RELOAD, FLAT_RUMBLE_HIT };
+void flat_rumble_frame(int paused);     // (flat_app_frame)
+int flat_player_device(int p);          // the device player p used last (0: none yet)
+// what each front end provides: device dev's rumble for event `what` (FLAT_RUMBLE_*), its low (heavy) and high
+// (light) frequency motors 0..1 for ms; ms 0: stop it. Never blocking. A device with nothing to vibrate ignores it.
+void flat_os_rumble(int dev, int what, float low, float high, int ms);
+
 // ---- the menu (flat_menu.c): the VR app's menu (quest_menu.c) as a panel over the game, which pauses (not online)
 void flat_menu_set_open(int open);
 int flat_menu_is_open(void);
