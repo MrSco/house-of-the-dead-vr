@@ -205,7 +205,8 @@ generated code and the fetched libraries over ssh; `python3 scripts/build_apple.
 
 **P5, Vision Pro (2026-11-19): built, not yet run.** Branch `t3/visionos-vr-port`. On the PC
 `python scripts/apple_sync.py --dest <folder>`, then on the Mac `python3 scripts/build_visionos.py simulator|device
-[--app]` (`--archive BUILD [--upload]` as build_apple.py's, with HOTD_BUNDLE_ID; nothing uploaded). ANGLE's visionOS
+[--app]` (`--archive BUILD [--upload]` as build_apple.py's, with HOTD_BUNDLE_ID; nothing uploaded). Both the
+simulator app and the device app (unsigned) build with Xcode 27.2 against the visionOS 27.2 SDK, deployment target 26.0. ANGLE's visionOS
 slices: `~/angle/xcframeworks-visionos`, as GoldenEye VR's `tools/build_angle_apple.sh` makes them.
 - `src/visionos`: `VosApp.swift` opens straight into a full-immersion space (a CompositorLayer; the scene role
   `CPSceneSessionRoleImmersiveSpaceApplication`) and has the document picker's window for the ROM set;
