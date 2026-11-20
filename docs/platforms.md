@@ -52,7 +52,7 @@ Proposed layout (P0 does this with the Quest build unchanged):
 |---|---|---|
 | `src/core` | The game bridge (`arcade_quest.cpp` without Android), `arcade_net`, `m2_gl.c`, the menu and canvas, options, voice DSP | all |
 | `src/platform/platform.h` | The seam: files dir, log, ROM picker, HTTP POST, mic open/permission, haptics, "restart the app" | all |
-| `src/xr` | OpenXR VR shell from `quest_xr.c`, split into the shared OpenXR code and a graphics binding (GLES on Android, GL on Windows) | Quest, Steam Frame, PCVR |
+| `src/xr` | VR shell from `quest_xr.c`, split into the shared OpenXR code and a graphics binding (GLES on Android, GL on Windows); without OpenXR its host's frames and input (`xr.h`, Vision Pro: `src/visionos/xr_vos.m`) | Quest, Steam Frame, PCVR, Vision Pro |
 | `src/flat` | The flat shell: the game-camera draw, the HUD overlay, the menu as a 2D panel, the app round the game; a front end per OS (`win/`) for the window and mouse / touch / pad / gyro | Windows, Android, iOS, macOS |
 | `src/platform/{android,windows,apple}` | The bodies of `platform.h` | per OS |
 | `src/visionos` | Compositor Services + ARKit instead of OpenXR | Vision Pro |
@@ -247,28 +247,38 @@ the Quest.
   desk runs here kept being stopped by a Guardian dialog). Seen on SteamVR: the attract mode's title logo draws over
   the VR menu (the game's face layer comes after the menu; probably the Quest's too).
 
-**P5, Vision Pro (2026-11-19): built, checked in the visionOS Simulator, crossplay with Windows.** Branch `t3/visionos-vr-port`. On the PC
+**P5, Vision Pro (2026-11-19): built, checked in the visionOS Simulator, crossplay with Windows; its VR shell is
+`src/xr`'s, the Quest's and the PC's.** Made on branch `t3/visionos-vr-port`, merged beside PCVR and the Apple TV. On the PC
 `python scripts/apple_sync.py --dest <folder>`, then on the Mac `python3 scripts/build_visionos.py simulator|device
 [--app]` (`--archive BUILD [--upload]` as build_apple.py's, with HOTD_BUNDLE_ID; nothing uploaded). Both the
 simulator app and the device app (unsigned) build with Xcode 27.2 against the visionOS 27.2 SDK, deployment target 26.0. ANGLE's visionOS
 slices: `~/angle/xcframeworks-visionos`, as GoldenEye VR's `tools/build_angle_apple.sh` makes them.
 - `src/visionos`: `VosApp.swift` opens straight into a full-immersion space (a CompositorLayer; the scene role
   `CPSceneSessionRoleImmersiveSpaceApplication`) and has the document picker's window for the ROM set;
-  `vos_render.m` is the compositor's thread: ANGLE with a pbuffer, ARKit (world tracking for the head, hand tracking,
+  `xr_vos.m` (the shell's host, as `quest_main.c` and `xr_win.c` are) is the compositor's thread: ANGLE with a pbuffer, ARKit (world tracking for the head, hand tracking,
   accessory tracking for the Sense controllers' poses, one session), each frame's input, **one GL pass per eye** into
   an sRGB Metal texture of ours (EGL_METAL_TEXTURE_ANGLE, GL fenced to Metal by ANGLE's shared event), then a Metal
   pass copying each eye into the drawable with its depth at 2 m (visionOS drops a frame whose depth is all 0), the
   drawable stamped with the head's device anchor; `VosControllers.swift` reads the Sense controllers' buttons
   (GameController) and rumbles them. These follow GoldenEye VR's native visionOS build, but each eye is drawn with
   its own real (canted) pose and field of view, so the copy is one to one.
-- `vos_shell.c` is the Quest's VR shell (`src/quest/quest_xr.c`) carried over with OpenXR, JNI and Android taken
-  out: the immersive and cabinet views, the cabinet room (dark, the courtyard; passthrough is not offered), the guns,
-  hands, menu, reloads (gestures included), recenter, the online partner's guns and hands, the same settings file
-  (`vr-options.cfg`) and the QUEST_* test switches (plus `QUEST_TEST_PLAY`, FLAT_TEST_PLAY's scripted play, and
-  `QUEST_TEST_PICK`, the picker without a pinch). The Quest's model loaders (`quest_gun.c`, `quest_hand.c`, `quest_cabinet.c`) build unchanged against
-  `src/visionos/shim` (AAsset over the bundle's `assets` folder, the log). One hook in `host_sdl.c`:
-  `quest_clear_message`, so a ROM set chosen while the setup page shows starts the game without reopening the app.
-- **Hands** (ARKit's skeleton, in `vos_render.m`): the aim ray runs from a shoulder point (20 cm under the head,
+- **The shell is `src/xr/xr_shell.c`**, every headset's (it was first a copy, `vos_shell.c`, now gone): the immersive
+  and cabinet views, the cabinet room (dark, the courtyard; passthrough is not offered), the guns, hands, menu,
+  reloads (gestures included), recenter, the online partner's guns and hands, the same settings file
+  (`vr-options.cfg`) and the QUEST_* test switches. It builds without OpenXR for Vision Pro (`XR_OPENXR=0`,
+  cmake/visionos.cmake): the OpenXR runtime (instance, session, actions, swapchains, hand tracking, passthrough,
+  refresh rate, events) is under that switch, and the host paces the frames instead: each display frame it hands the
+  shell the head, the floor, the eyes' distance, the hands (aim ray, pinches, palm to the face) and the controllers
+  (laid out as Touch) in an `XrhInput` (`xr_host_frame`), then asks for each eye with its pose and field of view
+  (`xr_host_eye`). `xr.h` has that seam beside the OpenXR hosts'. An app that can't start itself again shows a last
+  page with `xr_close_with` (online play's start and end, a new ROM set while the game runs); `xr_rom_chosen` starts
+  the game at once when the set comes in on the setup page (`quest_clear_message` in `host_sdl.c`). The models load
+  through `qasset` (the bundle's `assets` folder).
+- Test switches the Vision Pro added, now every headset's: `QUEST_TEST_PLAY=1` (FLAT_TEST_PLAY's scripted play:
+  coins, Start, shots round the screen, a reload every eighth) and `QUEST_TEST_PICK=seconds[,file]` (the ROM set's
+  import on the setup page as a pull starts it; on Vision Pro the host answers with that file from Documents 3 s
+  later, as the picker does). The low-head floor (below) is the host's, as it is ARKit's origin.
+- **Hands** (ARKit's skeleton, in `xr_vos.m`): the aim ray runs from a shoulder point (20 cm under the head,
   17 cm aside, by the head's heading) through the hand; a thumb-index pinch fires (on under 1.5 cm, off over 3 cm),
   a thumb-middle pinch on the off hand is the skip button, the left palm turned to the face with a pinch opens the
   menu. **Sense controllers** as Touch: trigger fires, grip reloads (as the GRIP setting), A / X skip, B / Y reload,
@@ -304,6 +314,18 @@ slices: `~/angle/xcframeworks-visionos`, as GoldenEye VR's `tools/build_angle_ap
     copy of HOTDVR.exe), as the Apple TV found.
   - Another immersive app opened in the same simulator closes this one's space, and the app closes ("the immersive
     space closed").
+- **Checked again on the shared shell** (2026-11-19, a simulator of its own): the immersive view with
+  `QUEST_TEST_PLAY` (a game under way, the gun before the head with `QUEST_SHOT_HANDS`), the cabinet view and its
+  menu (`QUEST_MENU_AT`), `QUEST_TEST_PICK` (setup page, the picker's answer, the set into arcade/, the game started),
+  and online play: `QUEST_TEST_ONLINE=5,hostlan` showed the last page ("open the app again"); opened again it hosted
+  on the LAN and HOTDVR.exe (flat, `FLAT_TEST_ONLINE=5,joinip:<the Mac>`, `FLAT_TEST_PLAY=1`) joined, loaded at frame
+  1,387: **140 of 140** checksums over 8,400 frames, no desync, both players in the game. The visionOS simulator and
+  device apps build without warnings from the shell; the Quest, Frame and phone APKs, HOTDVR.exe (flat and in VR on
+  SteamVR's null driver: focused, every frame drawn, the menu), the iOS, Mac and Apple TV apps build;
+  `crossplay_check.py`: 30 of 30 both ways, save states the same for 600 frames both ways.
+  SteamVR's null driver needs, for a test: a play area (`chaperone_info.vrchap` for its universe, else Room Setup
+  opens and closes the app) and standby off (`power`: `turnOffScreensTimeout`, `pauseCompositorOnStandby`), else the
+  session stops being focused after about 10 s; both put back after.
 - **Left for a real Vision Pro:** stereo and the canted eyes, head tracking, the depth written at 2 m (not black), the
   frame rate (eyes at the drawable's size with 4x MSAA if ANGLE has EXT_multisampled_render_to_texture), the hands'
   aim ray, pinch thresholds and whether the palm-and-pinch menu gesture collides with visionOS's own (Home / Control
