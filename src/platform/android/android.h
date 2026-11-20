@@ -14,6 +14,8 @@ void plat_android_start(const char *java_class);
 void plat_android_multicast_lock(void);
 // the display's rotation from the device's natural orientation, as Surface.ROTATION_* (0-3); activity.c
 int plat_android_display_rotation(void);
+// an input device (by AInputEvent_getDeviceId) still connected; activity.c
+int plat_android_input_device_present(int id);
 
 #ifdef __cplusplus
 }

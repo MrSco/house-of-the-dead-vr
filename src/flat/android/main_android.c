@@ -1,7 +1,9 @@
 // The flat app's Android front end (phones and tablets, hotdvr-android.apk): a NativeActivity with an EGL / GL ES 3.0
 // window, landscape. Touch: a tap on the picture shoots there, a second finger reloads, the buttons beside the
 // picture (flat_touch.c) give START, RELOAD and the menu; Back opens the menu. Game pads: a sight moved by either
-// stick, R2 / R1 shooting, L2 / L1 / X reloading, A or Start for coins and Start, Select / Back for the menu.
+// stick, R2 / R1 shooting, L2 / L1 / X reloading, A or Start for coins and Start, Select / Back for the menu. Every
+// pad is read, each a device of its own by its input device id (flat.h's players: a second player joins with A or
+// Start on another pad, or on the touch screen while player 1 plays on a pad); a keyboard is one more.
 // The files folder is the app's (Android/data/<package>/files): arcade/ holds the ROM set, which ImportActivity
 // (src/quest/java) asks for at the first start.
 #include <android/input.h>
@@ -35,17 +37,37 @@ static struct {
     // touch: the finger that aims (its pointer id), and the button each finger holds
     int aim_id, aim_down, reload_down;
     int btn_of[10];
-    // pads
-    float lx, ly, rx, ry, l2, r2;
-    float sx, sy;
-    int pad_fire, pad_reload, pad_on;
     // the gyroscope (Gyro aim): its queue, and the display's rotation (0-3: Surface.ROTATION_*)
     ASensorManager *sensors;
     const ASensor *gyro;
     ASensorEventQueue *gyro_q;
     int gyro_live, rotation;
     float rate_right, rate_up;
-} A = { .aim_id = -1, .sx = -1 };
+} A = { .aim_id = -1 };
+
+// the pads, by their input device id: each a device (flat_pad_attach), its sticks and triggers, its sight
+#define PADS 8
+static struct Apad {
+    int used, id, dev;
+    float lx, ly, rx, ry, l2, r2;
+    float sx, sy;                // window pixels (-1: not yet: from the middle)
+    int fire, reload, on;
+} pads[PADS];
+static struct Apad *pad_of(int id) {
+    for (int i = 0; i < PADS; i++) if (pads[i].used && pads[i].id == id) return &pads[i];
+    for (int i = 0; i < PADS; i++)
+        if (!pads[i].used) {
+            memset(&pads[i], 0, sizeof pads[i]);
+            pads[i].used = 1; pads[i].id = id; pads[i].sx = pads[i].sy = -1;
+            pads[i].dev = flat_pad_attach();
+            LOGI("pad: input device %d", id);
+            return &pads[i];
+        }
+    return &pads[PADS - 1];
+}
+static int from_pad(int32_t src) {
+    return (src & AINPUT_SOURCE_GAMEPAD) == AINPUT_SOURCE_GAMEPAD || (src & AINPUT_SOURCE_JOYSTICK) == AINPUT_SOURCE_JOYSTICK;
+}
 
 // ---- flat.h's front-end calls
 void flat_os_fullscreen(int on) { (void)on; }
@@ -92,8 +114,8 @@ static void egl_lose_surface(void) {
 // ---------------------------------------------------------------- input
 static void button(int b, int down) {
     flat_touch_pressed(b, down);
-    if (b == FLAT_BTN_START) flat_start(down);
-    else if (b == FLAT_BTN_RELOAD) flat_reload(down);
+    if (b == FLAT_BTN_START) flat_dev_start(FLAT_DEV_TOUCH, down);
+    else if (b == FLAT_BTN_RELOAD) flat_dev_reload(FLAT_DEV_TOUCH, down);
     else if (b == FLAT_BTN_MENU && down) {   // (its finger then belongs to the menu: the button is let go here)
         flat_menu_set_open(1);
         flat_touch_pressed(b, 0);
@@ -104,12 +126,13 @@ static void button(int b, int down) {
 static int32_t on_motion(AInputEvent *e) {
     const int32_t src = AInputEvent_getSource(e);
     if ((src & AINPUT_SOURCE_JOYSTICK) == AINPUT_SOURCE_JOYSTICK) {   // a pad's sticks and triggers
-        A.lx = AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_X, 0);
-        A.ly = AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_Y, 0);
-        A.rx = AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_Z, 0);
-        A.ry = AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_RZ, 0);
-        A.l2 = fmaxf(AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_LTRIGGER, 0), AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_BRAKE, 0));
-        A.r2 = fmaxf(AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_RTRIGGER, 0), AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_GAS, 0));
+        struct Apad *p = pad_of(AInputEvent_getDeviceId(e));
+        p->lx = AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_X, 0);
+        p->ly = AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_Y, 0);
+        p->rx = AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_Z, 0);
+        p->ry = AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_RZ, 0);
+        p->l2 = fmaxf(AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_LTRIGGER, 0), AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_BRAKE, 0));
+        p->r2 = fmaxf(AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_RTRIGGER, 0), AMotionEvent_getAxisValue(e, AMOTION_EVENT_AXIS_GAS, 0));
         return 1;
     }
     const int32_t act = AMotionEvent_getAction(e), kind = act & AMOTION_EVENT_ACTION_MASK;
@@ -119,7 +142,7 @@ static int32_t on_motion(AInputEvent *e) {
     if (flat_menu_is_open()) {   // the menu: the first finger points and clicks
         if (kind == AMOTION_EVENT_ACTION_DOWN || kind == AMOTION_EVENT_ACTION_MOVE) flat_menu_mouse(x, y, 1);
         else if (kind == AMOTION_EVENT_ACTION_UP || kind == AMOTION_EVENT_ACTION_CANCEL) flat_menu_mouse(x, y, 0);
-        if (A.aim_down) { flat_trigger(0); A.aim_down = 0; }
+        if (A.aim_down) { flat_dev_trigger(FLAT_DEV_TOUCH, 0); A.aim_down = 0; }
         A.aim_id = -1;
         return 1;
     }
@@ -130,20 +153,20 @@ static int32_t on_motion(AInputEvent *e) {
         if (b) { A.btn_of[id] = b; button(b, 1); break; }
         if (A.aim_id < 0) {      // the aiming finger: shoots where it touches (with gyro aim: at the sight)
             A.aim_id = id;
-            if (!flat_gyro_on()) flat_pointer(x, y);
-            flat_trigger(1);
+            if (!flat_gyro_on()) flat_dev_pointer(FLAT_DEV_TOUCH, x, y);
+            flat_dev_trigger(FLAT_DEV_TOUCH, 1);
             A.aim_down = 1;
         } else if (!A.reload_down) {   // a second finger: reload
             A.reload_down = 1;
             A.btn_of[id] = -1;
-            flat_reload(1);
+            flat_dev_reload(FLAT_DEV_TOUCH, 1);
         }
         break;
     }
     case AMOTION_EVENT_ACTION_MOVE:
         for (size_t i = 0; i < AMotionEvent_getPointerCount(e); i++)
             if ((AMotionEvent_getPointerId(e, i) & 7) == A.aim_id && !flat_gyro_on())
-                flat_pointer((int)AMotionEvent_getX(e, i), (int)AMotionEvent_getY(e, i));
+                flat_dev_pointer(FLAT_DEV_TOUCH, (int)AMotionEvent_getX(e, i), (int)AMotionEvent_getY(e, i));
         break;
     case AMOTION_EVENT_ACTION_UP:
     case AMOTION_EVENT_ACTION_POINTER_UP:
@@ -151,14 +174,14 @@ static int32_t on_motion(AInputEvent *e) {
         if (kind == AMOTION_EVENT_ACTION_CANCEL || kind == AMOTION_EVENT_ACTION_UP) {   // every finger is off
             for (int i = 0; i < 10; i++) if (A.btn_of[i] > 0) button(A.btn_of[i], 0);
             memset(A.btn_of, 0, sizeof A.btn_of);
-            if (A.aim_down) flat_trigger(0);
-            if (A.reload_down) flat_reload(0);
+            if (A.aim_down) flat_dev_trigger(FLAT_DEV_TOUCH, 0);
+            if (A.reload_down) flat_dev_reload(FLAT_DEV_TOUCH, 0);
             A.aim_id = -1; A.aim_down = A.reload_down = 0;
             break;
         }
         if (A.btn_of[id] > 0) button(A.btn_of[id], 0);
-        else if (A.btn_of[id] < 0) { flat_reload(0); A.reload_down = 0; }
-        else if (id == A.aim_id) { flat_trigger(0); A.aim_down = 0; A.aim_id = -1; }
+        else if (A.btn_of[id] < 0) { flat_dev_reload(FLAT_DEV_TOUCH, 0); A.reload_down = 0; }
+        else if (id == A.aim_id) { flat_dev_trigger(FLAT_DEV_TOUCH, 0); A.aim_down = 0; A.aim_id = -1; }
         A.btn_of[id] = 0;
         break;
     }
@@ -168,6 +191,9 @@ static int32_t on_motion(AInputEvent *e) {
 static int32_t on_key(AInputEvent *e) {
     const int32_t code = AKeyEvent_getKeyCode(e), down = AKeyEvent_getAction(e) == AKEY_EVENT_ACTION_DOWN;
     const int repeat = AKeyEvent_getRepeatCount(e) > 0;
+    // the device: a pad (by its id), else the keyboard
+    struct Apad *pad = from_pad(AInputEvent_getSource(e)) ? pad_of(AInputEvent_getDeviceId(e)) : NULL;
+    const int dev = pad ? pad->dev : FLAT_DEV_KBM;
     if (code == AKEYCODE_VOLUME_UP || code == AKEYCODE_VOLUME_DOWN || code == AKEYCODE_VOLUME_MUTE) return 0;   // the system's
     if (flat_menu_is_open()) {
         if (!down) return 1;
@@ -190,10 +216,14 @@ static int32_t on_key(AInputEvent *e) {
         if (down && !repeat) flat_menu_set_open(1);
         return 1;
     case AKEYCODE_BUTTON_A: case AKEYCODE_BUTTON_START: case AKEYCODE_SPACE: case AKEYCODE_ENTER:
-        if (!repeat) flat_start(down);
+        if (!repeat) flat_dev_start(dev, down);
         return 1;
-    case AKEYCODE_BUTTON_R1: A.pad_on = 1; if (!repeat) { flat_pointer((int)A.sx, (int)A.sy); flat_trigger(down); } return 1;
-    case AKEYCODE_BUTTON_L1: case AKEYCODE_BUTTON_X: if (!repeat) flat_reload(down); return 1;
+    case AKEYCODE_BUTTON_R1:
+        if (repeat) return 1;
+        if (pad && pad->sx >= 0) { pad->on = 1; flat_dev_pointer(dev, (int)pad->sx, (int)pad->sy); }
+        flat_dev_trigger(dev, down);
+        return 1;
+    case AKEYCODE_BUTTON_L1: case AKEYCODE_BUTTON_X: if (!repeat) flat_dev_reload(dev, down); return 1;
     case AKEYCODE_T: online_talk_key(down != 0); return 1;
     }
     return 0;
@@ -206,27 +236,47 @@ static int32_t on_input(struct android_app *app, AInputEvent *e) {
     return 0;
 }
 
-// the pad's sight, every frame
+// the pads' sights, every frame; a pad gone (its input device no longer there, checked each second) lets go
 static float dead(float v) { const float d = 0.22f; if (fabsf(v) < d) return 0; const float g = (fabsf(v) - d) / (1 - d); return (v < 0 ? -g : g) * g; }
 static void pad_frame(double dt) {
-    if (flat_menu_is_open()) return;
-    const float lx = dead(A.lx), ly = dead(A.ly), rx = dead(A.rx), ry = dead(A.ry);
-    const float mx = fabsf(rx) > fabsf(lx) ? rx : lx, my = fabsf(ry) > fabsf(ly) ? ry : ly;
-    int vx, vy, vw, vh;
-    flat_view_rect(&vx, &vy, &vw, &vh);
-    if (vw <= 0) return;
-    if (A.sx < 0) { A.sx = vx + vw * 0.5f; A.sy = vy + vh * 0.5f; }
-    if (mx || my) {
-        A.pad_on = 1;
-        A.sx += mx * vw * 2.0f * (float)dt;
-        A.sy += my * vw * 2.0f * (float)dt;   // (Android's y axes point down)
-        A.sx = fminf(fmaxf(A.sx, vx - vw * 0.05f), vx + vw * 1.05f);
-        A.sy = fminf(fmaxf(A.sy, vy - vh * 0.05f), vy + vh * 1.05f);
+    static double next_check;
+    const double now = (double)plat_now_ns() * 1e-9;
+    if (now >= next_check) {
+        next_check = now + 1;
+        for (int i = 0; i < PADS; i++)
+            if (pads[i].used && !plat_android_input_device_present(pads[i].id)) {
+                LOGI("pad: input device %d gone", pads[i].id);
+                flat_pad_detach(pads[i].dev);
+                pads[i].used = 0;
+            }
     }
-    if (A.pad_on) flat_pointer((int)A.sx, (int)A.sy);
-    const int fire = A.r2 > 0.4f, reload = A.l2 > 0.4f;
-    if (fire != A.pad_fire) { A.pad_on = 1; flat_pointer((int)A.sx, (int)A.sy); flat_trigger(fire); A.pad_fire = fire; }
-    if (reload != A.pad_reload) { flat_reload(reload); A.pad_reload = reload; }
+    for (int i = 0; i < PADS; i++) {
+        struct Apad *p = &pads[i];
+        if (!p->used) continue;
+        if (flat_menu_is_open()) {
+            if (p->fire) flat_dev_trigger(p->dev, 0);
+            if (p->reload) flat_dev_reload(p->dev, 0);
+            p->fire = p->reload = 0;
+            continue;
+        }
+        const float lx = dead(p->lx), ly = dead(p->ly), rx = dead(p->rx), ry = dead(p->ry);
+        const float mx = fabsf(rx) > fabsf(lx) ? rx : lx, my = fabsf(ry) > fabsf(ly) ? ry : ly;
+        int vx, vy, vw, vh;
+        flat_view_rect(&vx, &vy, &vw, &vh);
+        if (vw <= 0) return;
+        if (p->sx < 0) { p->sx = vx + vw * 0.5f; p->sy = vy + vh * 0.5f; }
+        if (mx || my) {
+            p->on = 1;
+            p->sx += mx * vw * 2.0f * (float)dt;
+            p->sy += my * vw * 2.0f * (float)dt;   // (Android's y axes point down)
+            p->sx = fminf(fmaxf(p->sx, vx - vw * 0.05f), vx + vw * 1.05f);
+            p->sy = fminf(fmaxf(p->sy, vy - vh * 0.05f), vy + vh * 1.05f);
+        }
+        if (p->on) flat_dev_pointer(p->dev, (int)p->sx, (int)p->sy);
+        const int fire = p->r2 > 0.4f, reload = p->l2 > 0.4f;
+        if (fire != p->fire) { p->on = 1; flat_dev_pointer(p->dev, (int)p->sx, (int)p->sy); flat_dev_trigger(p->dev, fire); p->fire = fire; }
+        if (reload != p->reload) { flat_dev_reload(p->dev, reload); p->reload = reload; }
+    }
 }
 
 // ---------------------------------------------------------------- gyro aim

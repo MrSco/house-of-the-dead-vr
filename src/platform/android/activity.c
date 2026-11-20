@@ -73,3 +73,24 @@ int plat_android_display_rotation(void) {
     (*a->vm)->DetachCurrentThread(a->vm);
     return r & 3;
 }
+
+// InputDevice.getDevice(id) is there: a game pad still connected (the flat app's pads, by their input device id)
+int plat_android_input_device_present(int id) {
+    extern ANativeActivity *plat_android_activity(void);
+    ANativeActivity *a = plat_android_activity();
+    if (!a) return 1;
+    JNIEnv *env;
+    if ((*a->vm)->AttachCurrentThread(a->vm, &env, NULL) != JNI_OK) return 1;
+    int r = 1;
+    jclass c = (*env)->FindClass(env, "android/view/InputDevice");
+    if (c && !(*env)->ExceptionCheck(env)) {
+        jmethodID m = (*env)->GetStaticMethodID(env, c, "getDevice", "(I)Landroid/view/InputDevice;");
+        if (m && !(*env)->ExceptionCheck(env)) {
+            jobject d = (*env)->CallStaticObjectMethod(env, c, m, (jint)id);
+            if (!(*env)->ExceptionCheck(env)) r = d != NULL;
+        }
+    }
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); r = 1; }
+    (*a->vm)->DetachCurrentThread(a->vm);
+    return r;
+}
