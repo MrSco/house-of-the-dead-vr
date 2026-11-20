@@ -484,6 +484,9 @@ static NSMutableSet *passed_presses;   // presses UIKit keeps (the Menu that goe
     layer.contentsScale = self.view.traitCollection.displayScale > 0 ? self.view.traitCollection.displayScale : 1;
     layer.drawableSize = CGSizeMake(self.view.bounds.size.width * layer.contentsScale, self.view.bounds.size.height * layer.contentsScale);
     if (!egl_init(layer) || !flat_gl_init()) { close_with(@"No graphics", @"OpenGL ES 3 through ANGLE did not start."); return; }
+    // the HD picture at most 1080 lines (1440 x 1080, 4x MSAA), scaled up on a 4K TV: the whole 2160 lines with 4x
+    // MSAA kept the Apple TV 4K (A15) at 40 to 48 fps, its GPU filling 25 million samples a frame (2026-11-20)
+    flat_picture_limit(1080, 0);
     self.link = [CADisplayLink displayLinkWithTarget:self selector:@selector(frame)];
     [self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }

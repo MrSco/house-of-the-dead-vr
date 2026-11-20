@@ -29,6 +29,7 @@ static struct {
     // the picture: a resolved sRGB texture (and a multisampled framebuffer drawn into first, in HD)
     GLuint pic_fbo, pic_tex, pic_depth, ms_fbo, ms_col, ms_depth;
     int pic_w, pic_h, ms;
+    int max_lines, max_samples;                // flat_picture_limit (0: none)
     const VrScene *scene;
     uint32_t scene_serial;
     int dirty;
@@ -189,6 +190,11 @@ void flat_set_picture(int mode) {
     F.dirty = 1;
 }
 
+void flat_picture_limit(int lines, int samples) {
+    F.max_lines = lines > 0 ? lines : 0;
+    F.max_samples = samples > 0 ? samples : 0;
+}
+
 // the picture's framebuffers at w x h (made again when the size changes)
 static void picture_size(int w, int h, int ms) {
     if (w == F.pic_w && h == F.pic_h && ms == (F.ms_fbo ? F.ms : 1) && F.pic_fbo) return;
@@ -337,6 +343,13 @@ static void render_picture(void) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, F.ms_fbo);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, F.pic_fbo);
         glBlitFramebuffer(0, 0, F.pic_w, F.pic_h, 0, 0, F.pic_w, F.pic_h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+#ifndef _WIN32
+        // its samples aren't needed once resolved: a tiling GPU (ANGLE's Metal, phones) then doesn't write them out.
+        // Without it the Apple TV 4K's 2880 x 2160 picture stored 4x colour and depth each frame (45 fps, 2026-11-20).
+        const GLenum all[3] = { GL_COLOR_ATTACHMENT0, GL_DEPTH_ATTACHMENT, GL_STENCIL_ATTACHMENT };
+        glInvalidateFramebuffer(GL_READ_FRAMEBUFFER, 3, all);
+        glInvalidateFramebuffer(GL_DRAW_FRAMEBUFFER, 2, all + 1);   // (the resolved picture's depth: never drawn)
+#endif
     }
 #ifdef GL_FRAMEBUFFER_SRGB
     glDisable(GL_FRAMEBUFFER_SRGB);   // (the window's pass encodes itself)
@@ -368,7 +381,9 @@ void flat_draw(int w, int h, unsigned framebuffer) {
     F.vx = (w - F.vw) / 2; F.vy = (h - F.vh) / 2;
     if (F.vw < 1 || F.vh < 1) return;
     if (F.picture == FLAT_PICTURE_ORIGINAL) picture_size(sc ? sc->w : 496, sc ? sc->h : 384, 1);
-    else picture_size(F.vw, F.vh, F.ms);
+    else if (F.max_lines && F.vh > F.max_lines)
+        picture_size(F.max_lines * 4 / 3, F.max_lines, F.max_samples && F.max_samples < F.ms ? F.max_samples : F.ms);
+    else picture_size(F.vw, F.vh, F.max_samples && F.max_samples < F.ms ? F.max_samples : F.ms);
     if (F.dirty) { F.dirty = 0; render_picture(); }
     // onto the window
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
