@@ -10,8 +10,8 @@
 # From the environment (build_visionos.py sets them):
 #   ANGLE_DIR          ANGLE's one place on the Mac (~/angle), its visionOS xcframeworks
 #   HOTD_LIBS          build_visionos (the libraries: build_visionos/simulator, build_visionos/device)
-#   HOTD_VERSION       0.4.2 (the Quest app's versionName)
-#   HOTD_BUILD         8 (its versionCode, or --archive's build)
+#   HOTD_VERSION       0.5.0 (the Quest app's versionName)
+#   HOTD_BUILD         9 (its versionCode, or --archive's build)
 #   HOTD_BUNDLE_ID     com.mrsco.hotdvr unless set
 #   DEVELOPMENT_TEAM   your Apple team id, for a signed device build
 name: HouseOfTheDeadVR
