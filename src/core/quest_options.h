@@ -14,6 +14,7 @@ enum {
     QOPT_PICTURE, QOPT_FULLSCREEN, QOPT_GYRO, QOPT_GYRO_SPEED,          // GAME (the flat apps'; gyro: touch screens)
     QOPT_BRIGHTNESS,                                                    // GRAPHICS / GAME (every app)
     QOPT_REMOTE_SPEED,                                                  // GAME (Apple TV: the Siri Remote's sight)
+    QOPT_TRIGGER,                                                       // GAME (the flat apps: a pad's triggers)
     QOPT_COUNT
 };
 enum { QAIM_LASER, QAIM_TRACER, QAIM_DOT, QAIM_OFF };   // TRACER: a streak on each shot (as Time Crisis 2 VR)

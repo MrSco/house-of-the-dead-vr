@@ -265,6 +265,7 @@ void flat_app_frame(int minimized) {
 }
 
 void flat_app_quit(void) {
+    flat_rumble_stop();                     // (a DualSense's trigger is never left stiff)
     online_quit();                          // the partner hears us go at once (else they wait out a timeout)
     quest_quit();
     quest_audio_shutdown();

@@ -122,8 +122,6 @@ static const RowDef PICTURE_ROWS[] = {
     { QOPT_BRIGHTNESS, "Brightness", "Lift the game's dark shadows",
       "0%: the 3D as the arcade drew it, its darkest quarter black (a cabinet's monitor was turned up to light it). More raises the black level and lifts the shadows; whites stay white. The HUD is not changed.",
       T_SLIDER, { 0 }, 0, 10, "%", false },
-    { QOPT_FULLSCREEN, "Display", "A window, or the whole screen", "Alt+Enter or F11 switches too.",
-      T_SEG, { "WINDOW", "FULL SCREEN" }, 2, 1, "", false },
     { QOPT_GYRO, "Pad gyro aim", "Aim by turning the game pad",
       "ON: a pad with a gyroscope (DualSense, DualShock 4, Switch Pro) moves the sight as you turn it; its sticks still do. OFF: the sticks only.",
       T_SEG, { "OFF", "ON" }, 2, 1, "", false },
@@ -131,6 +129,9 @@ static const RowDef PICTURE_ROWS[] = {
       T_SLIDER, { 0 }, 0, 25, "%", false },
     { QOPT_RUMBLE, "Rumble", "The game pad kicks on each shot",
       "ON: your game pad vibrates when you shoot and reload, and hard when you're hit (each player's own pad). OFF: never.",
+      T_SEG, { "ON", "OFF" }, 2, 1, "", false },
+    { QOPT_TRIGGER, "Trigger feedback", "A pad's triggers kick too",
+      "ON: a DualSense's right trigger resists then snaps like a gun's while you play, and buzzes on a shot; an Xbox pad's trigger motors buzz on a shot (right) and a reload (left). OFF: none.",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
 // ...on a touch screen: no window; the gyro aims if you like
@@ -152,6 +153,9 @@ static const RowDef TOUCH_ROWS[] = {
     { QOPT_RUMBLE, "Rumble", "A kick on each shot",
       "ON: a game pad vibrates when you shoot and reload, and hard when you're hit; playing by touch, so does a phone. OFF: never.",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
+    { QOPT_TRIGGER, "Trigger feedback", "A pad's triggers kick too",
+      "ON: a DualSense's right trigger resists then snaps like a gun's while you play, and buzzes on a shot; an Xbox pad's trigger motors buzz on a shot (right) and a reload (left). OFF: none.",
+      T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
 // ...on Apple TV: the Siri Remote's touch surface moves the sight, at this speed
 static const RowDef TV_ROWS[] = {
@@ -170,6 +174,9 @@ static const RowDef TV_ROWS[] = {
     { QOPT_RUMBLE, "Rumble", "The game pad kicks on each shot",
       "ON: a game pad vibrates when you shoot and reload, and hard when you're hit (the Siri Remote has no motor). OFF: never.",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
+    { QOPT_TRIGGER, "Trigger feedback", "A pad's triggers kick too",
+      "ON: a DualSense's right trigger resists then snaps like a gun's while you play, and buzzes on a shot; an Xbox pad's trigger motors buzz on a shot (right) and a reload (left). OFF: none.",
+      T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
 static const RowDef SYSTEM_ROWS[] = {
     { QOPT_VOLUME, "Game volume", "Everything the game plays", "All of the game's sound: music, voices and guns. Voice chat isn't in it.",
@@ -184,6 +191,10 @@ static const RowDef SYSTEM_ROWS[] = {
       "ON: after a crash, the next start sends its report (crash point, end of port.log, settings, headset model; nothing personal). OFF: kept.",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
+// the flat apps with a window (Windows, the Mac): Display on the SYSTEM tab, after the sound (the GAME tab is full)
+static const RowDef DISPLAY_ROW =
+    { QOPT_FULLSCREEN, "Display", "A window, or the whole screen", "Alt+Enter or F11 switches too.",
+      T_SEG, { "WINDOW", "FULL SCREEN" }, 2, 1, "", false };
 
 // ---- state ----
 static int tab, modal;
@@ -502,6 +513,7 @@ static const char *row_off(int opt) {
     const bool cab_offscreen = H->get(QOPT_VIEW) == QVIEW_CABINET && H->get(QOPT_CAB_RELOAD) == QCABRELOAD_OFFSCREEN;
     if (opt == QOPT_GRIP && H->get(QOPT_GESTURE) != QGESTURE_OFF && !cab_offscreen) return "Off while Reload gesture is on";
     if (opt == QOPT_GESTURE && cab_offscreen) return "Off in the cabinet view: Cabinet reload is OFF SCREEN";
+    if (opt == QOPT_TRIGGER && !H->get(QOPT_RUMBLE)) return "Off while Rumble is OFF";
     return NULL;
 }
 static void settings_row(const RowDef *r, float y, float h) {
@@ -535,11 +547,13 @@ static void settings_row(const RowDef *r, float y, float h) {
     const float control = r->type == T_SLIDER ? 550 : total;
     text_fit(UI_M15, CX0 + 18, ly + 52, right - control - 20 - CX0 - 18, sub, sub_ink, 0);
     if (r->type == T_SEG) {
-        // the options in the order shown; Rumble, Grip reloads and Crash reports list ON first though 1 is on
+        // the options in the order shown; Rumble, Trigger feedback, Grip reloads and Crash reports list ON first
+        // though 1 is on
         float x = right - total; const float sy = y + (h - 50) / 2;
         rrect(x, sy, total, 50, 14, WELL); rline(x, sy, total, 50, 14, 2, LINE);
         x += 4;
-        const bool flip = r->opt == QOPT_RUMBLE || r->opt == QOPT_GRIP || r->opt == QOPT_CRASH_REPORTS || r->opt == QOPT_CROSSHAIR;
+        const bool flip = r->opt == QOPT_RUMBLE || r->opt == QOPT_TRIGGER || r->opt == QOPT_GRIP || r->opt == QOPT_CRASH_REPORTS ||
+                          r->opt == QOPT_CROSSHAIR;
         for (int i = 0; i < r->nopts; i++) {
             const int val = flip ? r->nopts - 1 - i : i;
             const int id = ID(K_SEG, r->opt * 8 + i);
@@ -1158,9 +1172,15 @@ static void layout(int which) {
     else if (tab == QMENU_TAB_GRAPHICS && H->flat) settings(PICTURE_ROWS, sizeof PICTURE_ROWS / sizeof *PICTURE_ROWS);
     else if (tab == QMENU_TAB_GRAPHICS) settings(GRAPHICS_ROWS, sizeof GRAPHICS_ROWS / sizeof *GRAPHICS_ROWS);
     else if (tab == QMENU_TAB_SYSTEM) {
-        // (crash reports, the last row: the Quest's and the flat builds that send them)
-        const int n = sizeof SYSTEM_ROWS / sizeof *SYSTEM_ROWS - (H->flat && !H->reports ? 1 : 0);
-        settings_in(SYSTEM_ROWS, n, n + 1);   // (its ROM button below them: a sixth slot)
+        // (crash reports, the last row: the Quest's and the flat builds that send them; a window's Display before it)
+        RowDef rows[sizeof SYSTEM_ROWS / sizeof *SYSTEM_ROWS + 1];
+        int n = 0;
+        for (size_t i = 0; i < sizeof SYSTEM_ROWS / sizeof *SYSTEM_ROWS; i++) {
+            if (SYSTEM_ROWS[i].opt == QOPT_CRASH_REPORTS && H->flat && !H->tv && !H->touch) rows[n++] = DISPLAY_ROW;
+            if (SYSTEM_ROWS[i].opt == QOPT_CRASH_REPORTS && H->flat && !H->reports) continue;
+            rows[n++] = SYSTEM_ROWS[i];
+        }
+        settings_in(rows, n, n + 1);   // (its ROM button below them: one more slot)
         const float by = CY0 + row_step(n + 1) * n + 6;
         // the game's own ROM set: another one (a different revision, a fresh copy)
         focusable(ID(K_ROW, QOPT_COUNT), F_BUTTON, CX0 + 150);

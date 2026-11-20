@@ -35,6 +35,7 @@ typedef HGLRC (WINAPI *PFN_wglCreateContextAttribsARB)(HDC, HGLRC, const int *);
 typedef BOOL (WINAPI *PFN_wglSwapIntervalEXT)(int);
 void pad_poll(double now, double dt);   // pad_win.c
 void pad_mouse_moved(void);
+void pad_quit(void);
 
 static struct {
     HWND wnd;
@@ -368,6 +369,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     }
     const int restart = flat_app_restart_requested() || W.import_restart;
     flat_app_quit();
+    pad_quit();
     if (restart) win_restart(NULL);   // online play begins (or ends): this program again, as it was started
     else if (W.switch_vr) win_restart(L"");   // PLAY IN VR (pc-mode.cfg says so now)
     fflush(stderr);

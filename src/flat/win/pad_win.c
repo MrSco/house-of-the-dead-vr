@@ -8,7 +8,9 @@
 //    Start, Back / Select / Share for the menu;
 //  - in the menu: the stick or the D-pad moves, A selects, B goes back, the bumpers switch tabs.
 // The game's own crosshair shows where each pad's sight is (player 1 red, player 2 blue). Each pad rumbles for its own
-// player's shots, reloads and hits (flat.h's rumble: SDL_RumbleGamepad, or XInputSetState's motors without SDL3).
+// player's shots, reloads and hits (flat.h's rumble: SDL_RumbleGamepad, or XInputSetState's motors without SDL3), and
+// its triggers kick with SDL3 (flat.h's trigger feedback: an Xbox One / Series pad's trigger motors through
+// SDL_RumbleGamepadTriggers, a DualSense's adaptive triggers through SDL_SendGamepadEffect; XInput has neither).
 //
 // FLAT_TEST_PAD=n (tests): n virtual SDL gamepads (1..4). FLAT_TEST_PAD_SCRIPT=steps drives them (else, with one
 // pad: the right stick pushed right for half a second at 3 s, the right trigger at 5 s, A at 6 s). A step is
@@ -17,7 +19,9 @@
 // of the way), OFF or ON
 // (unplugged, plugged in again); the keyboard's is SPACE (Space pressed), or X;Y (the mouse to that point of the
 // picture, 0..1 each, and its left button clicked). Each pad's sight is logged a second after each step, and with
-// FLAT_TEST_RUMBLE=1 each change of a virtual pad's motors as SDL sends it (its rumble's start and end).
+// FLAT_TEST_RUMBLE=1 each change of a virtual pad's motors as SDL sends it (its rumble's start and end), its trigger
+// motors, and the DualSense effects it is sent. FLAT_TEST_PAD_KINDS=ps5,xbox,... makes pad 1, 2, ... a DualSense or an
+// Xbox Series pad (their USB ids: SDL takes them for one) with the effects and trigger motors that need.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <math.h>
@@ -64,6 +68,11 @@ static struct {
     bool (*SetGamepadSensorEnabled)(SDLGamepad *, int, bool);
     bool (*GetGamepadSensorData)(SDLGamepad *, int, float *, int);
     bool (*RumbleGamepad)(SDLGamepad *, uint16_t, uint16_t, uint32_t);
+    bool (*RumbleGamepadTriggers)(SDLGamepad *, uint16_t, uint16_t, uint32_t);
+    bool (*SendGamepadEffect)(SDLGamepad *, const void *, int);
+    int (*GetGamepadType)(SDLGamepad *);
+    uint32_t (*GetGamepadProperties)(SDLGamepad *);
+    bool (*GetBooleanProperty)(uint32_t, const char *, bool);
     void (*free_)(void *);
     // tests: virtual pads
     SDLJoystickID (*AttachVirtualJoystick)(const VirtualDesc *);
@@ -83,6 +92,9 @@ static int load_sdl(void) {
     GET(GetGamepadName, "SDL_GetGamepadName") GET(GetGamepadAxis, "SDL_GetGamepadAxis") GET(GetGamepadButton, "SDL_GetGamepadButton")
     GET(GamepadHasSensor, "SDL_GamepadHasSensor") GET(SetGamepadSensorEnabled, "SDL_SetGamepadSensorEnabled")
     GET(GetGamepadSensorData, "SDL_GetGamepadSensorData") GET(free_, "SDL_free") GET(RumbleGamepad, "SDL_RumbleGamepad")
+    GET(RumbleGamepadTriggers, "SDL_RumbleGamepadTriggers") GET(SendGamepadEffect, "SDL_SendGamepadEffect")
+    GET(GetGamepadType, "SDL_GetGamepadType") GET(GetGamepadProperties, "SDL_GetGamepadProperties")
+    GET(GetBooleanProperty, "SDL_GetBooleanProperty")
     GET(AttachVirtualJoystick, "SDL_AttachVirtualJoystick") GET(DetachVirtualJoystick, "SDL_DetachVirtualJoystick")
     GET(OpenJoystick, "SDL_OpenJoystick") GET(CloseJoystick, "SDL_CloseJoystick")
     GET(SetJoystickVirtualAxis, "SDL_SetJoystickVirtualAxis") GET(SetJoystickVirtualButton, "SDL_SetJoystickVirtualButton")
@@ -117,7 +129,9 @@ static struct Conn {
     float sx, sy;                // its sight, window pixels (-1: not yet: from the middle)
     double menu_repeat;
     double rumble_end;           // XInput: when its motors stop (it has no duration of its own)
+    int triggers;                // TRIG_*: what its triggers can do (SDL3 only)
 } C[MAX_PADS];
+enum { TRIG_NONE, TRIG_DUALSENSE, TRIG_MOTORS };
 
 static struct Conn *conn_add(void) {
     for (int i = 0; i < MAX_PADS; i++)
@@ -156,7 +170,10 @@ static void scan_sdl(double now) {
         if (!c) { S.CloseGamepad(gp); break; }
         c->gp = gp; c->jid = ids[k];
         c->gyro = S.GamepadHasSensor(gp, SENSOR_GYRO) && S.SetGamepadSensorEnabled(gp, SENSOR_GYRO, true);
-        LOGI("pad: %s%s", S.GetGamepadName(gp) ? S.GetGamepadName(gp) : "a game pad", c->gyro ? " (gyro)" : "");
+        c->triggers = S.GetGamepadType(gp) == 6 /* SDL_GAMEPAD_TYPE_PS5 */ ? TRIG_DUALSENSE
+                      : S.GetBooleanProperty(S.GetGamepadProperties(gp), "SDL.joystick.cap.trigger_rumble", false) ? TRIG_MOTORS : TRIG_NONE;
+        LOGI("pad: %s%s, trigger feedback: %s", S.GetGamepadName(gp) ? S.GetGamepadName(gp) : "a game pad", c->gyro ? " (gyro)" : "",
+             c->triggers == TRIG_DUALSENSE ? "DualSense adaptive triggers" : c->triggers == TRIG_MOTORS ? "trigger motors" : "none");
     }
     if (ids) S.free_(ids);
 }
@@ -221,10 +238,26 @@ static struct {
     int legacy;   // FLAT_TEST_PAD=1 without a script: the old one
 } T = { .n = -1 };
 static double test_now;
-static bool __cdecl test_rumble(void *userdata, uint16_t low, uint16_t high) {   // (SDL's, on this thread)
+static int test_log(void) {
     static int log = -1;
     if (log < 0) log = getenv("FLAT_TEST_RUMBLE") && atoi(getenv("FLAT_TEST_RUMBLE"));
-    if (log) LOGI("test: virtual pad %d motors low %u high %u at %.2f s", (int)(intptr_t)userdata + 1, low, high, test_now - T.start);
+    return log;
+}
+static bool __cdecl test_rumble(void *userdata, uint16_t low, uint16_t high) {   // (SDL's, on this thread)
+    if (test_log()) LOGI("test: virtual pad %d motors low %u high %u at %.2f s", (int)(intptr_t)userdata + 1, low, high, test_now - T.start);
+    return true;
+}
+static bool __cdecl test_rumble_triggers(void *userdata, uint16_t left, uint16_t right) {
+    if (test_log()) LOGI("test: virtual pad %d trigger motors left %u right %u at %.2f s", (int)(intptr_t)userdata + 1, left, right,
+                         test_now - T.start);
+    return true;
+}
+static bool __cdecl test_effect(void *userdata, const void *data, int size) {   // (a DualSense's effects packet)
+    const uint8_t *b = data;
+    if (test_log() && size >= 32)
+        LOGI("test: virtual pad %d DualSense effect%s%s: right %02x %02x %02x %02x, left %02x %02x %02x %02x at %.2f s",
+             (int)(intptr_t)userdata + 1, b[0] & 0x04 ? " right" : "", b[0] & 0x08 ? " left" : "", b[10], b[11], b[12], b[13],
+             b[21], b[22], b[23], b[24], test_now - T.start);
     return true;
 }
 static void test_attach(int k) {
@@ -241,6 +274,18 @@ static void test_attach(int k) {
     d.axis_mask = 0x3f;               // both sticks, both triggers
     d.userdata = (void *)(intptr_t)k;
     d.Rumble = (void *)test_rumble;   // (a pad with motors: SDL_RumbleGamepad reaches it)
+    {   // FLAT_TEST_PAD_KINDS: a DualSense (its effects) or an Xbox Series pad (its trigger motors)
+        const char *kinds = getenv("FLAT_TEST_PAD_KINDS");
+        char kind[16] = "";
+        for (int i = 0; kinds && *kinds; i++) {
+            const char *e = strchr(kinds, ',');
+            const size_t n = e ? (size_t)(e - kinds) : strlen(kinds);
+            if (i == k) { snprintf(kind, sizeof kind, "%.*s", (int)(n < 15 ? n : 15), kinds); break; }
+            kinds = e ? e + 1 : "";
+        }
+        if (!strcmp(kind, "ps5")) { d.vendor_id = 0x054c; d.product_id = 0x0ce6; d.SendEffect = (void *)test_effect; }
+        if (!strcmp(kind, "xbox")) { d.vendor_id = 0x045e; d.product_id = 0x0b12; d.RumbleTriggers = (void *)test_rumble_triggers; }
+    }
     T.id[k] = S.AttachVirtualJoystick(&d);
     T.joy[k] = T.id[k] ? S.OpenJoystick(T.id[k]) : NULL;
     LOGI("test: virtual pad %d %s", k + 1, T.joy[k] ? "attached" : "failed");
@@ -427,6 +472,46 @@ void flat_os_rumble(int dev, int what, float low, float high, int ms) {
     }
 }
 
+// A DualSense's effects packet, as SDL's testgamecontroller.c lays it out (DS5EffectsState_t; GoldenEye VR's): which
+// parts it changes, then the motors, the audio, and each trigger's effect (11 bytes: a mode, then its parameters).
+typedef struct {
+    uint8_t enable1;             // 0x04: the right trigger's effect, 0x08: the left's
+    uint8_t enable2;
+    uint8_t rumble_right, rumble_left;
+    uint8_t headphone_volume, speaker_volume, mic_volume, audio_enable;
+    uint8_t mic_light, audio_mute;
+    uint8_t right_trigger[11];
+    uint8_t left_trigger[11];
+} DualSenseFx;
+static void dualsense_trigger(SDLGamepad *gp, int right, int mode, float amp) {
+    DualSenseFx fx;
+    memset(&fx, 0, sizeof fx);
+    fx.enable1 = right ? 0x04 : 0x08;
+    uint8_t *e = right ? fx.right_trigger : fx.left_trigger;
+    if (mode == FLAT_TRIG_WEAPON) {
+        // a gun's trigger (the weapon mode, 0x25): resistance from zone 3 of the pull, a snap at zone 6 (of 0..9), the
+        // strength 7 of 8 (its bits: the two zones, then strength - 1)
+        e[0] = 0x25; e[1] = (1 << 3) | (1 << 6); e[2] = 0; e[3] = 7 - 1;
+    } else if (mode == FLAT_TRIG_BUZZ) {
+        // the simple vibration (0x06): 40 Hz, the amplitude, from the trigger's rest on (GoldenEye VR's shot)
+        e[0] = 0x06; e[1] = 40; e[2] = (uint8_t)(fminf(fmaxf(amp, 0), 1) * 255); e[3] = 0;
+    } else {
+        e[0] = 0x05;   // off: the trigger loose
+    }
+    S.SendGamepadEffect(gp, &fx, (int)sizeof fx);
+}
+void flat_os_trigger(int dev, int right, int mode, float amp, int ms) {
+    for (int i = 0; i < MAX_PADS; i++) {
+        struct Conn *c = &C[i];
+        if (!c->used || c->dev != dev || !c->gp) continue;   // (XInput: no trigger motors through its API)
+        if (c->triggers == TRIG_DUALSENSE) dualsense_trigger(c->gp, right, mode, amp);
+        else if (c->triggers == TRIG_MOTORS) {
+            const uint16_t level = mode == FLAT_TRIG_BUZZ ? (uint16_t)(fminf(fmaxf(amp, 0), 1) * 65535) : 0;
+            if (mode != FLAT_TRIG_WEAPON) S.RumbleGamepadTriggers(c->gp, right ? 0 : level, right ? level : 0, level ? (uint32_t)ms : 0);
+        }
+    }
+}
+
 void pad_poll(double now, double dt) {
     if (!S.tried) { S.tried = 1; S.on = load_sdl(); LOGI("pad: %s", S.on ? "SDL3 gamepads" : "XInput (no SDL3.dll)"); }
     rumble_now = now;
@@ -446,6 +531,13 @@ void pad_poll(double now, double dt) {
         else if (!read_xinput(c, &p)) continue;
         pad_frame(c, &p, now, dt);
     }
+}
+
+// the app closing (after flat_app_quit has let every trigger go): SDL writes a DualSense's effects from a thread of
+// its own, so a moment for the last one to reach the pad (never left stiff)
+void pad_quit(void) {
+    for (int i = 0; i < MAX_PADS; i++)
+        if (C[i].used && C[i].triggers == TRIG_DUALSENSE) { Sleep(60); break; }
 }
 
 // the mouse aims again: the sights of the pads that drive the mouse's player start in the middle next time

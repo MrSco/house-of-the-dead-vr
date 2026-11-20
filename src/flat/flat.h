@@ -57,12 +57,22 @@ void flat_pad_detach(int dev);
 // used last (shot, reloaded or pressed Start with: a pad's motors, a phone's for touch). Only the players here (online:
 // this one, never the partner), never while the game is paused or the menu is open (a running one stops), the GAME
 // tab's Rumble. FLAT_TEST_RUMBLE=1 (tests) logs each request.
+// Trigger feedback (the GAME tab's, muted by Rumble OFF too) on that player's pad: a DualSense's right trigger (R2
+// shoots) resists then snaps like a gun's while that player plays, and buzzes on a shot; an Xbox pad's trigger
+// motors buzz on a shot (right) and a reload (left). Loose again when that player isn't playing, paused, in the menu,
+// at the quit, or when the pad is no longer that player's.
 enum { FLAT_RUMBLE_SHOT, FLAT_RUMBLE_RELOAD, FLAT_RUMBLE_HIT };
 void flat_rumble_frame(int paused);     // (flat_app_frame)
+void flat_rumble_stop(void);            // every rumble and trigger effect off now (the quit, the app leaving the screen)
 int flat_player_device(int p);          // the device player p used last (0: none yet)
 // what each front end provides: device dev's rumble for event `what` (FLAT_RUMBLE_*), its low (heavy) and high
 // (light) frequency motors 0..1 for ms; ms 0: stop it. Never blocking. A device with nothing to vibrate ignores it.
 void flat_os_rumble(int dev, int what, float low, float high, int ms);
+// ...and its triggers (right: R2 / RT, else L2 / LT): OFF no effect (a DualSense's trigger loose); WEAPON a
+// DualSense's gun feel (resistance to a break point, then a snap); BUZZ amp 0..1 for ms (an Xbox pad's trigger motor,
+// a DualSense trigger's vibration: flat.c sends WEAPON or OFF after it). A pad without either ignores it.
+enum { FLAT_TRIG_OFF, FLAT_TRIG_WEAPON, FLAT_TRIG_BUZZ };
+void flat_os_trigger(int dev, int right, int mode, float amp, int ms);
 
 // ---- the menu (flat_menu.c): the VR app's menu (quest_menu.c) as a panel over the game, which pauses (not online)
 void flat_menu_set_open(int open);

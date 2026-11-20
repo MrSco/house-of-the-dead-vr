@@ -46,6 +46,7 @@ const QOptDef qopt_defs[QOPT_COUNT] = {
     // brightness_pct's 50 was chosen while Windows drew the 3D too dark, and saved files carry it)
     [QOPT_BRIGHTNESS] = { "brightness_level_pct", 0, 100, 25 },
     [QOPT_REMOTE_SPEED] = { "tv_remote_speed_pct", 25, 300, 100 },
+    [QOPT_TRIGGER] = { "pad_trigger_feedback", 0, 1, 1 },
 };
 
 void qoptions_defaults(int *v) {

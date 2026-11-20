@@ -501,6 +501,7 @@ static int dev_slot(int dev) {
     return P.n++;
 }
 extern int net_local;   // (arcade_net.cpp: this player's slot online)
+static void trig_forget(int dev);   // (rumble, below)
 static int seat_open(void) { return !online_session(); }   // online, player 2 is the partner
 int flat_dev_player(int dev) { return P.p2 && dev == P.p2 && seat_open() ? 1 : 0; }
 int flat_player2_in(void) { return P.p2 && seat_open(); }
@@ -610,11 +611,41 @@ static void rumble(int pl, int dev, int what) {
     running[k].dev = dev;
     if (running[k].until < until) running[k].until = until;
 }
+// Trigger feedback: each pad's triggers as last told ([0] left, [1] right), a buzz's end
+#define TRIG_BUZZ_SHOT_MS 100
+#define TRIG_BUZZ_RELOAD_MS 80
+static struct Trig { int dev, sent[2]; uint64_t until[2]; } trig[4];
+static const char *const trig_names[] = { "off", "weapon", "buzz" };
+static struct Trig *trig_of(int dev, int make) {
+    for (int i = 0; i < 4; i++) if (trig[i].dev == dev) return &trig[i];
+    if (!make) return NULL;
+    for (int i = 0; i < 4; i++)
+        if (!trig[i].dev) { memset(&trig[i], 0, sizeof trig[i]); trig[i].dev = dev; return &trig[i]; }
+    return NULL;   // (never: a pad or two)
+}
+static void trig_send(struct Trig *t, int right, int mode, float amp, int ms, const char *why) {
+    flat_os_trigger(t->dev, right, mode, amp, ms);
+    if (rumble_log) LOGI("trigger: device %d %s %s (%s)", t->dev, right ? "right" : "left", trig_names[mode], why);
+    t->sent[right] = mode;
+    t->until[right] = mode == FLAT_TRIG_BUZZ ? plat_now_ns() + (uint64_t)ms * 1000000u : 0;
+}
+static void trig_buzz(int dev, int right, float amp, int ms, const char *why) {
+    struct Trig *t = trig_of(dev, 1);
+    if (t) trig_send(t, right, FLAT_TRIG_BUZZ, amp, ms, why);
+}
+// a pad gone: its triggers forgotten (it comes back loose)
+static void trig_forget(int dev) {
+    struct Trig *t = trig_of(dev, 0);
+    if (t) memset(t, 0, sizeof *t);
+}
+
 void flat_rumble_frame(int paused) {
     static HostEventsSeen seen;
     if (rumble_log < 0) rumble_log = getenv("FLAT_TEST_RUMBLE") && atoi(getenv("FLAT_TEST_RUMBLE"));
     const int off = paused || flat_menu_is_open() || !flat_opt_get(QOPT_RUMBLE);
+    const int trig_on = !off && flat_opt_get(QOPT_TRIGGER);
     const int online = online_session();
+    int weapon_dev[2] = { 0, 0 };   // the pads whose right trigger is a gun's now (their player plays)
     for (int slot = 0; slot < 2; slot++) {
         const int ev = host_events_new(&seen, slot);   // (taken while off too: they don't come later)
         // the player here who is this slot: online only this player (every device here drives it: player 0's
@@ -623,18 +654,47 @@ void flat_rumble_frame(int paused) {
         if (online) { if (slot != net_local) continue; pl = 0; }
         else if (slot == 1 && !flat_player2_in()) continue;
         const int dev = P.last[pl];
-        if (!ev || off || !dev) continue;
+        if (!dev) continue;
+        if (trig_on && host_player_playing(slot)) weapon_dev[pl] = dev;
+        if (!ev || off) continue;
         // one at a time, the strongest: a hit over a shot over a reload
         rumble(slot, dev, ev & 1 << HOST_EV_HIT ? FLAT_RUMBLE_HIT : ev & 1 << HOST_EV_SHOT ? FLAT_RUMBLE_SHOT : FLAT_RUMBLE_RELOAD);
+        if (trig_on && ev & 1 << HOST_EV_SHOT) trig_buzz(dev, 1, 1.0f, TRIG_BUZZ_SHOT_MS, "a shot");
+        if (trig_on && ev & 1 << HOST_EV_RELOAD) trig_buzz(dev, 0, 0.35f, TRIG_BUZZ_RELOAD_MS, "a reload");
+    }
+    // each pad's triggers: a buzz runs out; then the right one is a gun's while its player plays, else loose
+    const uint64_t now = plat_now_ns();
+    for (int pl = 0; pl < 2; pl++) if (weapon_dev[pl]) trig_of(weapon_dev[pl], 1);
+    for (int i = 0; i < 4; i++) {
+        struct Trig *t = &trig[i];
+        if (!t->dev) continue;
+        const int weapon = t->dev == weapon_dev[0] || t->dev == weapon_dev[1];
+        for (int right = 0; right < 2; right++) {
+            if (t->sent[right] == FLAT_TRIG_BUZZ && trig_on && now < t->until[right]) continue;
+            const int want = right && weapon ? FLAT_TRIG_WEAPON : FLAT_TRIG_OFF;
+            if (t->sent[right] != want)
+                trig_send(t, right, want, 0, 0, want ? "in play" : !trig_on ? (paused ? "paused" : "the menu, or the setting off")
+                                                                          : "not playing");
+        }
+        if (!t->sent[0] && !t->sent[1] && !weapon) t->dev = 0;   // (loose: forgotten)
     }
     if (off) {   // paused, the menu, Rumble OFF: what's still going stops
-        const uint64_t now = plat_now_ns();
         for (int i = 0; i < 4; i++)
             if (running[i].dev && running[i].until > now) {
                 flat_os_rumble(running[i].dev, FLAT_RUMBLE_SHOT, 0, 0, 0);
                 if (rumble_log) LOGI("rumble: stopped on device %d (%s)", running[i].dev, paused ? "paused" : "the menu or Rumble off");
                 running[i].until = 0;
             }
+    }
+}
+void flat_rumble_stop(void) {
+    const uint64_t now = plat_now_ns();
+    for (int i = 0; i < 4; i++)
+        if (running[i].dev && running[i].until > now) { flat_os_rumble(running[i].dev, FLAT_RUMBLE_SHOT, 0, 0, 0); running[i].until = 0; }
+    for (int i = 0; i < 4; i++) {
+        if (!trig[i].dev) continue;
+        for (int right = 0; right < 2; right++) if (trig[i].sent[right]) trig_send(&trig[i], right, FLAT_TRIG_OFF, 0, 0, "stopped");
+        trig[i].dev = 0;
     }
 }
 
@@ -654,5 +714,6 @@ void flat_pad_detach(int dev) {
     if (P.d[i].reload) flat_dev_reload(dev, 0);
     P.d[i].pad_gone = 1;
     P.d[i].aimed = 0;
+    trig_forget(dev);
     LOGI("players: pad %d gone%s", dev - FLAT_DEV_PAD + 1, flat_dev_player(dev) ? " (player 2's: back when it reconnects)" : "");
 }
