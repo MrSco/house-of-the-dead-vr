@@ -505,9 +505,8 @@ headset here lost tracking on the desk, so its app couldn't be opened for a live
 depth (figures over the floors and walls they dip into: the girl at the door, the first zombie's feet); on Windows, the
 mouse, a pad and a light gun by hand, the menu's clicks, full screen, the ROM dialog, and voice with real speech;
 a real phone (touch, a pad, the ROM picker, voice); a Steam Frame; an iPhone or iPad (a signed build, touch, voice);
-the Mac app by hand; the Apple TVs (both have the build) with the Siri Remote in hand: the touch surface's feel and
-the Remote speed default, the centre click (shoots) and the 2nd generation remote's ring clicks (reload), the 1st generation
-remote on the Apple TV HD (its touch surface moves the sight the same way; it never connected in the test),
+the Mac app by hand; the Apple TVs (both have the build): aiming with the Siri Remote felt good to the player on both
+generations (2026-11-20: a 2nd generation remote on the 4K, a 1st generation one on the HD); still to try there:
 Play/Pause held, Menu in the game, in the menu and at its top (the Home screen), a pad (and the remote with a pad
 connected), the ROM page from a phone (the QR code; no local-network prompt appeared when the PC sent the set, so
 whether a phone's upload asks is a person's check), the storage after tvOS empties the caches, voice with a headset
