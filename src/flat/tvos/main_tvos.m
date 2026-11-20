@@ -92,6 +92,9 @@ void flat_os_fullscreen(int on) { (void)on; }
 int flat_os_touch(void) { return 0; }
 void flat_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (none here yet)
 int flat_os_has_reports(void) { return 0; }
+// pads only: the Siri Remote has no motor
+void flat_os_rumble(int dev, int what, float low, float high, int ms) { (void)what; apple_pad_rumble(dev, low, high, ms); }
+void flat_os_trigger(int dev, int right, int mode, float amp, int ms) { apple_pad_trigger(dev, right, mode, amp, ms); }
 void flat_os_quit(void) { A.quit = 1; }   // (no QUIT row on a TV; FLAT_QUIT_AT, tests)
 void flat_os_import_rom(void) {
     dispatch_async(dispatch_get_main_queue(), ^{ flat_menu_set_open(0); [the_controller showUpload:nil]; });
@@ -767,7 +770,7 @@ static void rom_arrived(const char *path) { (void)path; [the_controller romArriv
 }
 - (void)sceneDidEnterBackground:(UIScene *)scene {
     LOGI("tv: to the background (tvOS suspends the app: online, the partner waits)");
-    A.background = 1; if (A.dpy) glFinish(); tv_store_save(A.files);
+    A.background = 1; flat_rumble_stop(); if (A.dpy) glFinish(); tv_store_save(A.files);
 }
 - (void)sceneWillEnterForeground:(UIScene *)scene { if (A.background) LOGI("tv: back in front"); A.background = 0; }
 @end

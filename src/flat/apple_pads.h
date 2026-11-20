@@ -5,11 +5,18 @@
 //  - either stick moves the pad's sight, R2 / R1 shoot, L2 / L1 / X reload, A / Menu give coins and Start, Options
 //    opens the menu; in the menu (iOS, Mac) the D-pad or the left stick moves, A chooses, B / Options go back, the
 //    bumpers switch tabs. (tvOS has its own: the remote's menu keys, apple_pads_each.)
+//  - each pad rumbles for its own player's shots, reloads and hits (flat.h's rumble: apple_pad_rumble), through its
+//    GCController.haptics (iOS and tvOS 14, macOS 11; a pad with motors: DualSense, DualShock 4, Xbox pads). The Siri
+//    Remote has none. Its triggers kick too (flat.h's trigger feedback: apple_pad_trigger): a DualSense's adaptive
+//    triggers (GCDualSenseAdaptiveTrigger), an Xbox One / Series pad's trigger motors (its haptics at the triggers).
 #pragma once
+#import <CoreHaptics/CoreHaptics.h>
 #import <GameController/GameController.h>
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include "flat/flat.h"
+#include "platform/platform.h"
 
 typedef struct ApplePad {
     int dev;                     // flat.h's device id
@@ -44,6 +51,13 @@ static inline void apple_pads_each(void (^fn)(GCExtendedGamepad *g, ApplePad *p)
             memset(&apple_pad[slot], 0, sizeof apple_pad[slot]);
             apple_pad[slot].sx = apple_pad[slot].sy = -1;
             apple_pad[slot].dev = flat_pad_attach();
+            const char *trig = "none";
+            if (@available(iOS 14.5, tvOS 14.5, macOS 11.3, *))
+                if ([c.extendedGamepad isKindOfClass:GCDualSenseGamepad.class]) trig = "DualSense adaptive triggers";
+            if (@available(iOS 14.0, tvOS 14.0, macOS 11.0, *))
+                if (strcmp(trig, "none") == 0 && [c.haptics.supportedLocalities containsObject:GCHapticsLocalityRightTrigger])
+                    trig = "trigger motors";
+            plat_log(PLAT_LOG_INFO, "pad: %s, trigger feedback: %s", c.vendorName ? c.vendorName.UTF8String : "a game pad", trig);
         }
         // the pad's lights (where it has them): its player
         const GCControllerPlayerIndex want = flat_dev_player(apple_pad[slot].dev) ? GCControllerPlayerIndex2 : GCControllerPlayerIndex1;
@@ -121,6 +135,100 @@ static inline void apple_pads_frame(double dt) {
         apple_pad_game(g, p, dt, &p->sx, &p->sy, 0.05f, pressed[AP_A] || pressed[AP_MENU]);
     });
 }
+// ---- rumble (flat.h's flat_os_rumble, for the pad that is device dev): a CoreHaptics engine for each pad, made,
+// started and played on a queue of its own, so the frame never waits for it. One event at a time per pad (a new one
+// stops the last); ms 0 stops it. Its strength is the stronger motor's; sharp for the light motor, dull for the heavy.
+// Engines: [slot][0] the pad's body, [slot][1] its left trigger, [slot][2] its right (an Xbox pad's trigger motors).
+enum { AH_BODY, AH_LEFT_TRIGGER, AH_RIGHT_TRIGGER };
+static CHHapticEngine *apple_pad_engine[APPLE_PADS][3];
+static GCController *apple_pad_engine_of[APPLE_PADS][3];   // (the pad its engine was made for)
+static id<CHHapticPatternPlayer> apple_pad_playing[APPLE_PADS][3];
+static inline int apple_rumble_log(void) {
+    static int log = -1;
+    if (log < 0) log = getenv("FLAT_TEST_RUMBLE") && atoi(getenv("FLAT_TEST_RUMBLE"));
+    return log;
+}
+// (on the queue) pad slot's engine `which` plays strength 0..1 (sharp 0..1) for ms; ms 0 stops it
+static inline void apple_haptic_play(int slot, int which, GCController *c, float strength, float sharp, int ms) API_AVAILABLE(ios(14.0), tvos(14.0), macos(11.0)) {
+    if (apple_pad_engine_of[slot][which] != c) {   // (a pad new in this slot: its own engine)
+        [apple_pad_engine[slot][which] stopWithCompletionHandler:nil];
+        apple_pad_engine[slot][which] = nil;
+        apple_pad_playing[slot][which] = nil;
+        apple_pad_engine_of[slot][which] = c;
+        GCHapticsLocality where = which == AH_LEFT_TRIGGER ? GCHapticsLocalityLeftTrigger
+                                  : which == AH_RIGHT_TRIGGER ? GCHapticsLocalityRightTrigger : GCHapticsLocalityDefault;
+        CHHapticEngine *e = which == AH_BODY || [c.haptics.supportedLocalities containsObject:where]
+                                ? [c.haptics createEngineWithLocality:where] : nil;
+        NSError *err = nil;
+        if (e && [e startAndReturnError:&err]) {
+            __weak CHHapticEngine *w = e;
+            e.resetHandler = ^{ [w startAndReturnError:nil]; };
+            e.playsHapticsOnly = YES;
+            apple_pad_engine[slot][which] = e;
+        }
+        if (apple_rumble_log())
+            plat_log(PLAT_LOG_INFO, "rumble: pad %d %s haptics %s", apple_pad[slot].dev - FLAT_DEV_PAD + 1,
+                     which == AH_BODY ? "body" : which == AH_LEFT_TRIGGER ? "left trigger" : "right trigger",
+                     apple_pad_engine[slot][which] ? "on" : c.haptics ? "none there" : "none (no motors)");
+    }
+    CHHapticEngine *e = apple_pad_engine[slot][which];
+    if (!e) return;
+    [apple_pad_playing[slot][which] stopAtTime:CHHapticTimeImmediate error:nil];
+    apple_pad_playing[slot][which] = nil;
+    if (ms <= 0) return;
+    CHHapticEvent *ev = [[CHHapticEvent alloc] initWithEventType:CHHapticEventTypeHapticContinuous parameters:@[
+        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticIntensity value:strength],
+        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticSharpness value:sharp] ]
+        relativeTime:0 duration:ms / 1000.0];
+    NSError *err = nil;
+    CHHapticPattern *pat = [[CHHapticPattern alloc] initWithEvents:@[ ev ] parameters:@[] error:&err];
+    id<CHHapticPatternPlayer> pl = pat ? [e createPlayerWithPattern:pat error:&err] : nil;
+    if (pl && [pl startAtTime:CHHapticTimeImmediate error:&err]) apple_pad_playing[slot][which] = pl;
+    else apple_pad_engine_of[slot][which] = nil;   // (its engine made again next time)
+}
+static inline dispatch_queue_t apple_haptics_queue(void) {
+    static dispatch_queue_t q;
+    if (!q) q = dispatch_queue_create("hotdvr.rumble", DISPATCH_QUEUE_SERIAL);
+    return q;
+}
+static inline void apple_pad_rumble(int dev, float low, float high, int ms) {
+    for (int i = 0; i < APPLE_PADS; i++) {
+        GCController *c = apple_pad_ctl[i];
+        if (!c || apple_pad[i].dev != dev) continue;
+        const int slot = i;
+        const float strength = fminf(fmaxf(fmaxf(low, high), 0), 1), sharp = low + high > 0 ? high / (low + high) : 0.5f;
+        dispatch_async(apple_haptics_queue(), ^{
+            if (@available(iOS 14.0, tvOS 14.0, macOS 11.0, *)) apple_haptic_play(slot, AH_BODY, c, strength, sharp, ms);
+        });
+    }
+}
+// ---- trigger feedback (flat.h's flat_os_trigger, for the pad that is device dev): a DualSense's trigger mode set at
+// once (GameController sends it); an Xbox pad's trigger motor played on the haptics queue
+static inline void apple_pad_trigger(int dev, int right, int mode, float amp, int ms) {
+    for (int i = 0; i < APPLE_PADS; i++) {
+        GCController *c = apple_pad_ctl[i];
+        if (!c || apple_pad[i].dev != dev) continue;
+        if (@available(iOS 14.5, tvOS 14.5, macOS 11.3, *)) {
+            if ([c.extendedGamepad isKindOfClass:GCDualSenseGamepad.class]) {
+                GCDualSenseGamepad *ds = (GCDualSenseGamepad *)c.extendedGamepad;
+                GCDualSenseAdaptiveTrigger *t = right ? ds.rightTrigger : ds.leftTrigger;
+                // a gun's: resistance from 30% of the pull, a snap at 60%; a shot's buzz as GoldenEye VR's
+                if (mode == FLAT_TRIG_WEAPON) [t setModeWeaponWithStartPosition:0.3f endPosition:0.6f resistiveStrength:0.85f];
+                else if (mode == FLAT_TRIG_BUZZ) [t setModeVibrationWithStartPosition:0.f amplitude:fminf(fmaxf(amp, 0), 1) frequency:0.6f];
+                else [t setModeOff];
+                continue;
+            }
+        }
+        if (mode == FLAT_TRIG_WEAPON) continue;   // (an Xbox pad: its motors only buzz)
+        const int slot = i, which = right ? AH_RIGHT_TRIGGER : AH_LEFT_TRIGGER;
+        const float strength = fminf(fmaxf(amp, 0), 1);
+        dispatch_async(apple_haptics_queue(), ^{
+            if (@available(iOS 14.0, tvOS 14.0, macOS 11.0, *))
+                apple_haptic_play(slot, which, c, strength, 1.0f, mode == FLAT_TRIG_BUZZ ? ms : 0);
+        });
+    }
+}
+
 // the mouse or touch aims again: the sights of the pads that drive its player start in the middle next time
 static inline void apple_pads_pointer_moved(int dev) {
     for (int i = 0; i < APPLE_PADS; i++)

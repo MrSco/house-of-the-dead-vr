@@ -66,7 +66,7 @@ if(NOT IOS AND NOT CMAKE_SYSTEM_NAME STREQUAL "tvOS")
     target_link_libraries(hotdvr_mac PRIVATE -Wl,-force_load,$<TARGET_FILE:hotdvr_apple> hotdvr_apple arcade_core runtime
         opus m2_speexdsp m2_rnnoise ${M2_ANGLE_MAC}/libEGL.dylib ${M2_ANGLE_MAC}/libGLESv2.dylib
         "-framework AppKit" "-framework QuartzCore" "-framework Metal" "-framework AVFoundation" "-framework AudioToolbox"
-        "-framework CoreAudio" "-framework GameController" "-framework UniformTypeIdentifiers" -lobjc)
+        "-framework CoreAudio" "-framework GameController" "-framework CoreHaptics" "-framework UniformTypeIdentifiers" -lobjc)
     set(M2_APP "$<TARGET_BUNDLE_DIR:hotdvr_mac>")
     add_custom_command(TARGET hotdvr_mac POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "${M2_APP}/Contents/Frameworks"

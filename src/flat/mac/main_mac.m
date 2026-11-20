@@ -4,6 +4,9 @@
 // through GameController as on iOS. The files folder is ~/Library/Application Support/House of the Dead VR (arcade/
 // holds the ROM set, chosen in an Open panel at the first start). Online play's restart opens the app again.
 #import <AppKit/AppKit.h>
+// (CoreHaptics before AVFoundation: its engine header names AVAudioSession, which macOS marks unavailable once
+// AVFoundation has declared it; first, it is only a forward declaration. apple_pads.h's rumble needs it.)
+#import <CoreHaptics/CoreHaptics.h>
 #import <AVFoundation/AVFoundation.h>
 #import <GameController/GameController.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -57,6 +60,8 @@ void flat_os_fullscreen(int on) {
 int flat_os_touch(void) { return 0; }
 void flat_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (none here yet)
 int flat_os_has_reports(void) { return 0; }
+void flat_os_rumble(int dev, int what, float low, float high, int ms) { (void)what; apple_pad_rumble(dev, low, high, ms); }
+void flat_os_trigger(int dev, int right, int mode, float amp, int ms) { apple_pad_trigger(dev, right, mode, amp, ms); }   // (pads only)
 void flat_os_quit(void) { A.quit = 1; }
 static int pick_rom(void) {
     NSOpenPanel *p = [NSOpenPanel openPanel];

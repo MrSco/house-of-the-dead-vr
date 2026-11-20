@@ -71,3 +71,4 @@ targets:
       - sdk: AudioToolbox.framework
       - sdk: CoreAudio.framework
       - sdk: GameController.framework
+      - sdk: CoreHaptics.framework

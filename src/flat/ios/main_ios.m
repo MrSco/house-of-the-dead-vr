@@ -61,6 +61,24 @@ void flat_os_fullscreen(int on) { (void)on; }
 int flat_os_touch(void) { return 1; }
 void flat_os_crash_reports(const char *files, const int *opt) { (void)files; (void)opt; }   // (none here yet)
 int flat_os_has_reports(void) { return 0; }
+void flat_os_trigger(int dev, int right, int mode, float amp, int ms) { apple_pad_trigger(dev, right, mode, amp, ms); }
+// Rumble: a pad's motors (apple_pads.h), or playing by touch, the iPhone's Taptic Engine: a light tap on a shot, a soft
+// one on a reload, a heavy one on a hit (an iPad has none). On the main thread (the frame's).
+void flat_os_rumble(int dev, int what, float low, float high, int ms) {
+    if (dev != FLAT_DEV_TOUCH) { apple_pad_rumble(dev, low, high, ms); return; }
+    if (ms <= 0 || UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return;
+    static UIImpactFeedbackGenerator *gen[3];
+    if (!gen[0]) {
+        gen[FLAT_RUMBLE_SHOT] = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+        gen[FLAT_RUMBLE_RELOAD] = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleSoft];
+        gen[FLAT_RUMBLE_HIT] = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy];
+        for (int i = 0; i < 3; i++) [gen[i] prepare];
+    }
+    if (what < 0 || what > 2) return;
+    [gen[what] impactOccurred];
+    [gen[what] prepare];   // (ready for the next)
+    if (apple_rumble_log()) LOGI("rumble: touch %s impact", what == FLAT_RUMBLE_HIT ? "heavy" : what == FLAT_RUMBLE_SHOT ? "light" : "soft");
+}
 void flat_os_quit(void) { A.quit = 1; }
 void flat_os_import_rom(void) { dispatch_async(dispatch_get_main_queue(), ^{ [the_controller pickRom]; }); }
 
@@ -356,7 +374,7 @@ static void test_pads(double now) {
     self.window.rootViewController = the_controller;
     [self.window makeKeyAndVisible];
 }
-- (void)sceneDidEnterBackground:(UIScene *)scene { A.background = 1; if (A.dpy) glFinish(); }
+- (void)sceneDidEnterBackground:(UIScene *)scene { A.background = 1; flat_rumble_stop(); if (A.dpy) glFinish(); }
 - (void)sceneWillEnterForeground:(UIScene *)scene { A.background = 0; }
 @end
 
