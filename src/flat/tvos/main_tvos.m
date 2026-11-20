@@ -61,6 +61,9 @@ static struct {
     float sx, sy;                                      // the sight (window pixels), the remote's and the pads'
     int aim_on, pad_fire, pad_reload;
     double last, kept_at;
+    // the perf line every 10 s: frames drawn, those later than 1.5 refreshes, the frame's own time on the main thread
+    double perf_at, frame_ms, frame_max, gap_max;
+    int perf_frames, perf_late;
 } A = { .sx = -1 };
 
 @interface HotdView : UIView
@@ -293,7 +296,10 @@ static void hook_remote(GCController *c) {
     m.buttonA.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_CLICK, p, SRC_GC, now_s()); };
     m.buttonX.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_PLAY, p, SRC_GC, now_s()); };
     m.buttonMenu.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL p) { (void)b; (void)v; remote_button(RB_MENU, p, SRC_GC, now_s()); };
-    LOGI("tv: remote %s", c.vendorName.UTF8String ?: "(unnamed)");
+    // the generation, for the log: a 2nd generation remote's ring clicks as a d-pad too (they shoot here, as any click
+    // does); a 1st generation one is the touch surface alone. Both give the finger's place on the surface the same way.
+    const int ring = c.physicalInputProfile.dpads[@"Cardinal Direction Pad"] != nil;
+    LOGI("tv: remote %s (%s generation)", c.vendorName.UTF8String ?: "(unnamed)", ring ? "2nd or later" : "1st");
 }
 
 // ---------------------------------------------------------------- FLAT_TEST_REMOTE (tests)
@@ -410,6 +416,38 @@ static int press_button(UIPress *p) {
     }
 }
 
+// ---------------------------------------------------------------- the perf line (the Apple TV HD's headroom)
+static const char *thermal_name(void) {
+    switch (NSProcessInfo.processInfo.thermalState) {
+    case NSProcessInfoThermalStateNominal: return "nominal";
+    case NSProcessInfoThermalStateFair: return "fair";
+    case NSProcessInfoThermalStateSerious: return "serious";
+    case NSProcessInfoThermalStateCritical: return "critical";
+    }
+    return "?";
+}
+static void perf_frame(double start, double refresh) {   // after a frame drawn: start is when it began
+    const double end = now_s(), ms = (end - start) * 1000;
+    static double prev;
+    if (prev) {
+        const double gap = start - prev;
+        if (gap > A.gap_max) A.gap_max = gap;
+        if (refresh > 0 && gap > refresh * 1.5) A.perf_late++;
+    }
+    prev = start;
+    A.perf_frames++;
+    A.frame_ms += ms;
+    if (ms > A.frame_max) A.frame_max = ms;
+    if (!A.perf_at) A.perf_at = start;
+    if (end - A.perf_at < 10) return;
+    LOGI("tv: perf: %.1f fps (refresh %.0f Hz), %d late, longest gap %.1f ms; main thread %.2f ms a frame (most %.1f); "
+         "%dx%d; thermal %s", A.perf_frames / (end - A.perf_at), refresh > 0 ? 1 / refresh : 0, A.perf_late,
+         A.gap_max * 1000, A.frame_ms / A.perf_frames, A.frame_max, A.w, A.h, thermal_name());
+    A.perf_at = end;
+    A.perf_frames = A.perf_late = 0;
+    A.frame_ms = A.frame_max = A.gap_max = 0;
+}
+
 @implementation HotdView
 + (Class)layerClass { return [CAMetalLayer class]; }
 @end
@@ -472,6 +510,7 @@ static NSMutableSet *passed_presses;   // presses UIKit keeps (the Menu that goe
     A.h = (int)layer.drawableSize.height;
     flat_draw(A.w, A.h, 0);
     eglSwapBuffers(A.dpy, A.surf);
+    perf_frame(now, self.link.duration);
 }
 
 // UIKit's presses: what the remote's buttons do, but Menu at the top, which UIKit takes (the Home screen)

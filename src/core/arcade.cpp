@@ -768,6 +768,7 @@ struct Ring {
 } ring;
 std::atomic<float> volume{1.0f};
 float sound_peak = 0; // the loudest sample the board made since the last "frame ms" line (game thread)
+std::atomic<uint32_t> sound_short{0}; // samples the speakers asked for and the ring hadn't, since that line (a stutter)
 
 void SDLCALL audio_cb(void *ud, Uint8 *stream, int len) {
     (void)ud;
@@ -779,6 +780,7 @@ void SDLCALL audio_cb(void *ud, Uint8 *stream, int len) {
         out[i] = ring.buf[ring.rd];
         ring.rd = (ring.rd + 1) % ring.buf.size();
     }
+    if (i < want) sound_short.fetch_add(uint32_t(want - i), std::memory_order_relaxed);
     for (; i < want; i++) out[i] = 0;
 }
 
@@ -1445,9 +1447,10 @@ extern "C" int SDL_main(int argc, char **argv) {
             const uint64_t tg = tgpx4_ns_total();
             const double k = 1e-6 / double(prof.frames);
             LOGI("frame ms: board %.2f (i960 and TGP %.2f, TGPx4 %.2f, geometrizer %.2f, 2D layers %.2f), scene and "
-                 "overlay %.2f; sound thread %.2f (peak %.3f)",
+                 "overlay %.2f; sound thread %.2f (peak %.3f, speakers short %.0f ms)",
                  double(prof.board) * k, double(prof.core) * k, double(tg - prof.tgpx4_at) * k, double(prof.geo) * k,
-                 double(prof.video) * k, double(prof.scene) * k, double(prof.sound) * k, double(sound_peak));
+                 double(prof.video) * k, double(prof.scene) * k, double(prof.sound) * k, double(sound_peak),
+                 double(sound_short.exchange(0)) * 1000.0 / (2.0 * snd::Scsp::kRate));
             sound_peak = 0;
             prof = {};
             prof.tgpx4_at = tg;
