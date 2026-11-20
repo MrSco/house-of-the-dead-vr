@@ -220,6 +220,7 @@ static void pad_frame(double dt) {
 }
 - (void)startGame {
     A.started = 1;
+    online_set_platform(UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? "IPAD" : "IPHONE");
     if (!flat_app_start(A.files)) { close_with(@"The game could not start", @"See port.log in the app's folder (the Files app)."); return; }
     CAMetalLayer *layer = (CAMetalLayer *)self.view.layer;
     layer.contentsScale = self.view.window.screen.nativeScale;

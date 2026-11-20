@@ -557,6 +557,7 @@ static NSMutableSet *passed_presses;   // presses UIKit keeps (the Menu that goe
     const int small_gpu = gpu && ![gpu supportsFamily:MTLGPUFamilyApple3];
     if (small_gpu) flat_app_default(QOPT_PICTURE, QPICTURE_ORIGINAL);
     LOGI("tv: GPU %s%s", gpu ? gpu.name.UTF8String : "?", small_gpu ? " (Apple2: Picture Original by default)" : "");
+    online_set_platform("APPLETV");
     if (!flat_app_start(A.files)) { close_with(@"The game could not start", @"See port.log in the app's folder."); return; }
     flat_menu_tv(1);
     CAMetalLayer *layer = (CAMetalLayer *)self.view.layer;

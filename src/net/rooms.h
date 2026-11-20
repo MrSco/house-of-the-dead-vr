@@ -19,7 +19,7 @@ const char *net_rooms_server_name(void);
 int  net_rooms_server_players(void);
 void net_rooms_close(void);
 
-/* Room codes: four characters that cannot be misread (no 0/O, 1/I, 2/Z, 5/S, 8/B). A hosted room is named "NAME CODE". */
+/* Room codes: four characters that cannot be misread (no 0/O, 1/I, 2/Z, 5/S, 8/B). A hosted room is named "NAME PLATFORM CODE" (0.4.x: "NAME CODE"): the code is the last word. */
 void net_room_code_make(char out[5]);
 bool net_room_code_valid(const char *code);
 extern const char net_room_code_chars[];

@@ -78,6 +78,7 @@ static const eng_net_game game = { NET_GAME_ID, ONLINE_VER, 2, FRAME_SIZE, "HOTD
 // ---------------------------------------------------------------- settings and state
 static char files[512];
 static char name[NAME_LEN + 1] = "PLAYER", server[64] = DEFAULT_SERVER, join_ip[24];
+static char platform[12];               // online_set_platform: this app's word in its room's name ("" none)
 static int voice_mode = 1, volume = 100, muted;
 static int volume_set;                  // the VR menu set the partner volume: online.cfg's doesn't override it
 
@@ -612,10 +613,48 @@ static void on_desync(uint32_t frame) {
     toast("OUT OF STEP WITH THE HOST (FRAME %u) - LEAVE AND JOIN AGAIN", frame);
 }
 
+// ---------------------------------------------------------------- the host's platform, in its game's name
+// A room on the lobby server is named "NAME PLATFORM CODE" and a LAN host answers discovery as "NAME PLATFORM": free text
+// the server and the beacon only pass along, so 0.4.x apps show it as it is and still join. The code stays the last
+// word: 0.4.x (rooms.c's code_from) finds a room's code there, for JOIN BY CODE and QUICK JOIN.
+static const char *const platform_words[] = { "QUEST", "FRAME", "ANDROID", "PC", "PCVR", "MAC", "IPHONE", "IPAD", "APPLETV", "VISIONPRO" };
+void online_set_platform(const char *word) {
+    int k = 0;
+    for (int i = 0; word && word[i] && k < (int)sizeof platform - 1; i++)
+        if (word[i] >= 'A' && word[i] <= 'Z') platform[k++] = word[i];
+        else if (word[i] >= 'a' && word[i] <= 'z') platform[k++] = (char)(word[i] - 32);
+    platform[k] = 0;
+}
+// "NAME PLATFORM CODE" (no code: "NAME PLATFORM") in at most max characters: the name gives way, never the code
+static void tagged_name(char *out, size_t n, int max, const char *code_) {
+    const int pl = platform[0] ? 1 + (int)strlen(platform) : 0, cl = code_[0] ? 1 + (int)strlen(code_) : 0;
+    int room = max - pl - cl;
+    if (room < 1) room = 1;
+    snprintf(out, n, "%.*s%s%s%s%s", room, name, pl ? " " : "", platform, cl ? " " : "", code_);
+}
+// the browser's side: a known platform word taken out of a game's name: the word before the code (a room) or the last
+// word (code_last 0: a LAN host). "ANNA QUEST ACDE" -> "ANNA ACDE" and QUEST; anything else stays as it is.
+static void untag(const char *in, int code_last, char *nm, size_t nn, char *plat, size_t pn) {
+    snprintf(nm, nn, "%s", in); plat[0] = 0;
+    const char *end = in + strlen(in);
+    if (code_last) { const char *sp = strrchr(in, ' '); if (!sp) return; end = sp; }
+    const char *w = end;
+    while (w > in && w[-1] != ' ') w--;
+    if (w == in) return;                               // the only word: the name
+    for (size_t i = 0; i < sizeof platform_words / sizeof *platform_words; i++) {
+        const size_t len = strlen(platform_words[i]);
+        if ((size_t)(end - w) != len || strncmp(w, platform_words[i], len)) continue;
+        snprintf(plat, pn, "%s", platform_words[i]);
+        snprintf(nm, nn, "%.*s%s", (int)(w - 1 - in), in, end);
+        return;
+    }
+}
+
 // ---------------------------------------------------------------- the network thread
 static int game_frame_of(void) { return (int)net_tact(); }
 static void connect_now(void) {
     if (role == 1 && lan) {
+        tagged_name(eng_net_host_label, sizeof eng_net_host_label, 16, "");   // (the beacon's name: 16 characters)
         if (!eng_net_hosting() && !eng_net_host_start()) { say("CANNOT HOST: %s", eng_net_note()); return; }
         if (!eng_net_connected()) eng_net_connect();
         return;
@@ -623,7 +662,7 @@ static void connect_now(void) {
     if (!eng_net_set_server(conn)) { say("CANNOT FIND %s", conn); return; }
     if (role == 1 && eng_net_room_request <= 0) {
         eng_net_room_request = -1;
-        snprintf(eng_net_room_request_name, sizeof eng_net_room_request_name, "%s %s", name, code);
+        tagged_name(eng_net_room_request_name, sizeof eng_net_room_request_name, 24, code);   // (HELLO sends 24 characters)
     }
     if (role == 2) eng_net_room_request = room_id;
     eng_net_connect();
@@ -654,7 +693,7 @@ static void list_games(void) {
     for (int i = 0; i < net_rooms_count() && n < 32; i++, n++) {
         const net_room *r = net_rooms_get(i);
         memset(&g[n], 0, sizeof g[n]);
-        snprintf(g[n].name, sizeof g[n].name, "%s", r->name);
+        untag(r->name, r->code[0] != 0, g[n].name, sizeof g[n].name, g[n].platform, sizeof g[n].platform);
         g[n].players = r->players; g[n].max_players = r->max_players;
         g[n].status = r->version != ONLINE_VER ? OG_OLD : r->players >= r->max_players ? OG_FULL : OG_JOIN;
         snprintf(g[n].detail, sizeof g[n].detail, "%d / %d PLAYERS%s", r->players, r->max_players, r->state ? " - PLAYING" : "");
@@ -664,11 +703,28 @@ static void list_games(void) {
         char label[64], a[64];
         if (!eng_net_found(i, label, sizeof label, a, sizeof a)) continue;
         memset(&g[n], 0, sizeof g[n]);
-        snprintf(g[n].name, sizeof g[n].name, "%s", label);
-        snprintf(g[n].detail, sizeof g[n].detail, "%s", a);
+        // the label is "NAME  ADDRESS  N player(s)": the host's name (its platform taken out), then the rest as the detail
+        const char *host = eng_net_found_name(i);
+        const size_t hl = strlen(host);
+        untag(host, 0, g[n].name, sizeof g[n].name, g[n].platform, sizeof g[n].platform);
+        if (!strncmp(label, host, hl)) { const char *rest = label + hl; while (*rest == ' ') rest++; snprintf(g[n].detail, sizeof g[n].detail, "%s", rest); }
+        else { snprintf(g[n].name, sizeof g[n].name, "%s", label); snprintf(g[n].detail, sizeof g[n].detail, "%s", a); }
         g[n].lan = 1; g[n].max_players = 2; g[n].status = OG_JOIN;
         room[n] = 0; snprintf(addr[n], sizeof addr[n], "%s", a);
         n++;
+    }
+    {   // PORT_ONLINE_LOG=1: the browser's rows, when they change (tests)
+        static int on = -1; static uint32_t last;
+        if (on < 0) on = getenv("PORT_ONLINE_LOG") != NULL;
+        uint32_t h = 2166136261u;
+        for (int i = 0; on && i < n; i++)
+            for (const uint8_t *p = (const uint8_t *)&g[i], *e = p + sizeof g[i]; p < e; p++) h = (h ^ *p) * 16777619u;
+        if (on && h != last) {
+            last = h;
+            for (int i = 0; i < n; i++)
+                host_log("online: browser row %d: [%s] %s | %s | %s\n", i, g[i].platform[0] ? g[i].platform : "-", g[i].name, g[i].detail,
+                         g[i].status == OG_JOIN ? "JOIN" : g[i].status == OG_FULL ? "FULL" : g[i].status == OG_OLD ? "OLD" : "PLAYING");
+        }
     }
     lock();
     memcpy(games, g, sizeof g); memcpy(game_room, room, sizeof room); memcpy(game_addr, addr, sizeof addr); ngames = n;

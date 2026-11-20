@@ -753,6 +753,8 @@ void eng_net_discover(void)
 bool eng_net_discovering(void) { return dsock != ENG_SOCK_BAD; }
 void eng_net_discover_autojoin(int on) { d_auto = on; }
 int eng_net_found_count(void) { return found_n; }
+const char *eng_net_found_name(int i) { return i >= 0 && i < found_n ? found[i].name : ""; }
+char eng_net_host_label[17];
 bool eng_net_found(int i, char *label, size_t n, char *addr, size_t an)
 {
     if (i < 0 || i >= found_n) return false;
@@ -808,7 +810,7 @@ bool eng_net_host_start(void)
     if (eng_nethost_running()) return true;
     if (st != ST_OFFLINE) eng_net_disconnect();
     if (!eng_nethost_start(ENG_NET_PORT, G)) { snprintf(note, sizeof note, "cannot host: port %d is busy", ENG_NET_PORT); return false; }
-    eng_nethost_set_name(my_name);
+    eng_nethost_set_name(eng_net_host_label[0] ? eng_net_host_label : my_name);
     if (!eng_net_set_server("127.0.0.1")) { eng_nethost_stop(); return false; }
     return eng_net_connect();
 }

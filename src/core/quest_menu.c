@@ -204,6 +204,9 @@ static char help[200];
 void qmenu_open(int t) {
     if (t >= 0 && t < QMENU_TAB_COUNT) tab = t;
     modal = M_NONE; pressed = 0; focus = ID(K_FOOT, 0);
+    // QMENU_TEST_SCREEN=browse|lan (tests, with FLAT_MENU_AT / QUEST_MENU_AT on the ONLINE tab): that page of the tab
+    const char *e = tab == QMENU_TAB_ONLINE ? getenv("QMENU_TEST_SCREEN") : NULL;
+    if (e && (!strcmp(e, "browse") || !strcmp(e, "lan"))) { screen = !strcmp(e, "lan") ? S_LAN : S_BROWSE; page = 0; online_browse(true); }
 }
 bool qmenu_pointer(float *px, float *py) { if (!have_pointer) return false; *px = ptr_x; *py = ptr_y; return true; }
 bool qmenu_modal(void) { return modal != M_NONE || screen != S_MAIN; }
@@ -705,6 +708,15 @@ static void online_offline(void) {
     ry += h + 8;
     voice_box(COL2, ry, "VOICE CHAT");
 }
+// a game's platform (QUEST, PC...) as a small tag after its name in the browser; returns where the next text starts
+static float platform_tag(float x, float y, float h, const char *platform, bool ok) {
+    if (!platform[0]) return x;
+    const float ty = y + (h - 24) / 2;
+    const int tw = width(UI_B14, platform) + 18;
+    rrect(x, ty, tw, 24, 12, RAIL); rline(x, ty, tw, 24, 12, 1, LINE);
+    text_fit(UI_B14, x, mid(UI_B14, ty, 24), tw, platform, ok ? TEXT : DIM, 1);
+    return x + tw + 10;
+}
 static void online_browse_page(void) {
     if (button(ID(K_ON, ON_BACK), CX0, CY0 + 8, 104, 34, "BACK", UI_B16, 2, "Back to the ONLINE menu. B does the same.")) { screen = S_MAIN; online_browse(false); }
     focusable(ID(K_ON, ON_BACK), F_BUTTON, CX0 + 52);
@@ -740,7 +752,8 @@ static void online_browse_page(void) {
         const QColor ink = ok ? TEXT : DIM;
         icon(g->lan ? I_HOUSE : I_CLOUD, CX0 + 30, y + 27, 20, ok ? EDGE : DIM);
         const int nw = text(UI_B22, CX0 + 56, mid(UI_B22, y, 54), g->name, ink);
-        if (g->detail[0]) text_fit(UI_M15, CX0 + 56 + nw + 12, mid(UI_M15, y, 54), CW - 56 - nw - 12 - 230, g->detail, MUTED, 0);
+        const float dx = platform_tag(CX0 + 56 + nw + 12, y, 54, g->platform, ok);
+        if (g->detail[0]) text_fit(UI_M15, dx, mid(UI_M15, y, 54), CX0 + CW - 230 - dx, g->detail, MUTED, 0);
         static const char *const st[] = { "JOIN", "PLAYING", "FULL", "OLD" };
         const QColor bg = ok ? GOOD : g->status == OG_OLD ? WARNBG : RAIL, fg = ok ? GOODINK : g->status == OG_OLD ? WARN : MUTED;
         rrect(CX1 - 16 - 110, y + 14, 110, 26, 13, bg); text_fit(UI_B16, CX1 - 16 - 110, mid(UI_B16, y + 14, 26), 110, st[g->status], fg, 1);
@@ -769,7 +782,8 @@ static void online_lan_page(void) {
         rrect(CX0 + 18, ry, COLW - 36, 48, 12, hot ? HOVER : ITEM); rline(CX0 + 18, ry, COLW - 36, 48, 12, 2, hot ? ACCENT : LINE);
         icon(I_HOUSE, CX0 + 44, ry + 24, 18, EDGE);
         const int nw = text(UI_B22, CX0 + 66, mid(UI_B22, ry, 48), g->name, TEXT);
-        text_fit(UI_M15, CX0 + 66 + nw + 10, mid(UI_M15, ry, 48), COLW - 36 - 66 - nw - 10 - 110, g->detail, MUTED, 0);
+        const float dx = platform_tag(CX0 + 66 + nw + 10, ry, 48, g->platform, true);
+        text_fit(UI_M15, dx, mid(UI_M15, ry, 48), CX0 + COLW - 36 - 110 - dx, g->detail, MUTED, 0);
         rrect(CX0 + COLW - 18 - 16 - 80, ry + 12, 80, 24, 12, GOOD); text_fit(UI_B16, CX0 + COLW - 18 - 16 - 80, mid(UI_B16, ry + 12, 24), 80, "JOIN", GOODINK, 1);
         if (clicked(id)) { online_join_game(lan[k]); screen = S_MAIN; online_browse(false); }
         next_row();

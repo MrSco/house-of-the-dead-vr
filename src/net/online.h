@@ -14,6 +14,11 @@ void online_start(void);                 // after net_init: the network thread, 
 bool online_session(void);               // this run plays online (host or guest)
 void online_quit(void);                  // the app is closing: a guest's game stops waiting
 
+// This app's platform, shown beside its games in the browser: one upper-case word (QUEST, FRAME, ANDROID, PC, PCVR,
+// MAC, IPHONE, IPAD, APPLETV, VISIONPRO), set once by the app's shell before online_boot. It rides in the room's name
+// ("NAME PLATFORM CODE") and the LAN host's name ("NAME PLATFORM"): the link itself does not change (ONLINE_VER).
+void online_set_platform(const char *word);
+
 // The platform's restart (quest_xr.c: the app closes and opens again); the desktop build has none (tests start each
 // process online through PORT_ONLINE)
 extern void (*online_restart)(void);
@@ -41,7 +46,7 @@ typedef struct online_view {
     char join_ip[24];
 } online_view;
 enum { OG_JOIN, OG_PLAYING, OG_FULL, OG_OLD };
-typedef struct online_game { char name[32], detail[40]; int players, max_players, status; bool lan; } online_game;
+typedef struct online_game { char name[32], detail[40], platform[12]; int players, max_players, status; bool lan; } online_game;   // platform: "" unknown (0.4.x hosts)
 
 void online_get_view(online_view *v);
 int online_games(online_game *out, int max);   // the browser: server rooms, then games on the local network

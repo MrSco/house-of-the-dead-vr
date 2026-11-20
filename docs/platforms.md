@@ -564,7 +564,10 @@ the sound in the busiest scenes (frames are skipped there, so the picture is les
    Quest's VR shell, so it waits until the split has settled.
 2. **Default mode:** immersive wherever VR is available (Quest, Frame, Vision Pro, a PC with a headset); flat
    elsewhere. The flat picture defaults to **HD**, with Original in GRAPHICS.
-3. **Crossplay:** anyone joins anyone, a platform icon in the room list, no VR-only option.
+3. **Crossplay:** anyone joins anyone, a platform icon in the room list, no VR-only option. *Done (0.5.0): a tag
+   with the host's platform (QUEST, FRAME, ANDROID, PC, PCVR, MAC, IPHONE, IPAD, APPLETV, VISIONPRO) beside each
+   game in the browser, carried in the room's name and the LAN host's name, not in HELLO: the link version stays 3
+   and 0.4.x still lists and joins every game (docs/vr.md, "Online play and voice chat").*
 4. **Steam Frame:** the APK in Lepton for now; a native SteamOS build is not planned.
 5. **macOS:** in scope, after iOS. **Linux:** dropped.
 6. **Distribution:** sideload only, as GoldenEye VR: GitHub releases, and SideStore for iOS.

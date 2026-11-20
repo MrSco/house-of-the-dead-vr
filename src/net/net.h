@@ -105,6 +105,8 @@ bool eng_net_discovering(void);
 void eng_net_discover_autojoin(int on);                  /* headless tests: join the first host found */
 int  eng_net_found_count(void);
 bool eng_net_found(int i, char *label, size_t n, char *addr, size_t an);   /* addr = "ip:port" for eng_net_set_server */
+const char *eng_net_found_name(int i);   /* the host's name as its discovery answer gives it (the start of the label) */
+extern char eng_net_host_label[17];      /* the name this LAN host answers discovery with; "" = the player's (eng_net_set_name) */
 
 /* STALL-AND-WAIT (optional, for a link that cannot tolerate a peer running ahead, e.g. a ring): call before simulating a frame.
  * lead = frames we have sent minus frames received from the slowest peer in the session (0 outside a session). May advance =

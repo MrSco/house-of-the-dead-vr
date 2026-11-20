@@ -45,6 +45,7 @@
 #include "xr.h"
 #include "quest.h"
 #include "vos_bridging.h"
+#include "online.h"
 #include "platform/platform.h"
 
 #define LOGI(...) plat_log(PLAT_LOG_INFO, __VA_ARGS__)
@@ -500,6 +501,7 @@ static void *render_main(void *arg) {
         // game (or the setup page, without a ROM set)
         plat_mkdir(V.files);
         if (chdir(V.files)) LOGE("cannot go into %s", V.files);
+        online_set_platform("VISIONPRO");
         xr_setup(V.files);
         xr_start();
     }

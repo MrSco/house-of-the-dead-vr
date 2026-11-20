@@ -301,6 +301,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
         }
     }
 
+    online_set_platform("PC");          // (PCVR in a headset: xr_win.c)
     if (!flat_app_start(files)) {
         MessageBoxW(NULL, L"The game could not start: see port.log in the files folder.", L"House of the Dead VR", MB_ICONERROR);
         return 1;

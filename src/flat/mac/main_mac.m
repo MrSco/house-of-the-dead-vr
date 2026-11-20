@@ -267,6 +267,7 @@ static void pad_frame(double dt) {
         [al runModal];
         pick_rom();
     }
+    online_set_platform("MAC");
     if (!flat_app_start(A.files)) { [NSApp terminate:nil]; return; }
     CAMetalLayer *layer = (CAMetalLayer *)self.view.layer;
     layer.contentsScale = self.window.backingScaleFactor;

@@ -304,6 +304,7 @@ void android_main(struct android_app *app) {
     snprintf(files, sizeof files, "%s", d ? d : "/sdcard/hotdvr");
     plat_android_set_activity(app->activity);   // (the microphone's permission, the Java activities)
     if (!has_rom(files)) flat_os_import_rom();  // the first start: your ROM set (ImportActivity starts the app again)
+    online_set_platform("ANDROID");
     if (!flat_app_start(files)) { ANativeActivity_finish(app->activity); return; }
     if (online_session()) plat_android_multicast_lock();   // (a LAN host hears its partner's search only so)
     double last = 0;

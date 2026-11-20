@@ -19,6 +19,7 @@
 #include <string.h>
 #include "xr.h"
 #include "quest.h"
+#include "online.h"
 #include "platform/platform.h"
 #include "flat/win/win_app.h"
 
@@ -191,6 +192,7 @@ void xr_win_main(HINSTANCE inst, const wchar_t *files_w, const char *files) {
     wcscpy_s(X.files_w, MAX_PATH, files_w);
     plat_mkdir(files);
     if (plat_chdir(files)) LOGE("cannot go into %s", files);   // port.log, the test switches' files land here
+    online_set_platform("PCVR");     // (the browser's tag; PC on the screen: main_win.c)
     xr_setup(files);
     if (!xr_session() || !xr_gl_init()) {
         LOGE("PCVR: the session could not be made: flat instead");

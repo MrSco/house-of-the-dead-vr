@@ -2,12 +2,13 @@
 // files folder holds arcade/ (the ROM set, hotd.zip or hotd.7z, and its images), save/ (settings and scores),
 // options.cfg (the menu's), online.cfg, port.log and env.txt (KEY=VALUE lines: the switches of the tests).
 //
-// Test switches: FLAT_TEST_ONLINE=seconds,host|hostlan|join:CODE|joinip:IP|leave does that ONLINE action that long
-// after the start (the line is then taken out of env.txt, so the restart it makes doesn't do it again);
-// FLAT_TEST_PLAY=1 plays: coins and Start every few seconds, and shots round the screen, every eighth off it;
-// FLAT_TEST_TALK=1 talks: push to talk, held the whole time (voice frames sent without a voice);
-// FLAT_QUIT_AT=seconds closes the app then; FLAT_MENU_AT=seconds[,tab] opens the menu then (on that tab:
-// quest_menu.h's QMENU_TAB_*); FLAT_SHOT=seconds writes the picture to flat_shot.ppm (flat.c); FLAT_TEST_HIDDEN=1
+// Test switches: FLAT_TEST_ONLINE=seconds,host|hostlan|join:CODE|joinip:IP|game:ROW|leave does that ONLINE action
+// that long after the start (the line is then taken out of env.txt, so the restart it makes doesn't do it again; ROW:
+// a row of the browser, open by QMENU_TEST_SCREEN); FLAT_TEST_PLAY=1 plays: coins and Start every few seconds, and
+// shots round the screen, every eighth off it; FLAT_TEST_TALK=1 talks: push to talk, held the whole time (voice frames
+// sent without a voice); FLAT_QUIT_AT=seconds closes the app then; FLAT_MENU_AT=seconds[,tab] opens the menu then (on
+// that tab: quest_menu.h's QMENU_TAB_*; QMENU_TEST_SCREEN=browse|lan then opens that page of the ONLINE tab);
+// FLAT_SHOT=seconds writes the picture to flat_shot.ppm (flat.c); FLAT_TEST_HIDDEN=1
 // (Windows) never shows the window: the picture is still drawn, for M2_SHOTS and FLAT_SHOT; FLAT_TEST_LOOK (flat.c)
 // looks round as a headset does (with M2_GL_ORDER=0, the headset's depth: the app's own is the arcade's order;
 // FLAT_TEST_NEARFAR=1.818,9091 its depth planes, the Quest's); M2_TEST_RESTART_AT=frame presses RESTART then
@@ -209,6 +210,7 @@ static void test_hooks(void) {
         else if (!strncmp(what, "join:", 5)) online_join_code(what + 5);
         else if (!strncmp(what, "joinip:", 7)) { online_set_join_ip(what + 7); online_join_ip(); }
         else if (!strcmp(what, "leave")) online_leave();
+        else if (!strncmp(what, "game:", 5)) online_join_game(atoi(what + 5));
     }
     static double quit_at = -2, menu_at = -2;
     static int menu_tab = -1;

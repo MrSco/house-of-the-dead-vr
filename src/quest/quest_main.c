@@ -17,6 +17,7 @@
 #include "xr.h"
 #include "quest.h"
 #include "quest_report.h"
+#include "online.h"
 #include "platform/android/android.h"
 #include <errno.h>
 #include <pthread.h>
@@ -324,6 +325,8 @@ void android_main(struct android_app *app) {
         crash_handler(Q.files);
     }
     plat_android_set_activity(app->activity);   // (the microphone's permission: platform/android/mic.c)
+    // the Quest and the Steam Frame run this library: the package tells them apart (the files folder is the package's)
+    online_set_platform(strstr(Q.files, ".frame/") ? "FRAME" : "QUEST");
     xr_setup(Q.files);
     updater_start();
     if (!xr_instance() || !xr_session() || !xr_gl_init()) {

@@ -124,6 +124,19 @@ bundle carries a checksum of main and work RAM (M2Board::state_hash). Player
 gun report). The arcade's rooms have their own game id ("ha", rooms.h), so it
 never meets the PC game's.
 
+The browser shows each game's platform (0.5.0): a tag after its name (QUEST,
+FRAME, ANDROID, PC, PCVR, MAC, IPHONE, IPAD, APPLETV, VISIONPRO), which each
+app's shell sets at its start (online_set_platform; the Quest and Frame by the
+package, Windows by VR or the screen, iOS by the device). It rides in the free
+text the server and the LAN beacon only pass along: a room is named "NAME
+PLATFORM CODE" (24 characters, HELLO's limit: the name gives way, never the
+code), a LAN host answers discovery as "NAME PLATFORM" (16). The code stays the
+last word, where 0.4.x finds it for JOIN BY CODE and QUICK JOIN; 0.4.x shows
+the platform as part of the name, and a 0.4.x host's game shows without a tag.
+Checked on zonesync.net and the LAN with 0.4.2 both ways (browser, code, room
+and IP joins: every checksum matched). PORT_ONLINE_LOG=1 logs the browser's
+rows; QMENU_TEST_SCREEN=browse|lan opens that page with FLAT_MENU_AT.
+
 Joining a game under way (link version 3, 2026-11-16): the guest doesn't run
 the host's frames from its start any more. When it comes, the host saves its
 game after the frame it is at (GameLoop::save_state, runtime/board/state.h:
