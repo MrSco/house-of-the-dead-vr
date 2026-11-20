@@ -28,6 +28,7 @@ typedef struct QMenuHost {
     // HOTDVR.exe (the PC, flat or in a headset): the SYSTEM tab's button to the other mode (QACT_PC_SWITCH: the app
     // starts again in it, and keeps to it); 0 none (every other app), 1 "PLAY IN VR" (flat), 2 "PLAY ON THE SCREEN"
     int pc_switch;
+    int (*def)(int option);              // the app's default for an option (a row's reset); NULL: qopt_defs' own
 } QMenuHost;
 
 typedef struct QMenuInput {

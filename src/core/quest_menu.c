@@ -492,6 +492,7 @@ static const char *row_off(int opt) {
 static void settings_row(const RowDef *r, float y, float h) {
     const int row = ID(K_ROW, r->opt);
     const QOptDef *def = &qopt_defs[r->opt];
+    const int dv = H->def ? H->def(r->opt) : def->def;   // (the app's own default, else the options table's)
     int v = H->get(r->opt);
     // disabled: shown dimmed with why, still focusable (the stick passes through, the help shows), but nothing
     // changes it (clicks, the stick and drags), and its value stays for when it applies again
@@ -544,7 +545,7 @@ static void settings_row(const RowDef *r, float y, float h) {
         if (step_button(minus, x, sy, 52, 52, true)) H->set(r->opt, v - r->step);
         const float TW = 284;   // the track; the value takes the rest of the 550
         hit(track, (int)x + 62, (int)sy, (int)TW, 52);
-        const float p = (float)(v - def->min) / (def->max - def->min), z = (float)(def->def - def->min) / (def->max - def->min);
+        const float p = (float)(v - def->min) / (def->max - def->min), z = (float)(dv - def->min) / (def->max - def->min);
         rrect(x + 62, sy + 22, TW, 8, 4, RAIL);
         rrect(x + 62 + TW * fminf(p, z), sy + 22, TW * fabsf(p - z), 8, 4, EDGE);
         rrect(x + 62 + TW * z - 1, sy + 14, 2, 24, 1, ZERO);
@@ -560,11 +561,11 @@ static void settings_row(const RowDef *r, float y, float h) {
     // reset to the default (Cabinet distance's also the cabinet's side and turn, which only grabbing sets)
     const float bx = CX1 - 18 - 44, by = y + (h - 44) / 2;
     const bool placed = r->opt == QOPT_CAB_DIST && (H->get(QOPT_CAB_SIDE) || H->get(QOPT_CAB_TURN));
-    if ((v != def->def || placed) && !off) {
+    if ((v != dv || placed) && !off) {
         const int id = ID(K_RESET, r->opt); hit(id, (int)bx, (int)by, 44, 44);
         const bool h2 = is_hover(id); rline(bx, by, 44, 44, 12, 2, h2 ? ACCENT : LINE); icon(I_RESET, bx + 22, by + 22, 22, h2 ? ACCENT : MUTED);
         if (clicked(id)) {
-            H->set(r->opt, def->def);
+            H->set(r->opt, dv);
             if (r->opt == QOPT_CAB_DIST) { H->set(QOPT_CAB_SIDE, 0); H->set(QOPT_CAB_TURN, 0); }
         }
     }

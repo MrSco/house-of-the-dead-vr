@@ -125,6 +125,10 @@ static int def_opt[QOPT_COUNT], def_set[QOPT_COUNT];
 void flat_app_default(int o, int v) {
     if (o >= 0 && o < QOPT_COUNT) { def_opt[o] = v; def_set[o] = 1; }
 }
+int flat_opt_default(int o) {
+    if (o < 0 || o >= QOPT_COUNT) return 0;
+    return def_set[o] ? def_opt[o] : qopt_defs[o].def;
+}
 
 int flat_app_start(const char *files_dir) {
     extern int arcade_flat;

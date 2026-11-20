@@ -40,6 +40,7 @@ static QMenuHost host(void) {
     QMenuHost h;
     memset(&h, 0, sizeof h);
     h.get = flat_opt_get;
+    h.def = flat_opt_default;
     h.set = flat_opt_set;
     h.action = menu_action;
     h.saved = true;

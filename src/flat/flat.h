@@ -56,6 +56,7 @@ void flat_gyro(float rate_right, float rate_up, double dt);
 
 // ---- the settings (flat_app.c: options.cfg, the menu's)
 int flat_opt_get(int option);
+int flat_opt_default(int option);       // the default this app gives it (flat_app_default, else qopt_defs')
 void flat_opt_set(int option, int value);
 
 // ---- what each front end provides
