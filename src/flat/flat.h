@@ -41,6 +41,7 @@ enum { FLAT_KEY_UP, FLAT_KEY_DOWN, FLAT_KEY_LEFT, FLAT_KEY_RIGHT, FLAT_KEY_ENTER
 void flat_menu_key(int key);            // a key pressed while it is open (FLAT_KEY_BACK: Esc, which also closes it)
 void flat_menu_mouse(int x, int y, int button_down);   // window pixels
 void flat_menu_draw(int w, int h);      // (flat_draw calls it)
+void flat_menu_tv(int on);              // Apple TV's layout (src/flat/tvos): the remote's wording, its GAME rows, no QUIT
 
 // ---- gyro aim (flat_app.c; the GAME tab's Gyro aim, touch screens): the device's turn rates about the screen's own
 // axes (radians a second, right-handed: up = turning left, right = tilting the top towards you) move the sight

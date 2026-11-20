@@ -147,6 +147,21 @@ static const RowDef TOUCH_ROWS[] = {
     { QOPT_GYRO_SPEED, "Gyro speed", "How far the sight goes for a turn", "100%: a turn of about 40 degrees crosses the picture.",
       T_SLIDER, { 0 }, 0, 25, "%", false },
 };
+// ...on Apple TV: the Siri Remote's touch surface moves the sight, at this speed
+static const RowDef TV_ROWS[] = {
+    { QOPT_PICTURE, "Picture", "How the game is drawn",
+      "HD: the game's 3D drawn sharp at your TV's resolution. ORIGINAL: at the arcade's own 496 x 384, its pixels scaled up.",
+      T_SEG, { "HD", "ORIGINAL" }, 2, 1, "", false },
+    { QOPT_CROSSHAIR, "Crosshair", "The game's sight where you aim",
+      "ON: the game shows where you aim, as its two-player sights do. OFF: none (hard with a remote).",
+      T_SEG, { "ON", "OFF" }, 2, 1, "", false },
+    { QOPT_BRIGHTNESS, "Brightness", "Lift the game's dark shadows",
+      "0%: the 3D as the arcade drew it, its darkest quarter black (a cabinet's monitor was turned up to light it). More raises the black level and lifts the shadows; whites stay white. The HUD is not changed.",
+      T_SLIDER, { 0 }, 0, 10, "%", false },
+    { QOPT_REMOTE_SPEED, "Remote speed", "How far the sight goes for a swipe",
+      "100%: a slow swipe across the remote's touch surface moves the sight about half the picture; a quick one goes further.",
+      T_SLIDER, { 0 }, 0, 25, "%", false },
+};
 static const RowDef SYSTEM_ROWS[] = {
     { QOPT_VOLUME, "Game volume", "Everything the game plays", "All of the game's sound: music, voices and guns. Voice chat isn't in it.",
       T_SLIDER, { 0 }, 0, 5, "%", false },
@@ -318,6 +333,7 @@ static const char *const KEYS_STICK[] = { "STICK", "move", "A", "select", "B", "
 static const char *const KEYS_MOUSE[] = { "CLICK", "select", "ESC", "back", "TAB", "tabs" };
 static const char *const KEYS_TOUCH[] = { "TAP", "select", "BACK", "back", "TAB", "tabs" };
 static const char *const KEYS_ARROWS[] = { "ARROWS", "move", "ENTER", "select", "ESC", "back", "TAB", "tabs" };
+static const char *const KEYS_REMOTE[] = { "SWIPE", "move", "CLICK", "select", "MENU", "back", "PLAY", "resume" };
 // the tabs a build shows: the flat apps have no VR settings
 static bool tab_shown(int t) { return !H || !H->flat || t == QMENU_TAB_GRAPHICS || t == QMENU_TAB_SYSTEM || t == QMENU_TAB_ONLINE; }
 static int next_tab(int t, int d) {
@@ -333,7 +349,7 @@ static void header(void) {
         const char *t = "SAVING FAILED - settings not kept"; const int w = width(UI_B16, t) + 28;
         rrect(right - w, 26, w, 30, 15, WARN); text(UI_B16, right - w + 14, 47, t, WARNINK);
     } else {
-        const char *const *k = H->flat ? (stick_mode ? KEYS_ARROWS : H->touch ? KEYS_TOUCH : KEYS_MOUSE) : stick_mode ? KEYS_STICK : KEYS_LASER;
+        const char *const *k = H->tv ? KEYS_REMOTE : H->flat ? (stick_mode ? KEYS_ARROWS : H->touch ? KEYS_TOUCH : KEYS_MOUSE) : stick_mode ? KEYS_STICK : KEYS_LASER;
         const int n = stick_mode ? 4 : H->touch ? 2 : 3;
         float x = right - kbd_width(k, n); for (int i = 0; i < n; i++) kbd(&x, 47, k[i * 2], k[i * 2 + 1]);
     }
@@ -437,11 +453,13 @@ static void footer(void) {
                             "Closes the app. Your settings and the game's saves are kept." };
     const int icons[5] = { I_PLAY, I_RECENTER, I_KEYS, I_RESET, I_CROSS };
     tips[2] = H->flat ? "The mouse, the keys and this menu." : tips[2];
-    const int nb = H->flat ? 4 : 5;
+    if (H->tv) { tips[0] = "Back to the game. Play/Pause does the same."; tips[2] = "The Siri Remote, game pads and this menu."; }
+    const int nb = H->tv ? 3 : H->flat ? 4 : 5;   // (Apple TV: no QUIT; Menu here goes to the Home screen)
     const float y = FOOT_Y + 46, h = QMENU_H - 3 - 16 - y, unit = (CW + 4 - 12 * (nb - 1)) / (nb + 0.1f);
     float x = 27;
     for (int i = 0; i < 5; i++) {
         if (H->flat && i == 1) continue;   // (RECENTER: nothing to recenter on a screen)
+        if (H->tv && i == 4) continue;     // (QUIT: an Apple TV app is left by the Menu button, not quit)
         const int id = ID(K_FOOT, i); const float w = i == 0 ? unit * 1.1f : unit;
         hit(id, (int)x, (int)y, (int)w, (int)h); focusable(id, F_BUTTON, (int)(x + w / 2)); say_help(id, tips[i]);
         const bool hot = is_hover(id) || is_focus(id), gold = i == 0, danger = i == 4;
@@ -897,6 +915,26 @@ static void controls_page_flat(void) {
     text(UI_B32, x + 32, y + 26 + 30, "CONTROLS", ACCENT);
     const float lx = x + 32, rx = x + 600, lw = 530, rw = w - 600 - 32;
     float ly = y + 96, ry = y + 96;
+    if (H->tv) {
+        text(UI_B20, lx, ly, "SIRI REMOTE", ACCENT); ly += 12;
+        controls_row(lx, &ly, lw, "Swipe the touch surface", "Move the sight (a quicker swipe goes further)");
+        controls_row(lx, &ly, lw, "Click", "Shoot. Off the picture: reload");
+        controls_row(lx, &ly, lw, "Play/Pause", "Reload");
+        controls_row(lx, &ly, lw, "Play/Pause, held", "Coins and Start; skip a scene");
+        controls_row(lx, &ly, lw, "Menu / Back", "This menu (the game pauses, not online)");
+        controls_row(lx, &ly, lw, "In this menu", "Swipe: move \xC2\xB7 click: choose \xC2\xB7 Menu: back, then Home");
+        text(UI_B20, rx, ry, "GAME PADS", ACCENT); ry += 12;
+        controls_row(rx, &ry, rw, "Either stick", "Move the sight");
+        controls_row(rx, &ry, rw, "R2 / R1", "Shoot");
+        controls_row(rx, &ry, rw, "L2 / L1 / X", "Reload");
+        controls_row(rx, &ry, rw, "A / Menu", "Coins and Start");
+        controls_row(rx, &ry, rw, "Options", "This menu");
+        const float bw = 180;
+        if (button(ID(K_MBTN, 1), x + w - 32 - bw, y + h - 26 - 52, bw, 52, "CLOSE", UI_B22, 1, NULL)) modal = M_NONE;
+        focusable(ID(K_MBTN, 1), F_BUTTON, (int)(x + w - 32 - bw / 2));
+        next_row();
+        return;
+    }
     if (H->touch) {
         text(UI_B20, lx, ly, "TOUCH", ACCENT); ly += 12;
         controls_row(lx, &ly, lw, "Tap the picture", "Shoot there. Off the picture: reload");
@@ -1058,7 +1096,9 @@ static void restore_base(void) {
 }
 static void layout(int which) {
     pass = which; nhits = 0; nfoci = 0; frow = 0;
-    if (H->flat)
+    if (H->tv)
+        snprintf(help, sizeof help, "%s", "Swipe: move and change \xC2\xB7 Click: select \xC2\xB7 Menu: back (here: the Home screen) \xC2\xB7 Play/Pause: resume");
+    else if (H->flat)
         snprintf(help, sizeof help, "%s", stick_mode ? "Arrows: move and change \xC2\xB7 Enter: select \xC2\xB7 Esc: back \xC2\xB7 Tab: tabs"
                                           : H->touch ? "Tap anything." : "Point at anything and click.");
     else
@@ -1076,6 +1116,7 @@ static void layout(int which) {
         else settings(VIEW_ROWS, sizeof VIEW_ROWS / sizeof *VIEW_ROWS);
     }
     else if (tab == QMENU_TAB_COMFORT) settings(COMFORT_ROWS, sizeof COMFORT_ROWS / sizeof *COMFORT_ROWS);
+    else if (tab == QMENU_TAB_GRAPHICS && H->tv) settings(TV_ROWS, sizeof TV_ROWS / sizeof *TV_ROWS);
     else if (tab == QMENU_TAB_GRAPHICS && H->flat && H->touch) settings(TOUCH_ROWS, sizeof TOUCH_ROWS / sizeof *TOUCH_ROWS);
     else if (tab == QMENU_TAB_GRAPHICS && H->flat) settings(PICTURE_ROWS, sizeof PICTURE_ROWS / sizeof *PICTURE_ROWS);
     else if (tab == QMENU_TAB_GRAPHICS) settings(GRAPHICS_ROWS, sizeof GRAPHICS_ROWS / sizeof *GRAPHICS_ROWS);
@@ -1163,6 +1204,7 @@ static void online_refresh_view(double now) {
 }
 void qmenu_update(const QMenuHost *host, const QMenuInput *in) {
     H = host;
+    if (H->tv) stick_mode = true;   // (Apple TV: no pointer, the focus always shows)
     online_refresh_view(in->now);
     ev_click = ev_adjust = ev_drag = 0; ev_adjust_dir = 0;
     // the laser

@@ -1,0 +1,73 @@
+# House of the Dead VR for Apple TV: the xcodegen project (scripts/build_tvos.py makes and builds it on the Mac), as
+# src/flat/ios/project.yml is the iPhone and iPad one.
+#
+# CMake builds everything into static libraries in build_tvos/<slice> (cmake/flat_apple.cmake, the tvOS front end
+# src/flat/tvos/main_tvos.m), merged into libhotdvr_all.a; this is only the app around them: Info.plist, the icons,
+# ANGLE's Apple TV frameworks, Apple's frameworks and the signing. Generated, never edited:
+# src/flat/tvos/HouseOfTheDeadVR.xcodeproj is git-ignored.
+#
+# From the environment (build_tvos.py sets them):
+#   ANGLE_DIR          ANGLE's one place on the Mac (~/angle): its xcframeworks-tvos
+#   HOTD_LIBS          build_tvos (the libraries: build_tvos/simulator, build_tvos/device)
+#   HOTD_VERSION       the Quest app's versionName
+#   HOTD_BUILD         its versionCode
+#   DEVELOPMENT_TEAM   your Apple team id, for a signed device build
+name: HouseOfTheDeadVR
+options:
+  bundleIdPrefix: com.mrsco
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: "${DEVELOPMENT_TEAM}"
+    TVOS_DEPLOYMENT_TARGET: "17.0"
+    CLANG_ENABLE_OBJC_ARC: "YES"
+    ENABLE_BITCODE: "NO"
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    ENABLE_DEBUG_DYLIB: "NO"
+    # arm64 only: the libraries (and ANGLE) have no Intel simulator slice
+    EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+    HOTD_SLICE: device
+    HOTD_SLICE[sdk=appletvsimulator*]: simulator
+    LIBRARY_SEARCH_PATHS:
+      - "${HOTD_LIBS}/$(HOTD_SLICE)"
+targets:
+  HouseOfTheDeadVR:
+    type: application
+    platform: tvOS
+    sources:
+      # the app's one source of its own: main() is the libraries' (src/flat/tvos/main_tvos.m)
+      - path: ../ios/stub.c
+      # the home screen's layered icon and the Top Shelf (scripts/make_icons.py tvos)
+      - path: Assets.xcassets
+      - path: PrivacyInfo.xcprivacy
+    settings:
+      base:
+        SDKROOT: appletvos
+        TARGETED_DEVICE_FAMILY: "3"
+        # the same App Store Connect app as the iPhone and iPad one
+        PRODUCT_BUNDLE_IDENTIFIER: com.mrsco.hotdvr
+        PRODUCT_NAME: HouseOfTheDeadVR
+        INFOPLIST_FILE: Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        MARKETING_VERSION: "${HOTD_VERSION}"
+        CURRENT_PROJECT_VERSION: "${HOTD_BUILD}"
+        # -ObjC: the app and scene delegates are only named at run time (as the iPhone app's)
+        OTHER_LDFLAGS: "-ObjC -lhotdvr_all -lc++ -lobjc"
+    dependencies:
+      # ANGLE supplies every gl* and egl* call: its Apple TV slices
+      - framework: "${ANGLE_DIR}/xcframeworks-tvos/libGLESv2.xcframework"
+        embed: true
+        codeSign: true
+      - framework: "${ANGLE_DIR}/xcframeworks-tvos/libEGL.xcframework"
+        embed: true
+        codeSign: true
+      - sdk: Foundation.framework
+      - sdk: UIKit.framework
+      - sdk: QuartzCore.framework
+      - sdk: CoreGraphics.framework
+      - sdk: CoreImage.framework
+      - sdk: Metal.framework
+      - sdk: AVFoundation.framework
+      - sdk: AudioToolbox.framework
+      - sdk: CoreAudio.framework
+      - sdk: GameController.framework
