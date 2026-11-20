@@ -478,7 +478,9 @@ static void *render_main(void *arg) {
             in.focused = 1;
             in.head_ok = head_ok || s_h0 >= 0;
             put_m(in.head, mid);
-            in.floor_y = local.columns[3].y;
+            // the floor: ARKit's origin is on it (the head's first height over it), except where that height is
+            // implausible (the simulator's head is at the origin): then a standing player's 1.6 m under the eyes
+            in.floor_y = s_h0 >= 0.5f ? local.columns[3].y : -1.6f;
             in.ipd = nviews == 2 ? simd_distance(eye[0].columns[3].xyz, eye[1].columns[3].xyz) : 0;
             in.hz = (int)(1.0f / period + 0.5f);
             in.hands_ok = s_hands_on;
