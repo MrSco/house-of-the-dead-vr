@@ -75,6 +75,7 @@ static void put(float *m, const Frame *f, float s) {
 // nothing to say how tall they stand, and a small figure's arms came up well short of a grown player's hands)
 #define UNIT_MIN 0.088f                   // metres a unit: eyes at 1.61 m ...
 #define UNIT_MAX 0.110f                   // ... to 2.01 m
+#define STAND_BAND 0.10f                  // of the standing height: the figure stands straight within it
 #define STEP_FAR 2.4f                     // a foot steps once it is this far from under its hip (units) ...
 #define STEP_TURN 0.7f                    // ... or turned this far from the body (radians)
 #define STEP_TIME 0.22f                   // seconds
@@ -101,13 +102,17 @@ void avatar_solve(Avatar *a, const AvatarPose *in, float dt, float part[M2_FIGUR
     // the head's axes (figure space: the avatar's with z negated)
     const V hl = v(-h[0], -h[1], h[2]), hu = v(h[4], h[5], -h[6]), hf = v(-h[8], -h[9], h[10]);
     // the size: by the neck's height when standing (the eyes' less what the head's own turn gives them, so that
-    // looking down or up changes nothing), followed up at once and down slowly (a player who sits, or a short one);
-    // a figure smaller than its least stands with its feet under the floor rather than crouching for good
+    // looking down or up changes little), followed up over a second and down slowly (a player who sits, or a short
+    // one); a figure smaller than its least stands with its feet under the floor rather than crouching for good.
+    // That height is only what the head has been seen at, and it erred high (a headset lifted to be put on, a head
+    // turned down to look at the body: the figure then stood with its knees bent, the player standing straight). So
+    // it is taken up slowly, a moment that high leaving little, and the figure stands straight anywhere in the top
+    // STAND_BAND of it, a little smaller, before its knees bend.
     const float neck_m = h[13] - 0.09f * (hf.y * EYE_AHEAD + hu.y * EYE_UP);
     if (!a->started) a->top = neck_m > 1.1f ? neck_m : 1.1f;
-    if (neck_m > a->top) a->top = neck_m;
+    if (neck_m > a->top) a->top += (neck_m - a->top) * (dt > 0 ? 1 - expf(-dt / 1.0f) : 0);
     else a->top += (neck_m - a->top) * (dt > 0 ? 1 - expf(-dt / 120.0f) : 0);   // (minutes: a crouch is not a seat)
-    const float s = clampf(a->top / NECK, UNIT_MIN, UNIT_MAX);
+    const float s = clampf(clampf(neck_m, a->top * (1 - STAND_BAND), a->top) / NECK, UNIT_MIN, UNIT_MAX);
     const float floor_y = a->top < UNIT_MIN * NECK ? (a->top - UNIT_MIN * NECK) / s : 0;
 
     // the head (in units)
