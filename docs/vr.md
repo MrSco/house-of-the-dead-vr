@@ -260,7 +260,11 @@ the body; the body's heading follows the head's, drawn half way to where the han
 from shoulder to wrist with the elbow down, out and back; each foot stays planted and steps after its hip once it is
 21 cm or 40 degrees away, one at a time; a head that comes down bends the knees. The figure's size is set by the
 player's own (the neck's height standing: 8.8 to 11 cm a unit: never smaller than an adult of average height, whose arms a seated player's hands would outreach); a player lower than that for long (seated) gets a
-figure standing with its feet under the floor rather than squatting for the whole game. tests/app/test_avatar.cpp
+figure standing with its feet under the floor rather than squatting for the whole game. That height is only what
+the head has been seen at, and it erred high (0.7.0: a headset lifted to be put on, a look down at the body, and the
+figure stood with bent knees under a player standing straight): it is now taken up over a second, the figure stands
+straight anywhere in the top 10% of it (a little smaller) before its knees bend, and recentering starts your own
+figure anew. The log says every 30 s what the size is made from (`body: head ... standing height ...`). tests/app/test_avatar.cpp
 holds the solver to the skeleton in six moving poses (every joint where its parent has it, the eyes and wrists
 where the pose has them, the feet on the floor).
 

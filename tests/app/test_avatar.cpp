@@ -109,6 +109,23 @@ int main() {
             }
         }
     }
+    // a head seen too high for a while (a headset lifted to be put on, 15 cm), then the player standing as they do:
+    // the figure stands straight, not with its knees bent under a height it was never
+    {
+        Avatar av{};
+        float part[M2_FIGURE_PARTS][16];
+        int draw[M2_FIGURE_PARTS];
+        for (int frame = 0; frame < 72 * 6; frame++) {
+            AvatarPose p{};
+            head(p, 0, frame < 72 * 2 ? 1.81f : 1.66f, 0, 0, 0);
+            avatar_solve(&av, &p, frame ? 1.0f / 72.0f : 0.0f, part, draw);
+        }
+        const float s = std::sqrt(part[0][0] * part[0][0] + part[0][1] * part[0][1] + part[0][2] * part[0][2]);
+        const float leg = dist(origin(part[M2_FIGURE_THIGH_L]), origin(part[M2_FIGURE_FOOT_L])) / s;
+        check(leg > 9.0f, "a standing leg after a head seen too high", 6, 0, leg);
+        const float y = part[M2_FIGURE_FOOT_L][13] / s;
+        check(y > 0.55f && y < 0.6f, "its foot on the floor", 6, 0, y);
+    }
     // the figure's own hands on a tracked arm (avatar_wrist, avatar_hand): the hand stays where the solver put it,
     // at the figure's scale; the gun hand's barrel (its model's -y, 0.375 to its -x and 0.7 up its z) lies on the
     // aim's ray, whichever hand holds it; the open hand's fingers (+x) point ahead, its thumb (+y) up

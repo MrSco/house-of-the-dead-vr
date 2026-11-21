@@ -1874,6 +1874,14 @@ static void my_body(float dt) {
     }
     if (!was) memset(&BODY.av, 0, sizeof BODY.av);
     avatar_solve(&BODY.av, &ap, was ? dt : 0, BODY.part, BODY.draw);
+    {   // (the log, now and then: what the figure's size is made from)
+        static XrTime said;
+        if (S.now - said > 30000000000LL || !was) {
+            said = S.now;
+            LOGI("body: head %.2f m over the floor, standing height %.2f, %.1f cm a unit", ap.head[13], BODY.av.top,
+                 100 * sqrtf(BODY.part[0][0] * BODY.part[0][0] + BODY.part[0][1] * BODY.part[0][1] + BODY.part[0][2] * BODY.part[0][2]));
+        }
+    }
     for (int i = 0; i < M2_FIGURE_PARTS; i++) mat_mul(BODY.part[i], st, BODY.part[i]);
     BODY.draw[M2_FIGURE_HEAD] = 0;
     BODY.on = 1;
@@ -2614,6 +2622,7 @@ static void recenter(void) {
     // the head in the new world: at the origin, facing -z
     memset(S.head_m, 0, sizeof S.head_m); S.head_m[0] = S.head_m[5] = S.head_m[10] = S.head_m[15] = 1;
     S.cab_dirty = 1;
+    BODY.on = 0;                            // (your figure anew: its size from how you stand now)
     LOGI("recentered");
 }
 static void menu_place(void) { facing_pose(S.menu_m, -0.15f, MENU_DIST); }
