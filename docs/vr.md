@@ -216,6 +216,104 @@ The VIEW tab's Cabinet room setting (QOPT_ROOM) picks what surrounds the cabinet
 Player 2 online gets the cabinet's blue gun (arcade-gun-blue.tcgun, from export.py like the red one). Its cord runs to
 the blue gun's holster, the model's left one.
 
+## Your partner's body online (2026-11-21)
+
+Online, a headset drew its partner as their guns and hands alone. Now they stand beside you as the game's own agent:
+Rogan for player 1, G for player 2, their head, arms and legs following the player's.
+
+**The figures are the game's.** Its attract intro shows both agents (Rogan in his coat about frame 2300, G in his
+suit about 2500; the man in sunglasses after them is neither). The Model 2 has no skinning: an agent is 19 rigid
+models, each drawn with a matrix of its own (the pelvis, two front flaps, per leg a thigh, shin, foot and toes, the
+chest, Rogan's coat, the head, per arm an upper arm, forearm and hand), each followed by its shadow on the floor.
+`tools/m2figure` lists a frame's models with their matrices and reads each back from the model ROM
+(`rt::Geo::model`: all its polygons in its own space, where the frame's display list has only the ones facing the
+camera; the geometrizer's object record now keeps the texture addresses and count that needs).
+
+**One skeleton, exact.** Over 180 frames each child's origin sits at the same point of its parent's space to the
+last digit, the same for both agents: every model's origin is its joint (src/xr/quest_avatar.c has the table). A
+bone runs along its model's x; knees and elbows hinge about z. Lengths in game units: thigh 4.527, shin 4.755,
+upper arm 3.093, forearm 2.629, waist to neck 3.8; the ankle is 0.56 over the floor, so the neck stands 17.3 high
+and a unit is about 9 cm for a player of average height.
+
+**Two things the display list doesn't give as models.** Rogan's coat is a mesh animated by the frame (50 models
+0x241 words apart from 0x828661, looping every 100 frames): the figure wears the one drawn at its frame, tilted
+back 0.1 rad so the seat of his trousers doesn't cut through it at rest. G's waist is not in the ROM at all: the
+game joins his chest to his pelvis with 16 triangles it writes into polygon RAM every frame, from the pelvis's top
+ring of points to the chest's bottom ring. `make_figures` reads that ring at G's frame and sorts its corners by
+which model they belong to (the chest's are the chest model's own points); the renderer moves each with its own
+part, so the ring stretches as the game's does.
+
+**Made on the headset, like the courtyard.** The figures are the game's data, so the app can't carry them:
+`make_figures` (arcade.cpp) runs a second game without sound through the attract mode to those two frames (2.4 s
+on the PC), on the courtyard's thread after it, and writes files/arcade/figures3.m2f: each part's triangles
+(M2Vert, with the polygon's normal and light), texture RAM (the same at both frames), the luma and the colour
+tables. A new ROM set's images make it again. The flat apps don't make it (they never draw a partner).
+
+**Drawn with the game's shading.** m2_gl.c's figure program is the world's fragment shader behind a vertex shader
+that does the geometrizer's part as the figure turns: the polygon's luma from its normal (|n . light| x diffuse +
+ambient, where the light and the eye are on the same side), and its back-face test (a polygon facing away goes to a
+point). Finest texture level, real depth, after the world as the guns are.
+
+**Posed from three points** (quest_avatar.c, `avatar_solve`): the head and the two wrists. The neck hangs under the
+eyes by the head's own turn; the hips follow the neck with a lag, so a quick lean bends the spine and a step moves
+the body; the body's heading follows the head's, drawn half way to where the hands are held; each arm is two bones
+from shoulder to wrist with the elbow down, out and back; each foot stays planted and steps after its hip once it is
+21 cm or 40 degrees away, one at a time; a head that comes down bends the knees. The figure's size is set by the
+player's own (the neck's height standing: 8.8 to 11 cm a unit: never smaller than an adult of average height, whose arms a seated player's hands would outreach); a player lower than that for long (seated) gets a
+figure standing with its feet under the floor rather than squatting for the whole game. tests/app/test_avatar.cpp
+holds the solver to the skeleton in six moving poses (every joint where its parent has it, the eyes and wrists
+where the pose has them, the feet on the floor).
+
+**No mixing: a body has its own hands.** The game has two hand models: an open left hand (each agent's own;
+fingers along +x, thumb +y, palm -z) and one right hand for both agents with the game's pistol in it (0x8e7f31, the
+model after the right forearm's shadow: the wrist at the origin, the barrel along -y beside and over it, the gun's
+top +z). On a figure, a hand with a gun is that model, its barrel on the player's aim (mirrored in a left hand); a
+hand without is the open hand (the right: the left mirrored), fingers along the aim, thumb up. They sit at the
+forearm's end, turned as the player's hand is (`avatar_wrist`, `avatar_hand`). The player's own gun model is not
+drawn then: no slide, no flash, no magazine base, no fingers moving, and the pistol whatever gun they chose. An arm
+with no hand to follow hangs with the open hand on it.
+
+**The settings** (xr_shell.c `my_hands`, `my_body`, `draw_partner`):
+- VIEW > Your body (`your_body`, on by default), online or not: your player's agent (Rogan for player 1 and alone,
+  G for player 2) solved as a partner's is, from your head and what your hands hold, on the floor under you, drawn
+  without its head (your eyes are inside it), with its own hands and pistol.
+- HANDS > Your hands (`your_hands`; QPHANDS_*), for when Your body is OFF (the row is dimmed while it is on): MODERN,
+  the app's hands and the gun you chose; ORIGINAL, the agent's hands and pistol alone at your controllers (9 cm to
+  the game's unit); NONE, your gun alone.
+- VIEW > Partner (`partner_body`; QPARTNER_*): BODY (the default), their figure with its own hands and pistol,
+  whatever they have set; HANDS, no figure, their hands and gun alone as they have their own: each app sends how
+  its player's hands are (the pose block's last byte: ORIGINAL with their body on, else their Your hands). An app
+  that doesn't say (0.6.1) is MODERN. A partner on a screen shows only with BODY.
+Until the figures' file is made, everything is the app's hands.
+
+**The game's pistol in play.** It has no parts that move, so it does what the cabinet's gun does: the whole gun, the
+hand with it, kicks back and up on a shot and comes back with the slide pulled by hand (`kick_pose`, quest_gun.c's
+own numbers), and flashes at its muzzle (`qgun_draw_flash`). The magazine's base plate, the dropped magazine, where
+a magazine goes in and where the sight starts are the pistol's own points (AVATAR_GUN_GRIP_*, AVATAR_GUN_MUZZLE_Z,
+through `gun_grip_base`, `gun_muzzle_z`). A player's arm longer than the figure's grows to the wrist (up to 1.5:
+`AvatarPose.stretch`), so the hand stays on the arm at full reach.
+
+**The pose block** (xr_shell.c) grew by the head, 14 bytes after the two hands, and one byte for how the player
+has their own hands (63 of ONLINE_POSE_MAX's 64), same version byte. 0.6.1 and before send 48 bytes and read no more of a longer block, so old and new still draw each
+other's guns and hands; a new app gives an old one's player a head made up from where their hands are.
+
+**A partner on a screen** (Windows, a Mac, a phone, a tablet, a TV) has no head or hands to send, and sends no
+pose. They stand there all the same (`partner_stand_in`): the lockstep's own input says where their gun aims
+(`host_player_aim`, the crosshair's pixel), so the figure holds the cabinet's gun in their colour two-handed at eye
+height and aims it at that point (on the cabinet's screen in the cabinet view; along that pixel's ray into the
+world in the immersive view), the head turned that way. Off the screen (their reload) or out of the game, the gun
+is lowered and the left arm hangs. Their shots kick the slide and flash by the game's own count of them
+(`host_player_events`). Nothing changes in the flat apps, and it works against 0.6.1 on a screen.
+
+Tests on a PC without a headset (HOTDVR.exe, flat): `M2_FIGURES=1` makes the figures' file on a screen too, and
+`FLAT_TEST_AVATAR=pose[,turn[,distance]]` draws both figures over the picture in one of six poses
+(`FLAT_TEST_AVATAR_PARTS`: only some parts; `FLAT_TEST_AVATAR_HANDS=1`: the figures' own hands on the tracked
+arms, the right one's with the gun; `FLAT_SHOT` for the picture). Checked that way: both figures textured and whole
+from every side, standing, aiming, crouching, reaching, stepping about; the original hands in the aiming pose, the
+pistol upright in the right hand and pointing ahead. **Not checked in a headset yet:** the partner beside you in VR,
+where the forearm meets the hand model's sleeve, Your body (how the collar and chest sit under your eyes when you look down), the hands' and
+Partner's choices there (the menu's rows among them), and the stand-in's aim against a real flat partner.
+
 ## In play or not (the game's RAM)
 
 The reload gestures need to know when the game takes shots: not on the title screen, in the attract demo or in a
@@ -259,5 +357,5 @@ writes the gesture's step there instead.
 1. Play it in the headset: the gun's aim and hits, reloads, the sound, the HUD
    overlay, the world's scale (QUEST_SCALE; 0.11 m a unit assumed, the PC
    port's), and the gaps in the sky dome's edge and below.
-2. Two headsets online: the partner's gun in view, voice.
+2. Two headsets online: the partner's figure, gun and hands in view, voice.
 3. The game's idle loop (spin skip) for headroom.

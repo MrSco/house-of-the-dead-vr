@@ -76,6 +76,32 @@ void m2_gl_draw_face(const float *proj, float eye_x);
 int m2_gl_backdrop_ready(void);
 void m2_gl_draw_backdrop(const float *mvp);
 
+// The players' figures (arcade.cpp make_figures: the game's two agents, each a set of rigid parts read from the
+// player's ROM set; quest_avatar.c poses them): 0 Rogan (player 1), 1 G (player 2). A part's space is the game's
+// model's own, in the game's units.
+enum {
+    M2_FIGURE_PELVIS, M2_FIGURE_FLAP_L, M2_FIGURE_FLAP_R,
+    M2_FIGURE_THIGH_L, M2_FIGURE_SHIN_L, M2_FIGURE_FOOT_L, M2_FIGURE_TOE_L,
+    M2_FIGURE_THIGH_R, M2_FIGURE_SHIN_R, M2_FIGURE_FOOT_R, M2_FIGURE_TOE_R,
+    M2_FIGURE_CHEST, M2_FIGURE_COAT, M2_FIGURE_HEAD,
+    M2_FIGURE_ARM_L, M2_FIGURE_FORE_L, M2_FIGURE_HAND_L,
+    M2_FIGURE_ARM_R, M2_FIGURE_FORE_R, M2_FIGURE_HAND_R,
+    M2_FIGURE_WAIST,    // between the pelvis and the chest (m2_gl_figure_waist; G's: Rogan's chest reaches his pelvis)
+    // the game's own right hand, its pistol in it (one model, both agents'): the wrist at its origin, the barrel
+    // towards -y, the gun's top towards +z; mirrored in x it is a left hand's
+    M2_FIGURE_GUN_HAND,
+    M2_FIGURE_PARTS
+};
+// 1 once the figures' file is loaded (VR thread; it is made at the first start, some seconds in)
+int m2_gl_figures_ready(void);
+// A figure's parts: between begin (the eye's projection and view, column-major) and end, each part with model =
+// world <- the part's space (column-major 4x4: a turn, one scale, and it may mirror). Lit from above as the part
+// turns, at its real depth, back faces dropped as the geometrizer drops them.
+void m2_gl_figure_begin(const float *proj, const float *view);
+void m2_gl_figure_part(int figure, int part, const float *model);
+void m2_gl_figure_waist(int figure, const float *pelvis, const float *chest);   // (those two parts' models)
+void m2_gl_figure_end(void);
+
 #ifdef __cplusplus
 }
 #endif

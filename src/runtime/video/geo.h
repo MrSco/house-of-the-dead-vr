@@ -143,12 +143,29 @@ public:
     // Every model drawn this frame (geo_object_data): its address and the matrix it was drawn with (model -> camera,
     // MAME's 3 x 4: x' = m0 x + m3 y + m6 z + m9 ...), in its window. The scenery's stays put in the world, so from
     // one frame to the next its matrices change as the camera moves (a headset's comfort: arcade.cpp).
+    // (tpa, tha, count, mode: the object command's texture point and header addresses and its polygon count, and the
+    // geometrizer's mode then: what model() needs to read the model again.)
     struct Object {
         uint32_t address;
         uint8_t window;
         float m[12];
+        uint32_t tpa = 0, tha = 0, count = 0, mode = 0;
     };
     std::vector<Object> objects;
+    // One polygon of a model as its ROM has it, in the model's own space (no matrix, no focus, no culling, no light):
+    // 3 or 4 points in the rasterizer's order with their texture coordinates (GeoVertex's pu, pv), its normal, its
+    // texture header, and its texture parameters as they are now (diffuse and ambient: luma = |n . light| x diffuse +
+    // ambient, 0-255). For drawing a figure's parts where the game doesn't (the VR app's partner: core/avatar.cpp).
+    struct ModelPoly {
+        uint8_t n = 0;
+        bool two_sided = false;
+        float v[4][3], uv[4][2], normal[3];
+        uint16_t texheader[4];
+        float diffuse = 0, ambient = 0;
+    };
+    // An object's polygons (those the rasterizer would draw from some side), after parse. False: its model is not
+    // where it was (polygon RAM written since) or runs off its memory.
+    bool model(const Object &o, std::vector<ModelPoly> &out);
     bool record_pushes = false;
 
     struct plane {

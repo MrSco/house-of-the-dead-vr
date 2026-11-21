@@ -221,6 +221,47 @@ static const char *FS =
     "  o = vec4(to_linear(pow(x, vec3(lift))), 1.0);\n"
     "}\n";
 
+// The players' figures (m2_vr.h m2_gl_figure_*; arcade.cpp make_figures): a part's polygons in its own space with
+// their normals (in depth, prio and key) and light (more.x: diffuse, ambient << 8, two-sided << 16). The luma is the
+// geometrizer's (geo_parse_nn_ns: |n . light| x diffuse + ambient where the light and the eye are on the same side),
+// made here as the part turns; a polygon facing away is dropped as check_culling drops it (n . (p - eye) < 0 at its
+// first corner, which every corner of a textured polygon carries in col: all its corners go to one point). The
+// texture level is the finest (depth 1, LOD 0: a figure stands beside you), the depth the real one. A corner marked
+// in more.x (bit 17: the waist's on the chest's edge) moves with model2. FS is the world's.
+static const char *VS_FIGURE =
+    PLAT_GLSL_VERSION
+    "uniform mat4 pv;\n"
+    "uniform mat4 model;\n"
+    "uniform mat4 model2;\n"
+    "uniform vec3 eye;\n"      // in the world
+    "uniform vec3 light;\n"    // the way the light travels, in the world
+    "layout(location = 0) in vec3 pos;\n"
+    "layout(location = 1) in vec2 uv;\n"
+    "layout(location = 2) in float nx;\n"
+    "layout(location = 3) in float ny;\n"
+    "layout(location = 7) in float nz;\n"
+    "layout(location = 4) in vec3 col;\n"
+    "layout(location = 5) in uvec4 info;\n"
+    "layout(location = 6) in uvec2 more;\n"
+    "out vec2 v_uv;\n"
+    "out float v_z;\n"
+    "flat out vec3 v_col;\n"
+    "flat out uvec4 v_info;\n"
+    "flat out uvec2 v_more;\n"
+    "void main() {\n"
+    "  vec4 w = (((more.x >> 17) & 1u) != 0u ? model2 : model) * vec4(pos, 1.0);\n"
+    "  vec3 n = normalize(mat3(model) * vec3(nx, ny, nz));\n"
+    "  vec3 first = (info.x & 3u) >= 2u ? (model * vec4(col, 1.0)).xyz : w.xyz;\n"
+    "  float dotp = dot(n, first - eye), dotl = dot(n, light);\n"
+    "  bool two = ((more.x >> 16) & 1u) != 0u;\n"
+    "  gl_Position = !two && dotp < 0.0 ? vec4(0.0, 0.0, -2.0, 1.0) : pv * w;\n"
+    "  float lum = dotl * dotp < 0.0 ? 0.0 : abs(dotl);\n"
+    "  uint luma = uint(clamp(lum * float(more.x & 255u) + float((more.x >> 8) & 255u), 0.0, 255.0));\n"
+    "  v_uv = uv; v_z = 1.0; v_col = col;\n"
+    "  v_info = uvec4(info.xyz, (info.w & 0xffffu) | (luma << 16));\n"
+    "  v_more = uvec2(0u, more.y);\n"
+    "}\n";
+
 static const char *VS_FACE =
     PLAT_GLSL_VERSION
     "uniform mat4 mvp;\n"
@@ -621,6 +662,137 @@ void m2_gl_draw_backdrop(const float *mvp) {
     glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE0);
+}
+
+// ---- The players' figures, once their file exists (VR thread)
+static struct {
+    GLuint prog, vao, vbo, tex, luma, xlat;
+    GLint u_pv, u_model, u_model2, u_eye, u_light, u_lift;
+    GLint first[2][M2_FIGURE_PARTS];
+    GLsizei count[2][M2_FIGURE_PARTS];
+    int tried, ok;
+} G;
+extern const char *arcade_figures_file(void);
+static void load_figures(void) {
+    const char *path = arcade_figures_file();
+    if (!path || G.tried || !M.ready) return;
+    G.tried = 1;
+    FILE *f = fopen(path, "rb");
+    if (!f) return;
+    char magic[8];
+    uint32_t head[2], n[2 * M2_FIGURE_PARTS], total = 0;
+    M2Vert *v = NULL;
+    uint32_t *tex = NULL;
+    uint8_t *luma = NULL, *xlat = NULL;
+    int ok = fread(magic, 1, 8, f) == 8 && !memcmp(magic, "M2FIGUR3", 8) && fread(head, 4, 2, f) == 2 && head[0] == 2 &&
+             head[1] == M2_FIGURE_PARTS && fread(n, 4, 2 * M2_FIGURE_PARTS, f) == 2 * M2_FIGURE_PARTS;
+    for (int i = 0; ok && i < 2 * M2_FIGURE_PARTS; i++) {
+        if (n[i] > 100000 || n[i] % 3) ok = 0;
+        G.first[i / M2_FIGURE_PARTS][i % M2_FIGURE_PARTS] = (GLint)total;
+        G.count[i / M2_FIGURE_PARTS][i % M2_FIGURE_PARTS] = (GLsizei)n[i];
+        total += n[i];
+    }
+    if (ok && total && (v = malloc((size_t)total * sizeof *v)) && fread(v, sizeof *v, total, f) == total &&
+        (tex = malloc(M2_TEX_WORDS * 4)) && fread(tex, 4, M2_TEX_WORDS, f) == M2_TEX_WORDS &&
+        (luma = malloc(M2_LUMA_ENTRIES)) && fread(luma, 1, M2_LUMA_ENTRIES, f) == M2_LUMA_ENTRIES &&
+        (xlat = malloc(M2_XLAT_ENTRIES)) && fread(xlat, 1, M2_XLAT_ENTRIES, f) == M2_XLAT_ENTRIES) {
+        GLuint vs = shader(GL_VERTEX_SHADER, VS_FIGURE), fs = shader(GL_FRAGMENT_SHADER, FS);
+        G.prog = glCreateProgram();
+        glAttachShader(G.prog, vs);
+        glAttachShader(G.prog, fs);
+        glLinkProgram(G.prog);
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+        GLint linked = 0;
+        glGetProgramiv(G.prog, GL_LINK_STATUS, &linked);
+        if (linked) {
+            glUseProgram(G.prog);
+            G.u_pv = glGetUniformLocation(G.prog, "pv");
+            G.u_model = glGetUniformLocation(G.prog, "model");
+            G.u_model2 = glGetUniformLocation(G.prog, "model2");
+            G.u_eye = glGetUniformLocation(G.prog, "eye");
+            G.u_light = glGetUniformLocation(G.prog, "light");
+            G.u_lift = glGetUniformLocation(G.prog, "lift");
+            glUniform1i(glGetUniformLocation(G.prog, "texram"), 2);
+            glUniform1i(glGetUniformLocation(G.prog, "lumaram"), 3);
+            glUniform1i(glGetUniformLocation(G.prog, "xlat"), 4);
+            glUseProgram(0);
+            make_vao(&G.vao, &G.vbo);
+            glBindBuffer(GL_ARRAY_BUFFER, G.vbo);
+            glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)total * sizeof *v, v, GL_STATIC_DRAW);
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+            G.tex = int_texture(GL_R32UI, 1024, 1024);
+            G.luma = int_texture(GL_R8UI, 256, 128);
+            G.xlat = int_texture(GL_R8UI, 256, 96);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glBindTexture(GL_TEXTURE_2D, G.tex);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 1024, 1024, GL_RED_INTEGER, GL_UNSIGNED_INT, tex);
+            glBindTexture(GL_TEXTURE_2D, G.luma);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 128, GL_RED_INTEGER, GL_UNSIGNED_BYTE, luma);
+            glBindTexture(GL_TEXTURE_2D, G.xlat);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 96, GL_RED_INTEGER, GL_UNSIGNED_BYTE, xlat);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+            G.ok = 1;
+            LOGI("figures loaded: %u vertices", total);
+        } else {
+            char log[2048];
+            glGetProgramInfoLog(G.prog, sizeof log, NULL, log);
+            LOGE("figure program: %s", log);
+        }
+    }
+    free(v); free(tex); free(luma); free(xlat);
+    fclose(f);
+}
+int m2_gl_figures_ready(void) {
+    if (!G.tried) load_figures();
+    return G.ok;
+}
+void m2_gl_figure_begin(const float *proj, const float *view) {
+    if (!m2_gl_figures_ready()) return;
+    float pv[16];
+    for (int c = 0; c < 4; c++)
+        for (int r = 0; r < 4; r++) {
+            float a = 0;
+            for (int k = 0; k < 4; k++) a += proj[k * 4 + r] * view[c * 4 + k];
+            pv[c * 4 + r] = a;
+        }
+    // the eye: -R^T t of the view (a turn and a move)
+    const float ex = -(view[0] * view[12] + view[1] * view[13] + view[2] * view[14]);
+    const float ey = -(view[4] * view[12] + view[5] * view[13] + view[6] * view[14]);
+    const float ez = -(view[8] * view[12] + view[9] * view[13] + view[10] * view[14]);
+    glUseProgram(G.prog);
+    glUniformMatrix4fv(G.u_pv, 1, GL_FALSE, pv);
+    glUniform3f(G.u_eye, ex, ey, ez);
+    glUniform3f(G.u_light, 0.0f, -0.8f, -0.6f);   // from above and behind you, onto who stands beside you
+    glUniform1f(G.u_lift, M.lift);
+    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, G.tex);
+    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, G.luma);
+    glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, G.xlat);
+    glActiveTexture(GL_TEXTURE0);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glDisable(GL_CULL_FACE);
+    glBindVertexArray(G.vao);
+}
+static void figure_part(int figure, int part, const float *model, const float *model2) {
+    if (!G.ok || figure < 0 || figure > 1 || part < 0 || part >= M2_FIGURE_PARTS || !G.count[figure][part]) return;
+    glUniformMatrix4fv(G.u_model, 1, GL_FALSE, model);
+    glUniformMatrix4fv(G.u_model2, 1, GL_FALSE, model2);
+    glDrawArrays(GL_TRIANGLES, G.first[figure][part], G.count[figure][part]);
+}
+void m2_gl_figure_part(int figure, int part, const float *model) { if (part != M2_FIGURE_WAIST) figure_part(figure, part, model, model); }
+void m2_gl_figure_waist(int figure, const float *pelvis, const float *chest) { figure_part(figure, M2_FIGURE_WAIST, pelvis, chest); }
+void m2_gl_figure_end(void) {
+    if (!G.ok) return;
+    glBindVertexArray(0);
+    glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glUseProgram(0);
 }
 
 // The projection's near plane (game units) for the next draws: a 24-bit depth buffer's step at distance d is about

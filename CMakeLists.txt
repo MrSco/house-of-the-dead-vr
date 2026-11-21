@@ -354,6 +354,9 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     # which polygons cover a pixel, with their sort keys (renderer differences against MAME)
     add_executable(m2polyat tools/m2polyat/main.cpp $<TARGET_OBJECTS:game_gen>)
     target_link_libraries(m2polyat PRIVATE runtime)
+    # the models drawn at a frame, read back from the model ROM in their own space (a figure's parts)
+    add_executable(m2figure tools/m2figure/main.cpp $<TARGET_OBJECTS:game_gen>)
+    target_link_libraries(m2figure PRIVATE runtime)
     # A desktop player 2 joining the Quest app's online game over the network: src/net (online.c and the NMN2
     # client / built-in host) with arcade_net, as in the app. Windows (ws2_32); the SDL2 headers build_quest.py fetches.
     set(M2_NET_SRC ${CMAKE_SOURCE_DIR}/src/net)
@@ -498,6 +501,11 @@ add_test(NAME scsp_pack COMMAND test_scsp_pack)
 add_executable(test_geo_clip tests/runtime/video/test_geo_clip.cpp)
 target_include_directories(test_geo_clip PRIVATE src)
 add_test(NAME geo_clip COMMAND test_geo_clip)
+
+# the partner's figure online (src/xr/quest_avatar.c): its skeleton holds in every pose
+add_executable(test_avatar tests/app/test_avatar.cpp src/xr/quest_avatar.c)
+target_include_directories(test_avatar PRIVATE src)
+add_test(NAME avatar COMMAND test_avatar)
 
 add_executable(test_geo_stream tests/runtime/video/test_geo_stream.cpp)
 target_include_directories(test_geo_stream PRIVATE src)

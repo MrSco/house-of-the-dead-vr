@@ -66,6 +66,9 @@ static const RowDef HANDS_ROWS[] = {
     { QOPT_CAB_RELOAD, "Cabinet reload", "How you reload in the cabinet view",
       "GESTURE: as Reload gesture says. OFF SCREEN: in the cabinet view you reload as on the real cabinet, by shooting off the screen.",
       T_SEG, { "GESTURE", "OFF SCREEN" }, 2, 1, "", false },
+    { QOPT_MY_HANDS, "Your hands", "What your hands look like, without a body",
+      "MODERN: detailed hands whose fingers move, holding the gun you chose. ORIGINAL: the game's own agent's hands, the game's pistol in your gun hand. NONE: no hands, your gun alone. With VIEW > Your body ON, they are the body's own.",
+      T_SEG, { "MODERN", "ORIGINAL", "NONE" }, 3, 1, "", false },
     { QOPT_GUN_Y, "Gun height", "Up or down in your hand", "+ raises the gun relative to the controller.", T_SLIDER, { 0 }, 0, 5, " mm", true },
     { QOPT_GUN_Z, "Gun depth", "+ pulls it back towards you", "Slides the gun forward or back along the controller.", T_SLIDER, { 0 }, 0, 5, " mm", true },
 };
@@ -74,6 +77,14 @@ static const RowDef HANDS_ROWS[] = {
       "In the cabinet view: DARK, your own room through the headset's cameras (PASSTHROUGH), or the first stage's courtyard.", \
       T_SEG, { "DARK", "PASSTHROUGH", "COURTYARD" }, 3, 1, "", false },
 
+#define FIGURE_ROWS \
+    { QOPT_MY_BODY, "Your body", "Look down: the game's agent, moving as you do", \
+      "ON: your player's agent (Rogan for player 1, G for player 2) is your body, with its own hands and pistol, following your head and hands. OFF: your hands and gun alone, as HANDS > Your hands says.", \
+      T_SEG, { "ON", "OFF" }, 2, 1, "", false }, \
+    { QOPT_PARTNER_BODY, "Partner", "Online: how your partner shows beside you", \
+      "BODY: the game's agent, whole, with its own hands and pistol. HANDS: their hands and gun alone, as they have set their own (their Your hands).", \
+      T_SEG, { "BODY", "HANDS" }, 2, 1, "", false },
+
 static const RowDef VIEW_ROWS[] = {
     { QOPT_VIEW, "View", "Stand in the game, or play its cabinet", "IMMERSIVE: you stand in the game's world. CABINET: the game on an arcade screen. Holding your gun hand's stick click switches too.",
       T_SEG, { "IMMERSIVE", "CABINET" }, 2, 1, "", false },
@@ -81,6 +92,7 @@ static const RowDef VIEW_ROWS[] = {
     { QOPT_HUD, "HUD distance", "Score, lives and the game's menus", "How far ahead the game's 2D layer floats: its score, lives, text and menus.",
       T_SLIDER, { 0 }, 0, 10, " cm", false },
     ROOM_ROW
+    FIGURE_ROWS
 };
 // In the cabinet view the VIEW tab places the cabinet (World size and HUD distance are the immersive view's)
 static const RowDef VIEW_CAB_ROWS[] = {
@@ -93,6 +105,7 @@ static const RowDef VIEW_CAB_ROWS[] = {
     { QOPT_CAB_HEIGHT, "Cabinet height", "Lower it if you play seated", "Raises the cabinet off the floor or sinks it into it.",
       T_SLIDER, { 0 }, 0, 5, " cm", true },
     ROOM_ROW
+    FIGURE_ROWS
 };
 
 static const RowDef COMFORT_ROWS[] = {
@@ -514,6 +527,7 @@ static const char *row_off(int opt) {
     if (opt == QOPT_GRIP && H->get(QOPT_GESTURE) != QGESTURE_OFF && !cab_offscreen) return "Off while Reload gesture is on";
     if (opt == QOPT_GESTURE && cab_offscreen) return "Off in the cabinet view: Cabinet reload is OFF SCREEN";
     if (opt == QOPT_TRIGGER && !H->get(QOPT_RUMBLE)) return "Off while Rumble is OFF";
+    if (opt == QOPT_MY_HANDS && H->get(QOPT_MY_BODY)) return "The body's own while VIEW > Your body is ON";
     return NULL;
 }
 static void settings_row(const RowDef *r, float y, float h) {
@@ -547,12 +561,12 @@ static void settings_row(const RowDef *r, float y, float h) {
     const float control = r->type == T_SLIDER ? 550 : total;
     text_fit(UI_M15, CX0 + 18, ly + 52, right - control - 20 - CX0 - 18, sub, sub_ink, 0);
     if (r->type == T_SEG) {
-        // the options in the order shown; Rumble, Trigger feedback, Grip reloads and Crash reports list ON first
+        // the options in the order shown; Rumble, Trigger feedback, Grip reloads, Your body and Crash reports list ON first
         // though 1 is on
         float x = right - total; const float sy = y + (h - 50) / 2;
         rrect(x, sy, total, 50, 14, WELL); rline(x, sy, total, 50, 14, 2, LINE);
         x += 4;
-        const bool flip = r->opt == QOPT_RUMBLE || r->opt == QOPT_TRIGGER || r->opt == QOPT_GRIP || r->opt == QOPT_CRASH_REPORTS ||
+        const bool flip = r->opt == QOPT_RUMBLE || r->opt == QOPT_TRIGGER || r->opt == QOPT_GRIP || r->opt == QOPT_CRASH_REPORTS || r->opt == QOPT_MY_BODY ||
                           r->opt == QOPT_CROSSHAIR;
         for (int i = 0; i < r->nopts; i++) {
             const int val = flip ? r->nopts - 1 - i : i;
@@ -602,7 +616,7 @@ static void settings_row(const RowDef *r, float y, float h) {
     next_row();
 }
 // the rows' spacing for a tab of n rows (slots: rows and anything under them, as SYSTEM's button); six fit closer,
-// seven (the flat apps' GAME tab with a mouse) closer still
+// seven (HANDS; the flat apps' GAME tab with a mouse) closer still
 static float row_step(int slots) { return slots > 6 ? 58 : slots > 5 ? 68 : 78; }
 static void settings_in(const RowDef *rows, int n, int slots) {
     float y = CY0;

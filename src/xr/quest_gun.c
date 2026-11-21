@@ -491,3 +491,25 @@ void qgun_draw(const float *view, const float *proj, const float *model, float r
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
+
+void qgun_draw_flash(const float *view, const float *proj, const float *model, const float *tip, float flash) {
+    if (!G.count || !G.flash_prog || flash <= 0) return;
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glDepthMask(GL_FALSE);
+    glUseProgram(G.flash_prog);
+    glUniformMatrix4fv(G.f_view, 1, GL_FALSE, view);
+    glUniformMatrix4fv(G.f_proj, 1, GL_FALSE, proj);
+    glUniformMatrix4fv(G.f_model, 1, GL_FALSE, model);
+    glUniform3f(G.f_tip, tip[0], tip[1], tip[2]);
+    glUniform1f(G.f_size, .045f);
+    glUniform1f(G.f_strength, fminf(1, flash));
+    glBindVertexArray(G.flash_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 48);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glBindVertexArray(0);
+}

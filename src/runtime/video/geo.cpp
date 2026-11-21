@@ -1537,7 +1537,7 @@ GeoPtr Geo::geo_object_data(geo_state *geo, uint32_t opcode, GeoPtr input)
 	uint32_t  oba = *input++;     /* Object Address */
 	uint32_t  obc = *input++;     /* Object Count */
 	{
-		Object o{oba, raster->cur_window, {}};
+		Object o{oba, raster->cur_window, {}, tpa, tha, obc, geo->mode};
 		std::copy(geo->matrix, geo->matrix + 12, o.m);
 		objects.push_back(o);
 	}
@@ -2175,6 +2175,73 @@ void Geo::parse(uint32_t read_start)
 
 		/* process it */
 		input = geo_process_command(&geo_, opcode, input, &end_code);
+	}
+}
+
+// A model's polygons as geo_object_data and model2_3d_process_polygon read them (the same words in the same order:
+// two points, then per polygon its attributes, its normal, one or two points; the texture points and headers from
+// the addresses the object command gave, moving on as the rasterizer moves them), kept in the model's own space.
+bool Geo::model(const Object &o, std::vector<ModelPoly> &out)
+{
+	try
+	{
+		GeoPtr in;
+		if (o.address & 0x01000000) in = GeoPtr{geo_.polygon_ram1, 0x8000, o.address & 0x7fff};
+		else if (o.address & 0x00800000) in = GeoPtr{geo_.polygon_rom, geo_.polygon_rom_mask + 1, o.address & geo_.polygon_rom_mask};
+		else in = GeoPtr{geo_.polygon_ram0, 0x8000, o.address & 0x7fff};
+		const auto tex16 = [&](uint32_t a) {
+			return (a & 0x800000) ? GeoPtr16{raster_.texture_ram, 0x10000, a & 0xffff}
+			                      : GeoPtr16{raster_.texture_rom, raster_.texture_rom_mask + 1, a & raster_.texture_rom_mask};
+		};
+		const auto point = [&](float *p) { for (int k = 0; k < 3; k++) p[k] = u2f(*in++); };
+		uint32_t tpa = o.tpa, tha = o.tha;
+		float p0[3], p1[3]; // P0(n-1), P1(n-1)
+		point(p0), point(p1);
+		const uint32_t count = o.count ? o.count : 0xfffff;
+		for (uint32_t i = 0; i < count; i++)
+		{
+			const uint32_t attr = *in++;
+			if ((attr & 3) == 0) break;
+			ModelPoly q;
+			float nrm[3], a[3], b[3];
+			point(nrm);
+			point(a);                              // P0(n)
+			if (attr & 1) point(b);                // P1(n)
+			else { in += 3; std::copy(a, a + 3, b); }
+			q.n = (attr & 1) ? 4 : 3;
+			std::copy(p1, p1 + 3, q.v[0]), std::copy(p0, p0 + 3, q.v[1]), std::copy(a, a + 3, q.v[2]), std::copy(b, b + 3, q.v[3]);
+			if (o.mode & 2) // no normals in the model: the polygon's own (geo_parse_nn's vector_cross3: (p1 - p0) x (p2 - p0))
+			{
+				const float *v1 = q.v[1], *v0 = q.v[0], *v2 = q.v[2];
+				// (below: (v0 - v1) x (v2 - v1) with v1 = P0(n-1), v0 = P1(n-1))
+				const float ax = v0[0] - v1[0], ay = v0[1] - v1[1], az = v0[2] - v1[2];
+				const float bx = v2[0] - v1[0], by = v2[1] - v1[1], bz = v2[2] - v1[2];
+				nrm[0] = ay * bz - az * by, nrm[1] = az * bx - ax * bz, nrm[2] = ax * by - ay * bx;
+				const float l = std::sqrt(nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]);
+				if (l > 0) nrm[0] /= l, nrm[1] /= l, nrm[2] /= l;
+			}
+			std::copy(nrm, nrm + 3, q.normal);
+			GeoPtr16 tp = tex16(tpa), th = tex16(tha);
+			for (int k = 0; k < q.n; k++) q.uv[k][1] = float(*tp++), q.uv[k][0] = float(*tp++); // (pv, then pu)
+			for (int k = 0; k < 4; k++) q.texheader[k] = *th++;
+			tpa += uint32_t(q.n) * 2;
+			int32_t tho = (attr >> 12) & 0x1f;
+			if (tho & 0x10) tho |= -16;
+			tha += uint32_t(tho * 4);
+			q.two_sided = ((attr >> 17) & 1) != 0;
+			const texture_parameter &tx = geo_.texture_parameters[(attr >> 18) & 0x1f];
+			q.diffuse = tx.diffuse, q.ambient = tx.ambient;
+			const uint32_t link = (attr >> 8) & 3;
+			if (link != 0) out.push_back(q); // (link type 0: never drawn)
+			if (link == 0 || link == 2) std::copy(a, a + 3, p0), std::copy(b, b + 3, p1);
+			else if (link == 1) std::copy(a, a + 3, p1);
+			else std::copy(b, b + 3, p0);
+		}
+		return true;
+	}
+	catch (const GeoFatal &)
+	{
+		return false;
 	}
 }
 

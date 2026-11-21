@@ -47,7 +47,7 @@ set(M2_FLAT_C
     src/core/quest_menu.c src/core/quest_canvas.c src/core/quest_options.c
     src/platform/windows/platform_win.c src/platform/windows/audio_win.c src/platform/windows/gl_win.c
     src/platform/windows/crash_win.c
-    src/xr/xr_shell.c src/xr/xr_win.c src/xr/quest_gun.c src/xr/quest_hand.c src/xr/quest_cabinet.c)
+    src/xr/xr_shell.c src/xr/xr_win.c src/xr/quest_gun.c src/xr/quest_hand.c src/xr/quest_cabinet.c src/xr/quest_avatar.c)
 add_executable(hotdvr WIN32 ${M2_FLAT_C} ${M2_NET_C} src/flat/win/hotdvr.rc)   # (.rc: its icon)
 set_source_files_properties(src/platform/windows/crash_win.c PROPERTIES COMPILE_DEFINITIONS "${M2_BUILD_INFO_DEFS}")
 set_target_properties(hotdvr PROPERTIES OUTPUT_NAME HOTDVR C_STANDARD 11)

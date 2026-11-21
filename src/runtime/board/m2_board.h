@@ -200,6 +200,7 @@ public:
 
     Video &video() { return *video_; }
     const Geo &geo() const { return *geo_; } // (this frame's models and polygons)
+    Geo &geo() { return *geo_; }
     // Widescreen (enhancement): pixels added to each side; 0 = the original screen.
     void set_wide_margin(int pixels);
     // VR (enhancement): the geometrizer clips only to the near plane (Geo::set_vr),
