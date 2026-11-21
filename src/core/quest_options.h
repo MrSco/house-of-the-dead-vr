@@ -5,7 +5,8 @@
 enum {
     QOPT_AIM, QOPT_PITCH, QOPT_GUN_Y, QOPT_GUN_Z, QOPT_RUMBLE,          // GUN
     QOPT_CROSSHAIR, QOPT_GUN_MODEL, QOPT_GUN_SIZE,
-    QOPT_HAND, QOPT_GESTURE, QOPT_GRIP, QOPT_CAB_RELOAD,                // HANDS
+    QOPT_HAND, QOPT_GESTURE, QOPT_GRIP, QOPT_CAB_RELOAD, QOPT_MY_HANDS,   // HANDS
+    QOPT_MY_BODY, QOPT_PARTNER_BODY,                                    // VIEW (your figure; online, your partner's)
     QOPT_VIEW, QOPT_WORLD, QOPT_HUD, QOPT_ROOM,                         // VIEW
     QOPT_CAB_SIZE, QOPT_CAB_DIST, QOPT_CAB_HEIGHT, QOPT_CAB_SIDE, QOPT_CAB_TURN,   // VIEW (the cabinet's place)
     QOPT_HORIZON, QOPT_VIGNETTE,                                        // COMFORT
@@ -22,6 +23,12 @@ enum { QGUN_CABINET, QGUN_PISTOL };   // the gun model: the arcade cabinet's, or
 enum { QHAND_RIGHT, QHAND_LEFT, QHAND_BOTH };      // the gun in your right hand, your left, or one in each
 enum { QGESTURE_OFF, QGESTURE_MAGAZINE, QGESTURE_DOWN };   // reloading by moving: a magazine into the grip, or aiming at the floor
 enum { QCABRELOAD_GESTURE, QCABRELOAD_OFFSCREEN };   // the cabinet view: Reload gesture as set, or shooting off the screen
+// your hands when your body is not shown: the app's own hands and the gun chosen, the game's agent's own hands (the
+// gun hand's with the game's pistol), or none (the gun alone). With a body, its own hands: no mixing.
+enum { QPHANDS_MODERN, QPHANDS_ORIGINAL, QPHANDS_NONE };
+// your partner online: the game's agent, whole (its own hands and pistol), or their hands alone, as they have their
+// own (their Your hands, sent with their pose)
+enum { QPARTNER_BODY, QPARTNER_HANDS };
 enum { QVIEW_IMMERSIVE, QVIEW_CABINET };
 // what is round the cabinet view: darkness, your own room (the headset's passthrough), or the mansion's courtyard
 enum { QROOM_DARK, QROOM_PASSTHROUGH, QROOM_COURTYARD };

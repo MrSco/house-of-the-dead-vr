@@ -52,7 +52,10 @@ Captured on a Quest 3. Hold the gun hand's thumbstick click to switch between th
 - **Online co-op with voice, across platforms.** Two players over the internet (room codes, quick match) or on your
   own network with no server. A Quest player and a PC, Mac, phone, iPad, Apple TV or Vision Pro player share the same
   game, frame for frame, and the game browser shows each game's platform. A partner can join a game already under
-  way. Voice chat has echo cancellation, noise suppression and push to talk.
+  way. In a headset your partner stands beside you as the game's own agent, Rogan or G, head, arms and legs moving
+  as theirs do; a partner on a screen stands there too, aiming where their gun aims. Your own body is the agent's too (VIEW > Your body).
+  VIEW > Partner shows them as hands and gun alone instead, and HANDS > Your hands picks your own without a body:
+  detailed hands with the gun chosen, the game's own hands and pistol, or none. Voice chat has echo cancellation, noise suppression and push to talk.
 - **Made for the headset.** In-VR menus for the guns, hands, view, comfort, graphics and sound. Settings are saved.
   The same VR app runs on a PC headset through OpenXR (SteamVR, Quest Link, Virtual Desktop) and on Apple Vision Pro
   (hand tracking, PlayStation VR2 Sense controllers).

@@ -15,6 +15,9 @@ int qgun_load(const char *asset);      // 0 if missing or broken (the caller dra
 // whole: the gun as loaded, its grip not cut for a magazine (when no magazine reload is on)
 void qgun_draw(const float *view, const float *proj, const float *model, float recoil, float trigger, float flash,
                const float *tint, int whole);
+// a muzzle flash alone (the chosen slot's gun must be loaded), at tip in model's space (metres, not fitted): for a
+// gun that is not this file's (the game's own pistol in an agent's hand)
+void qgun_draw_flash(const float *view, const float *proj, const float *model, const float *tip, float flash);
 float qgun_muzzle_z(void);                                         // the muzzle's distance ahead of the aim pose (m)
 float qgun_muzzle_y(void);                                         // the muzzle's height over the aim ray (m)
 int qgun_has_slide(void);                                          // a slide that kicks (else the whole gun kicks)

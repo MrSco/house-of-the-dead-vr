@@ -291,6 +291,99 @@ static void draw_fade(void) {
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glDisable(GL_BLEND);
 }
+#ifdef _WIN32
+// FLAT_TEST_AVATAR=pose[,turn[,distance]] (tests, HOTDVR.exe; with M2_FIGURES=1, which makes the figures' file on a
+// screen too): the partner's figures (quest_avatar.c, m2_gl_figure_*) drawn over the picture, Rogan on the left and G
+// on the right, turned by that many degrees (0: facing you), that many metres off (3). Poses: 0 standing, no hands
+// (the arms hang, the figures' own hands); 1 aiming two-handed at you; 2 crouching, the right hand up, the head
+// turned (after a second standing); 3 walking sideways and turning (the feet step); 4 seated low (a figure smaller than
+// its least); 5 reaching up and across.
+#include "xr/quest_avatar.h"
+static void flat_test_avatar(const float *p) {
+    static int pose = -2; static float turn, dist = 3; static Avatar av[2]; static uint64_t t0, last;
+    static unsigned mask = ~0u;   // (FLAT_TEST_AVATAR_PARTS: only those parts, a mask of 1 << M2_FIGURE_*)
+    if (pose == -2) {
+        const char *e = getenv("FLAT_TEST_AVATAR");
+        pose = e ? atoi(e) : -1;
+        if (e) sscanf(e, "%*d,%f,%f", &turn, &dist);
+        if (getenv("FLAT_TEST_AVATAR_PARTS")) mask = (unsigned)strtoul(getenv("FLAT_TEST_AVATAR_PARTS"), NULL, 0);
+        t0 = last = plat_now_ns();
+    }
+    if (pose < 0 || !m2_gl_figures_ready()) return;
+    const uint64_t now = plat_now_ns();
+    const float t = (float)(now - t0) * 1e-9f, dt = (float)(now - last) * 1e-9f;
+    last = now;
+    static const float id[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    glClear(GL_DEPTH_BUFFER_BIT);
+    m2_gl_figure_begin(p, id);
+    for (int who = 0; who < 2; who++) {
+        AvatarPose ap;
+        memset(&ap, 0, sizeof ap);
+        float hx = 0, hy = 1.66f, hz = 0, yaw = 0, pitch = 0;
+        if (pose == 1) {
+            ap.hand[0] = ap.hand[1] = 1;
+            ap.wrist[1][0] = 0.10f; ap.wrist[1][1] = 1.36f; ap.wrist[1][2] = -0.34f;
+            ap.wrist[0][0] = 0.04f; ap.wrist[0][1] = 1.33f; ap.wrist[0][2] = -0.36f;
+        } else if (pose == 2) {
+            hy = t < 1 ? 1.66f : 1.15f; yaw = 0.6f; pitch = -0.2f; hz = t < 1 ? 0 : -0.15f;
+            ap.hand[1] = 1; ap.wrist[1][0] = 0.35f; ap.wrist[1][1] = 1.45f; ap.wrist[1][2] = -0.25f;
+        } else if (pose == 3) {
+            hx = 0.6f * sinf(t * 1.5f); yaw = 1.2f * sinf(t * 0.7f);
+            ap.hand[1] = 1; ap.wrist[1][0] = hx + 0.2f; ap.wrist[1][1] = 1.3f; ap.wrist[1][2] = -0.4f;
+        } else if (pose == 4) hy = 1.15f;
+        else if (pose == 5) {   // reaching: one hand far out to the side and up, the other across the body
+            ap.hand[0] = ap.hand[1] = 1;
+            ap.wrist[1][0] = 0.75f; ap.wrist[1][1] = 1.75f; ap.wrist[1][2] = -0.1f;
+            ap.wrist[0][0] = 0.25f; ap.wrist[0][1] = 1.1f; ap.wrist[0][2] = -0.3f;
+        }
+        const float cy = cosf(yaw), sy = sinf(yaw), cp = cosf(pitch), sp = sinf(pitch);
+        // the head: turned about y (yaw, + to its left), then looking up or down
+        const float h[16] = { cy, 0, sy, 0,  -sy * sp, cp, cy * sp, 0,  -sy * cp, -sp, cy * cp, 0,  hx, hy, hz, 1 };
+        memcpy(ap.head, h, sizeof h);
+        float part[M2_FIGURE_PARTS][16];
+        int draw[M2_FIGURE_PARTS];
+        // FLAT_TEST_AVATAR_HANDS=1: the figure's own hands on the arms with a wrist (the right one's with the game's
+        // gun), each aimed ahead and a little inwards; the wrists are then those hands' own
+        static int own = -1;
+        if (own < 0) own = getenv("FLAT_TEST_AVATAR_HANDS") && atoi(getenv("FLAT_TEST_AVATAR_HANDS"));
+        float aim[2][16];
+        for (int hd = 0; own && hd < 2; hd++) {
+            if (!ap.hand[hd]) continue;
+            const float ya = hd ? 0.15f : -0.5f, ca = cosf(ya), sa = sinf(ya);
+            const float am[16] = { ca, 0, -sa, 0,  0, 1, 0, 0,  sa, 0, ca, 0,  ap.wrist[hd][0], ap.wrist[hd][1] + 0.06f, ap.wrist[hd][2] - 0.1f, 1 };
+            memcpy(aim[hd], am, sizeof am);
+            avatar_wrist(aim[hd], hd, hd == 1, ap.wrist[hd]);
+        }
+        avatar_solve(&av[who], &ap, pose == 4 && t < 0.5f ? 60.0f : dt, part, draw);
+        for (int hd = 0; own && hd < 2; hd++) {
+            if (!ap.hand[hd]) continue;
+            const int hp = hd ? M2_FIGURE_HAND_R : M2_FIGURE_HAND_L;
+            avatar_hand(part[hp], aim[hd], hd, hd == 1);
+            if (hd == 1) memcpy(part[M2_FIGURE_GUN_HAND], part[hp], sizeof part[hp]);
+            draw[hd == 1 ? M2_FIGURE_GUN_HAND : hp] = 1;
+        }
+        // game camera space (x right, y up, z ahead, the game's units: 0.11 m as the headsets') <- avatar space:
+        // turned to face the camera, then z negated
+        const float a = (180 + turn) * 3.14159265f / 180, c = cosf(a), sn = sinf(a), k = 1 / 0.11f;
+        const float x0 = who ? 0.55f : -0.55f;
+        const float m[16] = { c * k, 0, sn * k, 0,  0, k, 0, 0,  sn * k, 0, -c * k, 0,  x0 * k, -0.95f * k, dist * k, 1 };
+        for (int i = 0; i < M2_FIGURE_PARTS; i++) {
+            float w[16];
+            for (int col = 0; col < 4; col++)
+                for (int r = 0; r < 4; r++) {
+                    float sum = 0;
+                    for (int q = 0; q < 4; q++) sum += m[q * 4 + r] * part[i][col * 4 + q];
+                    w[col * 4 + r] = sum;
+                }
+            memcpy(part[i], w, sizeof w);
+            if (draw[i] && (mask >> i & 1)) m2_gl_figure_part(who, i, w);
+        }
+        m2_gl_figure_waist(who, part[M2_FIGURE_PELVIS], part[M2_FIGURE_CHEST]);
+    }
+    m2_gl_figure_end();
+    glEnable(GL_DEPTH_TEST);
+}
+#endif
 static void render_picture(void) {
     const VrScene *sc = F.scene;
 #ifdef GL_FRAMEBUFFER_SRGB
@@ -339,6 +432,9 @@ static void render_picture(void) {
     }
     m2_gl_near(near_u);
     m2_gl_draw(p);
+#ifdef _WIN32
+    flat_test_avatar(p);
+#endif
     if (F.tex_w) {
         const float q[] = { -1, 1, 0, 0, 0,  1, 1, 0, 1, 0,  1, -1, 0, 1, 1,  -1, 1, 0, 0, 0,  1, -1, 0, 1, 1,  -1, -1, 0, 0, 1 };
         glDisable(GL_DEPTH_TEST);

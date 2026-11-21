@@ -75,6 +75,7 @@
 #include "d3d_vr.h"
 #include "quest_gun.h"
 #include "quest_hand.h"
+#include "quest_avatar.h"
 #include "quest_canvas.h"
 #include "quest_cabinet.h"
 #include "ui_font_data.h"
@@ -252,6 +253,24 @@ static int gesture(void) {
 }
 static int mag_reload(void) { return gesture() == QGESTURE_MAGAZINE && free_hand() >= 0; }
 // how far back the slide is drawn by hand (0..1): held, or springing forward after
+// Your gun's grip base and muzzle (the aim pose's space): the model's, or the game's pistol's when your hands are the
+// agent's own (my_hands: that hand has it)
+static int my_hands(void);
+static void gun_grip_base(float *out) {
+    if (my_hands() == QPHANDS_ORIGINAL) { out[0] = 0; out[1] = AVATAR_GUN_GRIP_Y; out[2] = AVATAR_GUN_GRIP_Z; }
+    else qgun_grip_base(out);
+}
+static float gun_muzzle_z(void) { return my_hands() == QPHANDS_ORIGINAL ? AVATAR_GUN_MUZZLE_Z : qgun_muzzle_z(); }
+static float gun_muzzle_y(void) { return my_hands() == QPHANDS_ORIGINAL ? 0 : qgun_muzzle_y(); }
+// a gun without a slide of its own kicks whole, back and up a little (quest_gun.c's, for the cabinet's gun): the
+// aim pose so kicked (o may not be m)
+static void kick_pose(float *o, const float *m, float kick) {
+    kick = fminf(1, fmaxf(0, kick));
+    const float c = cosf(.09f * kick), sn = sinf(.09f * kick), r[16] = { 1, 0, 0, 0,  0, c, sn, 0,  0, -sn, c, 0,  0, 0, .014f * kick, 1 };
+    for (int col = 0; col < 4; col++)
+        for (int row = 0; row < 4; row++)
+            o[col * 4 + row] = m[row] * r[col * 4] + m[4 + row] * r[col * 4 + 1] + m[8 + row] * r[col * 4 + 2] + m[12 + row] * r[col * 4 + 3];
+}
 static float slide_by_hand(void) {
     if (S.rack) return S.rack_pull;
     float t = S.rack_end ? (float)(S.now - S.rack_end) / 1e9f : 1;
@@ -640,12 +659,25 @@ static void build_scene(void) {
             }
             continue;
         }
-        if (is_gun(h) && mag_reload() && S.mag_seated && !gun_cabinet) {   // a magazine in the gun: its base plate
+        if (is_gun(h) && mag_reload() && S.mag_seated && (!gun_cabinet || my_hands() == QPHANDS_ORIGINAL)) {   // a magazine in the gun: its base plate
             static const float plate[4] = { 0.02f, 0.02f, 0.024f, 1 }, rim[4] = { 0.55f, 0.38f, 0.12f, 1 };
             float gb[3];
-            qgun_grip_base(gb);
-            box(m, gb[0] - 0.0135f, gb[1] - 0.011f, gb[2] - 0.027f, gb[0] + 0.0135f, gb[1] + 0.001f, gb[2] + 0.027f, plate);
-            box(m, gb[0] - 0.014f, gb[1] - 0.013f, gb[2] - 0.028f, gb[0] + 0.014f, gb[1] - 0.009f, gb[2] + 0.028f, rim);
+            gun_grip_base(gb);
+            if (my_hands() == QPHANDS_ORIGINAL) {
+                // the game's pistol: its grip's base slants (it rises towards the back) and is shorter, and the gun
+                // kicks whole: the plate lies on that base and moves with it
+                const float age = S.shot_t[h] ? (float)(S.now - S.shot_t[h]) / 1e6f : -1;
+                const float ca = cosf(AVATAR_GUN_GRIP_SLANT), sa = sinf(AVATAR_GUN_GRIP_SLANT);
+                const float l[16] = { 1, 0, 0, 0,  0, ca, -sa, 0,  0, sa, ca, 0,  gb[0], gb[1], gb[2], 1 };
+                float mk[16], pm[16];
+                kick_pose(mk, m, fmaxf(qgun_recoil(age), slide_by_hand()));
+                mat_mul(pm, mk, l);
+                box(pm, -0.0135f, -0.010f, -0.0215f, 0.0135f, 0.001f, 0.0215f, plate);
+                box(pm, -0.0145f, -0.012f, -0.0225f, 0.0145f, -0.008f, 0.0225f, rim);
+            } else {
+                box(m, gb[0] - 0.0135f, gb[1] - 0.011f, gb[2] - 0.027f, gb[0] + 0.0135f, gb[1] + 0.001f, gb[2] + 0.027f, plate);
+                box(m, gb[0] - 0.014f, gb[1] - 0.013f, gb[2] - 0.028f, gb[0] + 0.014f, gb[1] - 0.009f, gb[2] + 0.028f, rim);
+            }
         }
         if (is_gun(h) && mag_reload() && S.drop_t) {      // the dropped magazine, falling out of the grip
             float t = (float)(S.now - S.drop_t) / 1e9f;
@@ -655,10 +687,10 @@ static void build_scene(void) {
                 float fm[16], gb[3];
                 memcpy(fm, S.drop_m, sizeof fm);
                 fm[13] -= 4.9f * t * t;                      // gravity
-                qgun_grip_base(gb);
+                gun_grip_base(gb);
                 float y0 = gb[1] - 0.1f;                     // its top at the grip's base after the first 10 cm
                 box(fm, gb[0] - 0.012f, y0 - 0.1f, gb[2] - 0.017f, gb[0] + 0.012f, y0, gb[2] + 0.017f, mag);
-                if (!gun_cabinet)   // (the cabinet gun's: its grip's base, qgun_draw_cap in draw_guns)
+                if (!gun_cabinet || my_hands() == QPHANDS_ORIGINAL)   // (the cabinet gun's: its grip's base, qgun_draw_cap in draw_guns)
                     box(fm, gb[0] - 0.0135f, y0 - 0.111f, gb[2] - 0.027f, gb[0] + 0.0135f, y0 - 0.099f, gb[2] + 0.027f, plate);
             }
         }
@@ -666,8 +698,8 @@ static void build_scene(void) {
             box(m, -0.014f, -0.022f, 0.0f, 0.014f, 0.012f, 0.15f, act ? gun_on : gun_off);     // barrel, muzzle at the aim point
             box(m, -0.012f, -0.11f, 0.09f, 0.012f, -0.02f, 0.13f, act ? gun_on : gun_off);     // grip
         }
-        float mz = qgun_muzzle_z();         // the sight starts at the muzzle and ends where the aim ray lands
-        V3 o = xform(m, 0, qgun_muzzle_y(), -mz), d = { -m[8], -m[9], -m[10] };
+        float mz = gun_muzzle_z();         // the sight starts at the muzzle and ends where the aim ray lands
+        V3 o = xform(m, 0, gun_muzzle_y(), -mz), d = { -m[8], -m[9], -m[10] };
         if (S.menu_open) {                  // the menu: always a laser, to the panel
             float len = muzzle_beam(m, o, (S.menu_on[h] ? S.menu_t[h] : 2.0f), &d);
             beam(o, d, len > 0.01f ? len : 0.01f, act ? 0.003f : 0.002f, act ? sight : sight_off);
@@ -1416,15 +1448,27 @@ static void draw_rack_hint(const float *pv) {
 // The hands (quest_hand.c): on each gun, holding its grip, the trigger finger following the trigger; the free hand
 // closing with the grip and the trigger as your fingers do on the controller, round the magazine while it holds one,
 // round the slide while it racks, and lit while it is near enough to take the slide.
-// ---------------------------------------------------------------- online: your partner's guns and hands
-// Your guns and hands as drawn this frame (ME: draw_guns and draw_hands fill it) go to your partner (pose_send), in
-// the frame you stand in (stand_frame); theirs come back (pose_recv) and are drawn beside you in yours, player 1 on
+// ---------------------------------------------------------------- online: your partner
+// Your head, guns and hands as drawn this frame (ME: draw_guns and draw_hands fill it) go to your partner (pose_send),
+// in the frame you stand in (stand_frame); theirs come back (pose_recv) and are drawn beside you in yours, player 1 on
 // the left and player 2 on the right as at the cabinet. Either view: each player's cabinet is their own, but the
 // guns and hands are where they are at it.
+//
+// Their body is the game's own agent (Rogan for player 1, G for player 2: m2_vr.h's figures, read from your ROM set
+// at the first start), posed from their head and wrists (quest_avatar.c); their hands and guns stay the app's own
+// models, which move as theirs do (the fingers, the slide, the magazine). A partner whose app sends no pose (a flat
+// screen, a phone, a TV) stands there all the same, aiming where their gun aims in the game (partner_stand_in).
 #define PARTNER_SIDE 0.62f      // metres between the two players
 #define POSE_VER 1
 #define POSE_HAND 23            // a hand: flags, position (3 x int16, mm), turn (4 x int16), 5 curls, slide, trigger, flash
 #define POSE_LEN (2 + 2 * POSE_HAND)
+// The head after the hands: position (3 x int16, mm), turn (4 x int16; all 0: not tracked). 0.6.1 and before send
+// POSE_LEN bytes and read no more of a longer block, so each still draws the other's guns and hands.
+#define POSE_HEAD 14
+#define POSE_LEN_HEAD (POSE_LEN + POSE_HEAD)
+// ... and by one byte after it: 1 + how the player has their own hands (QPHANDS_*; 0 or absent: not said, MODERN),
+// for a partner who shows their hands alone (Partner: HANDS)
+#define POSE_LEN_ALL (POSE_LEN_HEAD + 1)
 static struct {
     int hand[2], gun[2];        // drawn this frame: the hand model; a gun
     float m[2][16], curl[2][5], slide[2], trig[2], flash[2];
@@ -1434,8 +1478,22 @@ static struct {
     int kind;                   // 1 the cabinet's gun, 0 the pistol
     int hand[2], gun[2], seen[2];
     float pos[2][3], q[2][4];   // smoothed (their stand frame)
+    float rel[2][16];           // their stand frame <- each hand
     float m[2][16], curl[2][5], slide[2], trig[2], flash[2];
+    int head;                   // their head is known (sent, or made up for a partner that sends none)
+    float hpos[3], hq[4], head_rel[16];
+    int stand_in;               // no pose from them: a figure aiming where their gun does
+    XrTime shot_t;              // the stand-in's last shot
+    int body;                   // their figure is posed (part, part_draw: world <- each part)
+    Avatar av;
+    float part[M2_FIGURE_PARTS][16];
+    int part_draw[M2_FIGURE_PARTS];
+    int own[2];                 // each hand drawn as the figure's own: 1 open, 2 with the game's gun
+    float own_m[2][16], own_aim[2][16];   // (own_aim: world <- a gun hand's aim pose, kicked: its flash)
+    int theirs;                 // how they have their own hands (QPHANDS_*): drawn so without their figure
 } PR = { .loaded = -1 };
+static int my_hands(void);
+static void draw_own_hand(const float *proj, const float *view, const float *aim, int h, int gun, int who, float kick, float flash);
 static int partner_slot(void) { return net_local == 1 ? 0 : 1; }
 static void rigid_inv(float *o, const float *m) {   // (o may be m)
     float r[16] = { m[0], m[4], m[8], 0,  m[1], m[5], m[9], 0,  m[2], m[6], m[10], 0,  0, 0, 0, 1 };
@@ -1473,73 +1531,249 @@ static void put16(uint8_t *p, float v) {
 }
 static float get16(const uint8_t *p) { return (float)(int16_t)(p[0] | p[1] << 8); }
 static uint8_t unit8(float x) { return (uint8_t)(fminf(1, fmaxf(0, x)) * 255 + 0.5f); }
+static void put_pose(uint8_t *o, const float *r) {   // a rigid matrix: 14 bytes
+    float q[4];
+    mat_quat(r, q);
+    for (int k = 0; k < 3; k++) put16(o + 2 * k, r[12 + k] * 1000);
+    for (int k = 0; k < 4; k++) put16(o + 6 + 2 * k, q[k] * 32767);
+}
 static void pose_send(void) {
     if (!online_session()) return;
     float st[16], sti[16];
     stand_frame(st);
     rigid_inv(sti, st);
-    uint8_t b[POSE_LEN];
+    uint8_t b[POSE_LEN_ALL];
     memset(b, 0, sizeof b);
     b[0] = POSE_VER; b[1] = (uint8_t)(gun_cabinet ? 1 : 0);
     for (int h = 0; h < 2; h++) {
         uint8_t *o = b + 2 + h * POSE_HAND;
         o[0] = (uint8_t)((ME.hand[h] ? 1 : 0) | (ME.gun[h] ? 2 : 0));
         if (!o[0]) continue;
-        float r[16], q[4];
+        float r[16];
         mat_mul(r, sti, ME.m[h]);
-        mat_quat(r, q);
-        for (int k = 0; k < 3; k++) put16(o + 1 + 2 * k, r[12 + k] * 1000);
-        for (int k = 0; k < 4; k++) put16(o + 7 + 2 * k, q[k] * 32767);
+        put_pose(o + 1, r);
         for (int k = 0; k < 5; k++) o[15 + k] = unit8(ME.curl[h][k]);
         o[20] = unit8(ME.slide[h]); o[21] = unit8(ME.trig[h]); o[22] = unit8(ME.flash[h]);
     }
+    if (S.head_ok) {
+        float r[16];
+        mat_mul(r, sti, S.head_m);
+        put_pose(b + POSE_LEN, r);
+    }
+    b[POSE_LEN_HEAD] = (uint8_t)(1 + my_hands());
     online_pose_out(b, sizeof b);
 }
+// A pose as sent (14 bytes) followed: pos and q go to it (at once when it is new or jumped), rel is their matrix.
+// 0: not a pose (its turn is all 0).
+static int pose_follow(const uint8_t *o, float *pos, float *q, int *seen, float k, float *rel) {
+    float p[3], qn[4], l = 0;
+    for (int j = 0; j < 3; j++) p[j] = get16(o + 2 * j) / 1000;
+    for (int j = 0; j < 4; j++) { qn[j] = get16(o + 6 + 2 * j) / 32767; l += qn[j] * qn[j]; }
+    if (l < 1e-6f) { *seen = 0; return 0; }
+    const float dx = p[0] - pos[0], dy = p[1] - pos[1], dz = p[2] - pos[2];
+    if (!*seen || dx * dx + dy * dy + dz * dz > 0.25f) {   // new, or a jump: there at once
+        memcpy(pos, p, sizeof p); memcpy(q, qn, sizeof qn); *seen = 1;
+    } else {
+        float dot = 0;
+        for (int j = 0; j < 4; j++) dot += qn[j] * q[j];
+        const float sg = dot < 0 ? -1.0f : 1.0f;
+        for (int j = 0; j < 3; j++) pos[j] += (p[j] - pos[j]) * k;
+        for (int j = 0; j < 4; j++) q[j] += (sg * qn[j] - q[j]) * k;
+    }
+    l = 0;
+    for (int j = 0; j < 4; j++) l += q[j] * q[j];
+    l = 1 / sqrtf(l);
+    for (int j = 0; j < 4; j++) q[j] *= l;
+    XrPosef ps = { { q[0], q[1], q[2], q[3] }, { pos[0], pos[1], pos[2] } };
+    mat_pose(rel, ps);
+    return 1;
+}
+// A pose at p looking along d (its -z; +y as near up as it can be), column-major
+static void look_pose(float *m, V3 p, V3 d) {
+    float l = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+    if (l < 1e-5f) { d = (V3){ 0, 0, -1 }; l = 1; }
+    const V3 z = { -d.x / l, -d.y / l, -d.z / l };
+    V3 x = { z.z, 0, -z.x };                       // (0,1,0) x z
+    l = sqrtf(x.x * x.x + x.z * x.z);
+    if (l < 1e-4f) { x = (V3){ 1, 0, 0 }; l = 1; }
+    x.x /= l; x.z /= l;
+    const V3 y = { z.y * x.z - z.z * x.y, z.z * x.x - z.x * x.z, z.x * x.y - z.y * x.x };
+    const float r[16] = { x.x, x.y, x.z, 0,  y.x, y.y, y.z, 0,  z.x, z.y, z.z, 0,  p.x, p.y, p.z, 1 };
+    memcpy(m, r, sizeof r);
+}
+// the free hand on the gun, round the gun hand (draw_hands' own): the gun's pose <- that hand's, placed for the left
+// hand and mirrored for the right
+static void support_pose(float *t, int h) {
+    const float s2 = h == 0 ? 1.0f : -1.0f;
+    const float ax = -25 * 3.14159265f / 180, ay = -10 * s2 * 3.14159265f / 180;
+    const float ca = cosf(ax), sa = sinf(ax), cb = cosf(ay), sb = sinf(ay);
+    // turned about x, then about y, and moved: tools/vr/hands_import.py's previews put the hand there
+    const float r[16] = { cb, 0, -sb, 0,  sb * sa, ca, cb * sa, 0,  sb * ca, -sa, cb * ca, 0,  -0.02f * s2, -0.025f, -0.03f, 1 };
+    memcpy(t, r, sizeof r);
+}
+// A partner whose app sends no pose (a screen has no head or hands to send): they stand beside you all the same,
+// their gun in the right hand aimed where it aims in the game (host_player_aim: the lockstep's own input, so every
+// app's is there), the left hand on it, the head turned that way; with no aim (off the screen: a reload; out of the
+// game) the gun is lowered. Their shots kick and flash by the game's own count of them. In their stand frame, as a
+// pose would come (base: world <- it).
+static void partner_stand_in(const float *base, float dt) {
+    const int p = partner_slot();
+    const VrScene *sc = S.scene;
+    int ax = 0, ay = 0;
+    const int aiming = sc && host_player_state(p) == HOST_P_IN && host_player_aim(p, &ax, &ay);
+    V3 tb = { 0, 1.2f, -8 };                       // the aim's point, their stand frame
+    if (aiming) {
+        V3 tw;
+        if (S.cabinet) {                           // on the cabinet's screen
+            const float l = -SCR_W / 2, r = SCR_W / 2, t = SCR_Y + SCR_H / 2, b = SCR_Y - SCR_H / 2;
+            tw = xform(cab_pl, l + (r - l) * ((float)ax + 0.5f) / (float)sc->w, t + (b - t) * ((float)ay + 0.5f) / (float)sc->h, SCR_Z);
+        } else {                                   // 10 m out in the game's world, along that pixel's ray
+            const float d = 10.0f / S.scale;
+            const float g[3] = { ((float)ax - sc->cx) / sc->fx * d, ((float)ay - sc->cy) / sc->fy * d, d };
+            float lv[16];
+            level_mat(lv);
+            tw = (V3){ (lv[0] * g[0] + lv[4] * g[1] + lv[8] * g[2]) * S.scale, (lv[1] * g[0] + lv[5] * g[1] + lv[9] * g[2]) * S.scale,
+                       -(lv[2] * g[0] + lv[6] * g[1] + lv[10] * g[2]) * S.scale };
+        }
+        float bi[16];
+        rigid_inv(bi, base);
+        tb = xform(bi, tw.x, tw.y, tw.z);
+    }
+    const float k = dt > 0 ? 1 - expf(-dt * 12) : 1;
+    float m[16];
+    uint8_t o[14];
+    // the gun: held out at eye height and aimed, or lowered
+    const V3 gp = aiming ? (V3){ 0.12f, 1.47f, -0.52f } : (V3){ 0.20f, 1.02f, -0.22f };
+    look_pose(m, gp, aiming ? (V3){ tb.x - gp.x, tb.y - gp.y, tb.z - gp.z } : (V3){ 0, -0.75f, -0.66f });
+    put_pose(o, m);
+    pose_follow(o, PR.pos[1], PR.q[1], &PR.seen[1], k, PR.rel[1]);
+    PR.hand[1] = PR.gun[1] = 1;
+    {   // their shots: the game's own count of them
+        static HostEventsSeen seen;
+        if (host_events_new(&seen, p) & (1 << HOST_EV_SHOT)) PR.shot_t = S.now;
+        const float age = PR.shot_t ? (float)(S.now - PR.shot_t) / 1e6f : -1;
+        PR.slide[1] = qgun_recoil(age); PR.flash[1] = qgun_flash(age); PR.trig[1] = age >= 0 && age < 120 ? 1.0f : 0.0f;
+    }
+    PR.curl[1][QHAND_THUMB] = 0.9f; PR.curl[1][QHAND_INDEX] = 0.42f + 0.18f * PR.trig[1];
+    PR.curl[1][QHAND_MIDDLE] = 0.85f; PR.curl[1][QHAND_RING] = 0.88f; PR.curl[1][QHAND_PINKY] = 0.9f;
+    // the left hand: on the gun while it aims
+    PR.gun[0] = 0; PR.hand[0] = PR.seen[0] = aiming;
+    if (aiming) {
+        float t[16];
+        support_pose(t, 0);
+        mat_mul(PR.rel[0], PR.rel[1], t);
+        PR.curl[0][QHAND_THUMB] = 0.8f; PR.curl[0][QHAND_INDEX] = 0.7f; PR.curl[0][QHAND_MIDDLE] = 0.72f;
+        PR.curl[0][QHAND_RING] = 0.75f; PR.curl[0][QHAND_PINKY] = 0.8f;
+    }
+    // the head: over the hips, turned towards the aim (so far and no further)
+    const V3 hp = { 0, 1.62f, 0.02f };
+    V3 d = { tb.x - hp.x, tb.y - hp.y, tb.z - hp.z };
+    if (!aiming) d = (V3){ 0, -0.05f, -1 };
+    {
+        const float flat = sqrtf(d.x * d.x + d.z * d.z);
+        const float yaw = fmaxf(-0.9f, fminf(0.9f, atan2f(d.x, -d.z))), pitch = fmaxf(-0.5f, fminf(0.5f, atan2f(d.y, flat)));
+        d = (V3){ sinf(yaw) * cosf(pitch), sinf(pitch), -cosf(yaw) * cosf(pitch) };
+    }
+    look_pose(m, hp, d);
+    put_pose(o, m);
+    PR.head = pose_follow(o, PR.hpos, PR.hq, &PR.head, dt > 0 ? 1 - expf(-dt * 6) : 1, PR.head_rel);
+    PR.kind = 1;                                   // the cabinet's gun, in their colour
+}
+// Where the app's hand model has its wrist, and the way its sleeve runs back from there (the controller's aim pose,
+// metres: src/quest/assets/hands.tchand's metacarpals and forearm bone; the left hand's, the right's x mirrored).
+// The figure's forearm ends a little up the sleeve.
+static const float HAND_WRIST[3] = { -0.028f, -0.086f, 0.101f }, HAND_SLEEVE[3] = { 0.198f, -0.019f, 0.980f };
+#define WRIST_UP_SLEEVE 0.05f
 static void pose_recv(float dt) {
     uint8_t b[ONLINE_POSE_MAX];
     uint32_t age = 0;
     const int n = online_session() ? online_pose_in(b, &age) : 0;
+    const int was = PR.on || PR.stand_in;
     PR.on = n >= POSE_LEN && b[0] == POSE_VER && age < 700;      // (silent that long: gone, or not in a game)
-    if (!PR.on) { PR.seen[0] = PR.seen[1] = 0; return; }
-    PR.kind = b[1] ? 1 : 0;
     float st[16], base[16];
     stand_frame(st);
     const float off[16] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  partner_slot() == 1 ? PARTNER_SIDE : -PARTNER_SIDE, 0, 0, 1 };
     mat_mul(base, st, off);
-    const float k = dt > 0 ? 1 - expf(-dt * 30) : 1;   // smoothed towards each datagram's (they come at ~60 Hz)
-    for (int h = 0; h < 2; h++) {
-        const uint8_t *o = b + 2 + h * POSE_HAND;
-        PR.hand[h] = o[0] & 1; PR.gun[h] = (o[0] & 2) != 0;
-        if (!(o[0] & 3)) { PR.seen[h] = 0; continue; }
-        float p[3], q[4], l = 0;
-        for (int j = 0; j < 3; j++) p[j] = get16(o + 1 + 2 * j) / 1000;
-        for (int j = 0; j < 4; j++) { q[j] = get16(o + 7 + 2 * j) / 32767; l += q[j] * q[j]; }
-        if (l < 1e-6f) { PR.seen[h] = 0; continue; }
-        const float dx = p[0] - PR.pos[h][0], dy = p[1] - PR.pos[h][1], dz = p[2] - PR.pos[h][2];
-        if (!PR.seen[h] || dx * dx + dy * dy + dz * dz > 0.25f) {   // new, or a jump: there at once
-            memcpy(PR.pos[h], p, sizeof p); memcpy(PR.q[h], q, sizeof q); PR.seen[h] = 1;
-        } else {
-            float dot = 0;
-            for (int j = 0; j < 4; j++) dot += q[j] * PR.q[h][j];
-            const float sg = dot < 0 ? -1.0f : 1.0f;
-            for (int j = 0; j < 3; j++) PR.pos[h][j] += (p[j] - PR.pos[h][j]) * k;
-            for (int j = 0; j < 4; j++) PR.q[h][j] += (sg * q[j] - PR.q[h][j]) * k;
+    {   // no pose: is there a partner at all? (asked twice a second)
+        static double next; static int linked;
+        const double now = (double)S.now / 1e9;
+        if (now >= next || now < next - 1) {
+            online_view v;
+            online_get_view(&v);
+            linked = v.state == OV_LINKED;
+            next = now + 0.5;
         }
-        l = 0;
-        for (int j = 0; j < 4; j++) l += PR.q[h][j] * PR.q[h][j];
-        l = 1 / sqrtf(l);
-        for (int j = 0; j < 4; j++) PR.q[h][j] *= l;
-        XrPosef ps = { { PR.q[h][0], PR.q[h][1], PR.q[h][2], PR.q[h][3] }, { PR.pos[h][0], PR.pos[h][1], PR.pos[h][2] } };
-        float rel[16];
-        mat_pose(rel, ps);
-        mat_mul(PR.m[h], base, rel);
-        for (int j = 0; j < 5; j++) PR.curl[h][j] = o[15 + j] / 255.0f;
-        PR.slide[h] = o[20] / 255.0f; PR.trig[h] = o[21] / 255.0f; PR.flash[h] = o[22] / 255.0f;
+        // (a figure only: with Partner at HANDS a partner on a screen has nothing to show, as before the figures)
+        PR.stand_in = !PR.on && online_session() && linked && m2_gl_figures_ready() && S.opt[QOPT_PARTNER_BODY] == QPARTNER_BODY;
     }
+    PR.body = 0;
+    if (!PR.on && !PR.stand_in) { PR.seen[0] = PR.seen[1] = PR.head = 0; return; }
+    if (PR.stand_in) partner_stand_in(base, was ? dt : 0);
+    else {
+        PR.kind = b[1] ? 1 : 0;
+        const float k = dt > 0 ? 1 - expf(-dt * 30) : 1;   // smoothed towards each datagram's (they come at ~60 Hz)
+        for (int h = 0; h < 2; h++) {
+            const uint8_t *o = b + 2 + h * POSE_HAND;
+            PR.hand[h] = o[0] & 1; PR.gun[h] = (o[0] & 2) != 0;
+            if (!(o[0] & 3)) { PR.seen[h] = 0; continue; }
+            if (!pose_follow(o + 1, PR.pos[h], PR.q[h], &PR.seen[h], k, PR.rel[h])) continue;
+            for (int j = 0; j < 5; j++) PR.curl[h][j] = o[15 + j] / 255.0f;
+            PR.slide[h] = o[20] / 255.0f; PR.trig[h] = o[21] / 255.0f; PR.flash[h] = o[22] / 255.0f;
+        }
+        if (n >= POSE_LEN_HEAD) pose_follow(b + POSE_LEN, PR.hpos, PR.hq, &PR.head, k, PR.head_rel);
+        else PR.head = 0;
+        PR.theirs = n >= POSE_LEN_ALL && b[POSE_LEN_HEAD] >= 1 && b[POSE_LEN_HEAD] <= 3 ? b[POSE_LEN_HEAD] - 1 : QPHANDS_MODERN;
+    }
+    for (int h = 0; h < 2; h++) if (PR.seen[h]) mat_mul(PR.m[h], base, PR.rel[h]);
+    // their figure (Partner: BODY), its own hands on it
+    PR.own[0] = PR.own[1] = 0;
+    if (!m2_gl_figures_ready() || S.opt[QOPT_PARTNER_BODY] != QPARTNER_BODY) return;
+    AvatarPose ap;
+    memset(&ap, 0, sizeof ap);
+    float cx = 0, cz = 0;
+    int nh = 0;
+    const int own = 1;   // the figure's own hands, turned as theirs (the app's hands on it: 0, the wrist up their sleeve)
+    for (int h = 0; h < 2; h++) {
+        if (!PR.seen[h]) continue;
+        const float sx = h ? -1.0f : 1.0f;
+        V3 w = xform(PR.rel[h], sx * (HAND_WRIST[0] + WRIST_UP_SLEEVE * HAND_SLEEVE[0]), HAND_WRIST[1] + WRIST_UP_SLEEVE * HAND_SLEEVE[1],
+                     HAND_WRIST[2] + WRIST_UP_SLEEVE * HAND_SLEEVE[2]);
+        if (own) {
+            float o[3];
+            avatar_wrist(PR.rel[h], h, PR.gun[h], o);
+            w = (V3){ o[0], o[1], o[2] };
+        }
+        ap.hand[h] = 1; ap.wrist[h][0] = w.x; ap.wrist[h][1] = w.y; ap.wrist[h][2] = w.z;
+        cx += w.x; cz += w.z; nh++;
+    }
+    ap.stretch = 1.5f;
+    if (PR.head) memcpy(ap.head, PR.head_rel, sizeof ap.head);
+    else {   // an app that sends no head (0.6.1 and before): standing, facing where the hands are held
+        if (!nh) return;
+        cx /= (float)nh; cz /= (float)nh;
+        const V3 hp = { cx * 0.4f, 1.62f, 0.05f };
+        look_pose(ap.head, hp, (V3){ (cx - hp.x) * 0.6f, 0, fminf(cz - hp.z, -0.2f) });
+    }
+    if (!was) memset(&PR.av, 0, sizeof PR.av);   // (they are new here: nothing of an earlier partner's stance)
+    avatar_solve(&PR.av, &ap, was ? dt : 0, PR.part, PR.part_draw);
+    for (int h = 0; own && h < 2; h++) {
+        if (!PR.seen[h]) continue;
+        memcpy(PR.own_m[h], PR.part[h ? M2_FIGURE_HAND_R : M2_FIGURE_HAND_L], sizeof PR.own_m[h]);
+        float ak[16], w0[3], w1[3];   // (the gun kicks in the hand, the hand with it)
+        kick_pose(ak, PR.rel[h], PR.gun[h] ? PR.slide[h] : 0);
+        avatar_wrist(PR.rel[h], h, PR.gun[h], w0); avatar_wrist(ak, h, PR.gun[h], w1);
+        for (int k = 0; k < 3; k++) PR.own_m[h][12 + k] += w1[k] - w0[k];
+        avatar_hand(PR.own_m[h], ak, h, PR.gun[h]);
+        mat_mul(PR.own_m[h], base, PR.own_m[h]);
+        mat_mul(PR.own_aim[h], base, ak);
+        PR.own[h] = PR.gun[h] ? 2 : 1;
+    }
+    for (int i = 0; i < M2_FIGURE_PARTS; i++) mat_mul(PR.part[i], base, PR.part[i]);
+    PR.body = 1;
 }
 // their gun model: the cabinet's in their colour, or the pistol (model slot 1)
 static void partner_gun_load(void) {
-    if (!PR.on) return;
+    if (!PR.on && !PR.stand_in) return;
     const int want = PR.kind * 2 + partner_slot();
     if (want == PR.loaded) return;
     PR.loaded = want;
@@ -1549,22 +1783,114 @@ static void partner_gun_load(void) {
     qgun_use(0);
 }
 static void draw_partner(const float *proj, const float *view) {
-    if (!PR.on) return;
+    if (!PR.on && !PR.stand_in) return;
     static const float lit[3] = { 1, 1, 1 };
+    if (PR.body) {
+        m2_gl_figure_begin(proj, view);
+        for (int i = 0; i < M2_FIGURE_PARTS; i++)
+            if (PR.part_draw[i]) m2_gl_figure_part(partner_slot(), i, PR.part[i]);
+        m2_gl_figure_waist(partner_slot(), PR.part[M2_FIGURE_PELVIS], PR.part[M2_FIGURE_CHEST]);
+        for (int h = 0; h < 2; h++)
+            if (PR.own[h]) m2_gl_figure_part(partner_slot(), PR.own[h] == 2 ? M2_FIGURE_GUN_HAND : h ? M2_FIGURE_HAND_R : M2_FIGURE_HAND_L, PR.own_m[h]);
+        m2_gl_figure_end();
+        for (int h = 0; h < 2; h++)
+            if (PR.own[h] == 2 && PR.gun_ok && PR.flash[h] > 0) {
+                static const float tip[3] = { 0, 0, -AVATAR_GUN_MUZZLE_Z };
+                qgun_use(1);
+                qgun_draw_flash(view, proj, PR.own_aim[h], tip, PR.flash[h]);
+                qgun_use(0);
+            }
+    }
+    // their figure has its own hands (drawn above: a gun hand's has the game's pistol in it). Without it (Partner:
+    // HANDS, or the figures not made yet): their hands as they have their own: the app's with their gun, the agent's
+    // own (the game's pistol in the gun hand, their gun model not drawn), or their gun alone
+    const int hands = PR.theirs == QPHANDS_ORIGINAL && !m2_gl_figures_ready() ? QPHANDS_MODERN : PR.theirs;
     for (int h = 0; h < 2; h++) {
-        if (!PR.seen[h]) continue;
+        if (!PR.seen[h] || (PR.body && PR.own[h])) continue;
+        if (hands == QPHANDS_ORIGINAL) {
+            if (PR.gun[h] || PR.hand[h]) {
+                qgun_use(1);   // (the flash is their gun model's)
+                draw_own_hand(proj, view, PR.m[h], h, PR.gun[h], partner_slot(), PR.slide[h], PR.gun_ok ? PR.flash[h] : 0);
+                qgun_use(0);
+            }
+            continue;
+        }
         if (PR.gun[h] && PR.gun_ok) {
             qgun_use(1);
             qgun_draw(view, proj, PR.m[h], PR.slide[h], PR.trig[h], PR.flash[h], lit, 1);
             qgun_use(0);
         }
-        if (PR.hand[h] && S.hands_model) qhand_draw(view, proj, PR.m[h], h, PR.curl[h], lit);
+        if (PR.hand[h] && S.hands_model && hands == QPHANDS_MODERN) qhand_draw(view, proj, PR.m[h], h, PR.curl[h], lit);
     }
 }
 
+// Your hands (Your hands): the app's with the gun you chose, the agent's own (your player's figure's: the gun hand's
+// is the game's hand with its pistol in it, so your gun model is not drawn), or none. The agent's need the figures'
+// file (made at the first start): until then, the app's.
+static int my_hands(void) {
+    const int v = S.opt[QOPT_MY_BODY] ? QPHANDS_ORIGINAL : S.opt[QOPT_MY_HANDS];   // (a body's hands are its own)
+    return v == QPHANDS_ORIGINAL && !m2_gl_figures_ready() ? QPHANDS_MODERN : v;
+}
+// the agent's own hand at a hand's aim pose (world <- it): 9 cm to the game's unit. A gun hand's kicks whole as the
+// cabinet's gun does (kick: a shot's recoil, the slide pulled by hand) and flashes at its muzzle
+static void draw_own_hand(const float *proj, const float *view, const float *aim0, int h, int gun, int who, float kick, float flash) {
+    float w[3], m[16] = { 0.09f, 0, 0, 0,  0, 0.09f, 0, 0,  0, 0, 0.09f, 0,  0, 0, 0, 1 }, aim[16];
+    kick_pose(aim, aim0, gun ? kick : 0);
+    avatar_wrist(aim, h, gun, w);
+    m[12] = w[0]; m[13] = w[1]; m[14] = w[2];
+    avatar_hand(m, aim, h, gun);
+    m2_gl_figure_begin(proj, view);
+    m2_gl_figure_part(who, gun ? M2_FIGURE_GUN_HAND : h ? M2_FIGURE_HAND_R : M2_FIGURE_HAND_L, m);
+    m2_gl_figure_end();
+    if (gun && flash > 0) {
+        static const float tip[3] = { 0, 0, -AVATAR_GUN_MUZZLE_Z };
+        qgun_draw_flash(view, proj, aim, tip, flash);
+    }
+}
+// Your own body (Your body): your player's agent, posed as a partner's is from your head and your hands, without
+// its head (your eyes are in it). On the floor under you (not the cabinet's frame, which a raised cabinet lifts).
+static struct { int on; Avatar av; float part[M2_FIGURE_PARTS][16]; int draw[M2_FIGURE_PARTS]; } BODY;
+static void my_body(float dt) {
+    const int was = BODY.on;
+    BODY.on = 0;
+    if (!S.opt[QOPT_MY_BODY] || !S.head_ok || !m2_gl_figures_ready()) return;
+    const float st[16] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, S.floor_y - S.home[13], 0, 1 };
+    float sti[16];
+    rigid_inv(sti, st);
+    AvatarPose ap;
+    memset(&ap, 0, sizeof ap);
+    mat_mul(ap.head, sti, S.head_m);
+    ap.stretch = 1.5f;
+    const int own = my_hands() == QPHANDS_ORIGINAL;
+    for (int h = 0; h < 2; h++) {   // (ME: what the last frame drew in each hand)
+        if (!ME.hand[h] && !ME.gun[h]) continue;
+        float rel[16];
+        mat_mul(rel, sti, ME.m[h]);
+        const float sx = h ? -1.0f : 1.0f;
+        const V3 w = xform(rel, sx * (HAND_WRIST[0] + WRIST_UP_SLEEVE * HAND_SLEEVE[0]), HAND_WRIST[1] + WRIST_UP_SLEEVE * HAND_SLEEVE[1],
+                           HAND_WRIST[2] + WRIST_UP_SLEEVE * HAND_SLEEVE[2]);
+        ap.hand[h] = 1; ap.wrist[h][0] = w.x; ap.wrist[h][1] = w.y; ap.wrist[h][2] = w.z;
+        if (own) avatar_wrist(rel, h, ME.gun[h], ap.wrist[h]);
+    }
+    if (!was) memset(&BODY.av, 0, sizeof BODY.av);
+    avatar_solve(&BODY.av, &ap, was ? dt : 0, BODY.part, BODY.draw);
+    for (int i = 0; i < M2_FIGURE_PARTS; i++) mat_mul(BODY.part[i], st, BODY.part[i]);
+    BODY.draw[M2_FIGURE_HEAD] = 0;
+    BODY.on = 1;
+}
+static void draw_my_body(const float *proj, const float *view) {
+    if (!BODY.on) return;
+    const int who = net_local == 1 ? 1 : 0;
+    m2_gl_figure_begin(proj, view);
+    for (int i = 0; i < M2_FIGURE_PARTS; i++)
+        if (BODY.draw[i]) m2_gl_figure_part(who, i, BODY.part[i]);
+    m2_gl_figure_waist(who, BODY.part[M2_FIGURE_PELVIS], BODY.part[M2_FIGURE_CHEST]);
+    m2_gl_figure_end();
+}
 static float get_float(XrAction a, XrPath sub);
 static void draw_hands(const float *proj, const float *view) {
     if (!S.hands_model) return;
+    const int kind = my_hands();
     for (int h = 0; h < 2; h++) {
         if (!S.aim_ok[h]) continue;
         float c[5];
@@ -1575,15 +1901,12 @@ static void draw_hands(const float *proj, const float *view) {
             c[QHAND_THUMB] = 0.9f; c[QHAND_INDEX] = 0.42f + 0.18f * S.trig[h];
             c[QHAND_MIDDLE] = 0.85f; c[QHAND_RING] = 0.88f; c[QHAND_PINKY] = 0.9f;
         } else if (S.support) {                          // on the gun, round the gun hand
-            float sm[16], s2 = h == 0 ? 1.0f : -1.0f;    // (placed for the left hand; mirrored for the right)
-            const float ax = -25 * 3.14159265f / 180, ay = -10 * s2 * 3.14159265f / 180;
-            const float ca = cosf(ax), sa = sinf(ax), cb = cosf(ay), sb = sinf(ay);
-            // turned about x, then about y, and moved: tools/vr/hands_import.py's previews put the hand there
-            const float t[16] = { cb, 0, -sb, 0,  sb * sa, ca, cb * sa, 0,  sb * ca, -sa, cb * ca, 0,
-                                  -0.02f * s2, -0.025f, -0.03f, 1 };
+            float sm[16], t[16];
+            support_pose(t, h);
             mat_mul(sm, S.aim_m[1 - h], t);
             c[QHAND_THUMB] = 0.8f; c[QHAND_INDEX] = 0.7f; c[QHAND_MIDDLE] = 0.72f; c[QHAND_RING] = 0.75f; c[QHAND_PINKY] = 0.8f;
-            qhand_draw(view, proj, sm, h, c, lit);
+            if (kind == QPHANDS_MODERN) qhand_draw(view, proj, sm, h, c, lit);
+            else if (kind == QPHANDS_ORIGINAL) draw_own_hand(proj, view, sm, h, 0, net_local == 1 ? 1 : 0, 0, 0);
             ME.hand[h] = 1; memcpy(ME.m[h], sm, sizeof sm); memcpy(ME.curl[h], c, sizeof c);
             continue;
         } else if (mag_reload() && S.mag_hold) {         // round the magazine
@@ -1597,7 +1920,8 @@ static void draw_hands(const float *proj, const float *view) {
             c[QHAND_MIDDLE] = c[QHAND_RING] = c[QHAND_PINKY] = 0.12f + 0.76f * g;
             if ((mag_reload() && S.slide_near) || S.sup_near) tint = near;
         }
-        qhand_draw(view, proj, S.aim_m[h], h, c, tint);
+        if (kind == QPHANDS_MODERN) qhand_draw(view, proj, S.aim_m[h], h, c, tint);
+        else if (kind == QPHANDS_ORIGINAL && !is_gun(h)) draw_own_hand(proj, view, S.aim_m[h], h, 0, net_local == 1 ? 1 : 0, 0, 0);   // (a gun hand's: draw_guns)
         ME.hand[h] = 1; memcpy(ME.m[h], S.aim_m[h], sizeof ME.m[h]); memcpy(ME.curl[h], c, sizeof c);
     }
 }
@@ -1605,7 +1929,7 @@ static void draw_hands(const float *proj, const float *view) {
 // completing the grip while one is in, under the one in your free hand, under the dropped one
 static void draw_mag_caps(const float *proj, const float *view) {
     float top[3];
-    if (!gun_cabinet || !mag_reload() || !qgun_cap_top(top)) return;
+    if (!gun_cabinet || !mag_reload() || !qgun_cap_top(top) || my_hands() == QPHANDS_ORIGINAL) return;
     float m[16];
     for (int h = 0; h < 2; h++) {
         if (!S.aim_ok[h] || !is_gun(h)) continue;
@@ -1615,7 +1939,7 @@ static void draw_mag_caps(const float *proj, const float *view) {
             if (t <= 1.2f) {
                 memcpy(fm, S.drop_m, sizeof fm);
                 fm[13] -= 4.9f * t * t;
-                qgun_grip_base(gb);
+                gun_grip_base(gb);
                 const float d[16] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, (gb[1] - 0.2f) - top[1], 0, 1 };
                 mat_mul(m, fm, d);
                 qgun_draw_cap(view, proj, m);
@@ -1630,6 +1954,7 @@ static void draw_mag_caps(const float *proj, const float *view) {
     }
 }
 static void draw_guns(const float *proj, const float *view) {
+    draw_my_body(proj, view);
     ME.hand[0] = ME.hand[1] = ME.gun[0] = ME.gun[1] = 0;
     for (int h = 0; h < 2 && S.gun_model; h++) {
         if (!S.aim_ok[h] || !is_gun(h)) continue;
@@ -1638,8 +1963,9 @@ static void draw_guns(const float *proj, const float *view) {
         float slide = fmaxf(qgun_recoil(age), mag_reload() ? slide_by_hand() : 0);
         if (host_player_ammo(net_local) == 0 && qgun_has_slide()) slide = 1;   // empty: the slide locked back
         // no magazine reload (another gesture, OFF SCREEN in the cabinet, a gun in each hand): the grip uncut
-        qgun_draw(view, proj, S.aim_m[h], slide, S.fire[h] ? 1.0f : 0.0f, qgun_flash(age), h == S.active ? lit : dim,
-                  !mag_reload());
+        if (my_hands() == QPHANDS_ORIGINAL) draw_own_hand(proj, view, S.aim_m[h], h, 1, net_local == 1 ? 1 : 0, slide, qgun_flash(age));   // (the game's pistol in it)
+        else qgun_draw(view, proj, S.aim_m[h], slide, S.fire[h] ? 1.0f : 0.0f, qgun_flash(age), h == S.active ? lit : dim,
+                       !mag_reload());
         ME.gun[h] = 1; memcpy(ME.m[h], S.aim_m[h], sizeof ME.m[h]);
         ME.slide[h] = slide; ME.trig[h] = S.fire[h] ? 1.0f : 0.0f; ME.flash[h] = qgun_flash(age);
     }
@@ -2474,7 +2800,7 @@ static void magazine_and_slide(int f) {
         S.rack = 1; S.rack_z0 = hand.z; S.rack_pull = 0; S.mag_hold = 0; S.mag_spent = 1;
         haptic(f, 0.25f, 15);
     } else if (S.mag_hold && !S.mag_seated) {       // the magazine at the grip's base goes in (once the old one is out)
-        float gb[3]; qgun_grip_base(gb);
+        float gb[3]; gun_grip_base(gb);
         V3 top = to_local(gm, xform(fm, 0, MAG_TOP_Y, MAG_Z));
         float ex = top.x - gb[0], ey = top.y - gb[1], ez = top.z - gb[2];
         if (sqrtf(ex * ex + ey * ey + ez * ez) < MAG_IN_R) {
@@ -2741,8 +3067,8 @@ static void update_input(XrTime t) {
                 S.fire_btn[h] = SDL_BUTTON_LEFT;
                 {   // the tracer: from the muzzle along the aim to where it hit (or 6 m), shown once the shot is real
                     const float *am = S.aim_m[h];
-                    float mz = qgun_muzzle_z(), len = (S.cabinet || S.hit3d[h]) ? S.hit_t[h] : 6.0f;
-                    V3 o = xform(am, 0, qgun_muzzle_y(), -mz);
+                    float mz = gun_muzzle_z(), len = (S.cabinet || S.hit3d[h]) ? S.hit_t[h] : 6.0f;
+                    V3 o = xform(am, 0, gun_muzzle_y(), -mz);
                     float *tr = S.pend_tr[h];
                     tr[0] = o.x; tr[1] = o.y; tr[2] = o.z;
                     tr[3] = am[12] - am[8] * len; tr[4] = am[13] - am[9] * len; tr[5] = am[14] - am[10] * len;
@@ -2804,7 +3130,7 @@ static void update_input(XrTime t) {
         } else if (gesture() == QGESTURE_MAGAZINE && S.opt[QOPT_HAND] == QHAND_BOTH && g == 1) {
             // two guns: knock the grips together; again once 15 cm apart
             if (!S.aim_ok[0]) continue;
-            float gb[3]; qgun_grip_base(gb);
+            float gb[3]; gun_grip_base(gb);
             V3 a = xform(m, gb[0], gb[1], gb[2]), b = xform(S.aim_m[0], gb[0], gb[1], gb[2]);
             float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z, d = sqrtf(dx * dx + dy * dy + dz * dz);
             if (S.mag_armed && d < 0.07f) { reload_press(g, 0); S.mag_armed = 0; }
@@ -2910,6 +3236,7 @@ static void frame_update(XrTime t, int render) {
         last = t;
         pose_send();
         pose_recv(dt > 0 && dt < 0.2f ? dt : 0.0f);
+        my_body(dt > 0 && dt < 0.2f ? dt : 0.0f);
         partner_gun_load();
     }
     pt_update();

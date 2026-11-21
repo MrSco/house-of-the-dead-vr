@@ -114,7 +114,7 @@ def main():
                'src/flat/flat_touch.c', 'src/quest/quest_report.c']   # (the crash reports: the Quest's)
         sflags = sflags + ['-DHOTD_VOICE']
     else:       # the VR shell
-        app = ['src/xr/xr_shell.c', 'src/xr/quest_gun.c', 'src/xr/quest_hand.c', 'src/xr/quest_cabinet.c',
+        app = ['src/xr/xr_shell.c', 'src/xr/quest_gun.c', 'src/xr/quest_hand.c', 'src/xr/quest_cabinet.c', 'src/xr/quest_avatar.c',
                'src/quest/quest_main.c', 'src/quest/quest_report.c']
     jobs = [(s, sflags) for s in shared + app] + [(s, sflags) for s in port.net_sources()]
     jobs += port.voice_jobs(sflags)

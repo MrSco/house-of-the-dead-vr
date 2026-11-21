@@ -52,6 +52,9 @@ static inline int host_events_new(HostEventsSeen *seen, int p) {
     seen->primed[p] = 1;
     return bits;
 }
+// Where player p's gun aims in the game's newest frame (picture pixels, as quest_pointer's); 0: off the screen, or
+// that player has no gun. Online it is the lockstep's own input, so the partner's is there whatever their app.
+int host_player_aim(int p, int *x, int *y);
 // While paused (system menu open, headset off) the game thread waits in its next present and audio is silent.
 void quest_set_paused(int paused);
 void quest_audio_service(void);                 // reopen the audio stream after the output device changed

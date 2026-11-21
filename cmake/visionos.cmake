@@ -33,7 +33,7 @@ target_compile_options(m2_rnnoise PRIVATE -w)
 
 set(M2_VOS_C
     src/xr/xr_shell.c src/visionos/xr_vos.m
-    src/xr/quest_gun.c src/xr/quest_hand.c src/xr/quest_cabinet.c
+    src/xr/quest_gun.c src/xr/quest_hand.c src/xr/quest_cabinet.c src/xr/quest_avatar.c
     src/core/host_sdl.c src/core/voice.c src/core/voice_dsp.c src/core/m2_gl.c
     src/core/quest_menu.c src/core/quest_canvas.c src/core/quest_options.c
     src/platform/posix.c src/platform/apple/apple.m src/platform/apple/crash_apple.m)

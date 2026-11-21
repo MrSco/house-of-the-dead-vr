@@ -447,35 +447,39 @@ struct Backdrop {
     }
 };
 
-// One polygon as camera-space vertices for the main camera (c0m, c1m: its centre; fxm, fym: its focus), with its
-// Model 2 state; effect: one of the shots' effects (build places those). 0: nothing to draw.
-int poly_vertices(const rt::GeoPoly &poly, const rt::VideoMem &mem, uint32_t rank, int c0m, int c1m, float fxm, float fym,
-                  M2Vert *pv, bool &effect) {
-    const int renderer = (poly.texheader[0] >> 13) & 3;
-    if (renderer == 1) return 0; // translucent solid: the rasterizer draws nothing
-
-    const uint32_t colorbase = (poly.texheader[3] >> 6) & 0x3ff;
-    const uint32_t luma = poly.luma >> 2;
+// A polygon's Model 2 state (its texture header, luma and texture level) into mv, as gpu_renderer.cpp decodes it
+// (m2.hlsl PolyIn), and its solid colour. Returns its renderer (1: translucent solid, the rasterizer draws nothing).
+int poly_state(const uint16_t *texheader, uint8_t poly_luma, int32_t texlod, const rt::VideoMem &mem, M2Vert &mv) {
+    const int renderer = (texheader[0] >> 13) & 3;
+    const uint32_t colorbase = (texheader[3] >> 6) & 0x3ff;
+    const uint32_t luma = poly_luma >> 2;
     const uint32_t color = le16(mem.palram, colorbase + 0x1000);
-    const float r = gamma_lut[le16(mem.colorxlat, 0x0000 / 2 + (((color >> 0) & 0x1f) << 8) + luma) & 0xff] / 255.0f;
-    const float gr = gamma_lut[le16(mem.colorxlat, 0x4000 / 2 + (((color >> 5) & 0x1f) << 8) + luma) & 0xff] / 255.0f;
-    const float b = gamma_lut[le16(mem.colorxlat, 0x8000 / 2 + (((color >> 10) & 0x1f) << 8) + luma) & 0xff] / 255.0f;
-
+    mv.r = gamma_lut[le16(mem.colorxlat, 0x0000 / 2 + (((color >> 0) & 0x1f) << 8) + luma) & 0xff] / 255.0f;
+    mv.g = gamma_lut[le16(mem.colorxlat, 0x4000 / 2 + (((color >> 5) & 0x1f) << 8) + luma) & 0xff] / 255.0f;
+    mv.b = gamma_lut[le16(mem.colorxlat, 0x8000 / 2 + (((color >> 10) & 0x1f) << 8) + luma) & 0xff] / 255.0f;
     // texture state as gpu_renderer.cpp decodes it (m2.hlsl PolyIn)
-    const uint32_t th0 = poly.texheader[0], th1 = poly.texheader[1], th2 = poly.texheader[2];
+    const uint32_t th0 = texheader[0], th1 = texheader[1], th2 = texheader[2];
     const uint32_t mirx = (th0 >> 8) & 1, miry = (th0 >> 9) & 1;
     const uint32_t wlog = th0 & 7, hlog = (th0 >> 3) & 7;
     const uint32_t max_level = 4 + std::min(wlog, hlog);
-    M2Vert mv{};
     mv.info[0] = uint32_t(renderer) | ((th0 >> 15) & 1) << 2 | (((th0 >> 6) & 1) & ~mirx) << 3 |
                  (((th0 >> 7) & 1) & ~miry) << 4 | mirx << 5 | miry << 6 | ((th0 >> 12) & 1) << 7 |
                  ((th0 >> 10) & 3) << 8 | ((th2 >> 12) & 1) << 10 | max_level << 12 | wlog << 17 | hlog << 20;
     mv.info[1] = (32u * (th2 & 0x3f)) | (32u * ((th2 >> 6) & 0x1f)) << 16;
     mv.info[2] = (((th2 >> 13) & 1) * 128) | (((th2 >> 14) & 3) * 128) << 16;
-    mv.info[3] = ((th1 & 0xff) << 7) | uint32_t(poly.luma) << 16;
-    mv.more[0] = uint32_t(poly.texlod);
+    mv.info[3] = ((th1 & 0xff) << 7) | uint32_t(poly_luma) << 16;
+    mv.more[0] = uint32_t(texlod);
     mv.more[1] = color & 0x7fff;
-    mv.r = r, mv.g = gr, mv.b = b;
+    return renderer;
+}
+
+// One polygon as camera-space vertices for the main camera (c0m, c1m: its centre; fxm, fym: its focus), with its
+// Model 2 state; effect: one of the shots' effects (build places those). 0: nothing to draw.
+int poly_vertices(const rt::GeoPoly &poly, const rt::VideoMem &mem, uint32_t rank, int c0m, int c1m, float fxm, float fym,
+                  M2Vert *pv, bool &effect) {
+    M2Vert mv{};
+    const int renderer = poly_state(poly.texheader, poly.luma, poly.texlod, mem, mv);
+    if (renderer == 1) return 0; // translucent solid: the rasterizer draws nothing
     // The Model 2 has no depth buffer: the first polygon in its order to reach a pixel wins, which is how
     // decals (window frames, shadows, blood on the ground) stay on the surfaces after them. Here each
     // step in that order sits a little further out along its own view ray (m2_gl.c: position x
@@ -704,6 +708,148 @@ void make_courtyard(const std::string &images, const std::string &out) {
     ok = std::fclose(f) == 0 && ok;
     if (!ok || std::rename(tmp.c_str(), out.c_str())) throw std::runtime_error("cannot write " + out);
     LOGI("courtyard: %u vertices, up (%.3f %.3f %.3f)", n, up[0], up[1], up[2]);
+}
+
+// ---- The players' figures (your partner online, in a headset: xr_shell.c draw_partner, quest_avatar.c): the game's
+// two agents as its attract intro draws them, Rogan (player 1) at frame kFigureFrame[0] and G (player 2) at
+// kFigureFrame[1]. Each is a set of rigid parts (the Model 2 has no skinning), every part a model of its own drawn
+// with a matrix of its own, hung on one skeleton (quest_avatar.c has its joints). Like the courtyard they are the
+// game's data, so they are made once on the headset from the player's ROM set by a second game without sound: the
+// parts are found in the frame's display list by their models' addresses (the coat is the model drawn after the
+// chest: one frame of its animation) and read back from the model ROM in their own space (rt::Geo::model: every
+// polygon, whichever way it faced the game's camera), with texture RAM (the same at both frames), the luma and the
+// colour tables. figures3.m2f:
+//   "M2FIGUR3", uint32 figures (2), uint32 parts (M2_FIGURE_PARTS), per figure and part uint32 vertices, then every
+//   part's M2Vert[vertices] in that order, texture RAM, luma, colour translation (as the courtyard's).
+// A figure's M2Vert (m2_vr.h): x, y, z in the part's space (the game's units); depth, prio, key the polygon's
+// normal; more[0] its light (diffuse, ambient << 8, two-sided << 16): its luma is m2_gl.c's to make as it turns;
+// r, g, b of a textured polygon: its first corner (one point to tell which way the whole polygon faces).
+// The waist: where a figure's chest and pelvis don't meet (G's), the game joins them with a ring of triangles it
+// makes anew each frame in polygon RAM, from the pelvis's top edge to the chest's bottom edge, drawn with the
+// pelvis's matrix. Read at the figure's frame, its corners on the chest's edge (they are the chest model's own
+// points) are kept in the chest's space and marked (more[0] bit 17), the rest in the pelvis's: m2_gl.c moves each
+// with its own part, so the ring stretches as the game's does.
+constexpr uint64_t kFigureFrame[2] = {2300, 2500};
+// (m2_vr.h's order: the pelvis, its two flaps, each leg's thigh, shin, foot and toes (left, then right), the chest,
+// the coat, the head, each arm's upper arm, forearm and hand, the waist; 0: the model drawn after the one before,
+// 1: none (the right hand is the left's mirrored: the game's own right hand holds its gun, and is the last part),
+// 2: the waist.)
+constexpr uint32_t kFigureParts[2][M2_FIGURE_PARTS] = {
+    {0x0084c2b3, 0x0080664c, 0x008066a3, 0x0087b3e1, 0x008cbf1e, 0x008067fb, 0x008a04a8, 0x0087b507, 0x008cc06c, 0x008068db,
+     0x008a0542, 0x0087b62d, 0, 0x008069bb, 0x00853af0, 0x008f5567, 0x008e7dd9, 0x00853c2a, 0x008f56ab, 1, 2, 0x008e7f31},
+    {0x00844b02, 0x00845565, 0x00845594, 0x0084b770, 0x0084be0f, 0x008455c3, 0x0084bd4d, 0x0084b85d, 0x0084bf56, 0x0084566a,
+     0x0084bdae, 0x00844fe2, 1, 0x00845711, 0x00844c5d, 0x0084534f, 0x0084b24d, 0x00844dcc, 0x0084545a, 1, 2, 0x008e7f31},
+};
+std::string figures_path;
+std::atomic<const char *> figures_ready{nullptr};
+void make_figures(const std::string &images, const std::string &out) {
+    rt::GameLoop fg(images, false);
+    fg.board().video().set_external_3d(true, false);
+    std::vector<M2Vert> parts[2][M2_FIGURE_PARTS];
+    for (int who = 0; who < 2; who++) {
+        while (fg.board().frame() < kFigureFrame[who]) fg.run_frame(rt::Inputs{});
+        const rt::VideoMem &mem = fg.board().video().gpu_mem();
+        if (!mem.palram || !mem.colorxlat || !mem.lumaram || !mem.tex0 || !mem.tex1) throw std::runtime_error("no 3D at a figure's frame");
+        rt::Geo &geo = fg.board().geo();
+        const std::vector<rt::Geo::Object> &objects = geo.objects;
+        size_t last = objects.size(), pelvis_at = last, chest_at = last;
+        std::vector<std::array<float, 3>> chest_points;
+        // a model's point by an object's matrix (MAME's 3 x 4), and back
+        const auto out_of = [](const float *m, const float *p, float *o) {
+            for (int k = 0; k < 3; k++) o[k] = m[k] * p[0] + m[3 + k] * p[1] + m[6 + k] * p[2] + m[9 + k];
+        };
+        const auto into = [](const float *m, const float *w, float *o) { // (a turn and a move: its inverse)
+            const float d[3] = {w[0] - m[9], w[1] - m[10], w[2] - m[11]};
+            for (int k = 0; k < 3; k++) o[k] = m[3 * k] * d[0] + m[3 * k + 1] * d[1] + m[3 * k + 2] * d[2];
+        };
+        for (int part = 0; part < M2_FIGURE_PARTS; part++) {
+            const uint32_t want = kFigureParts[who][part];
+            if (want == 1) continue;
+            size_t at = objects.size();
+            if (want == 0) at = last + 1;
+            else if (want == 2) { // the waist: a model in polygon RAM drawn with the pelvis's matrix (Rogan has none)
+                for (size_t i = 0; i < objects.size() && pelvis_at < objects.size(); i++)
+                    if (!(objects[i].address & 0x01800000) && std::equal(objects[i].m, objects[i].m + 12, objects[pelvis_at].m)) { at = i; break; }
+                if (at >= objects.size() || chest_at >= objects.size()) continue;
+            } else for (size_t i = 0; i < objects.size(); i++) if (objects[i].address == want) { at = i; break; }
+            std::vector<rt::Geo::ModelPoly> polys;
+            if (at >= objects.size() || (want != 2 && !(objects[at].address & 0x00800000)) || !geo.model(objects[at], polys) ||
+                polys.empty()) {
+                if (want == 2) continue;
+                throw std::runtime_error("a figure's part is not in its frame");
+            }
+            if (want != 2) last = at;
+            if (part == M2_FIGURE_PELVIS) pelvis_at = at;
+            if (part == M2_FIGURE_CHEST) {
+                chest_at = at;
+                for (const rt::Geo::ModelPoly &q : polys)
+                    for (int k = 0; k < q.n; k++) chest_points.push_back({q.v[k][0], q.v[k][1], q.v[k][2]});
+            }
+            for (rt::Geo::ModelPoly &q : polys) {
+                uint32_t chest_corner[4] = {0, 0, 0, 0};
+                if (want == 2) { // each corner: the chest's own point (kept in the chest's space), or the pelvis's
+                    q.two_sided = true; // (its normal turns with neither part)
+                    for (int k = 0; k < q.n; k++) {
+                        float w[3], c[3];
+                        out_of(objects[at].m, q.v[k], w);
+                        into(objects[chest_at].m, w, c);
+                        for (const auto &cp : chest_points)
+                            if (std::fabs(cp[0] - c[0]) + std::fabs(cp[1] - c[1]) + std::fabs(cp[2] - c[2]) < 0.02f) {
+                                chest_corner[k] = 1u << 17;
+                                std::copy(c, c + 3, q.v[k]);
+                                break;
+                            }
+                    }
+                }
+                M2Vert mv{};
+                // a solid polygon's colour: lit half way (m2_gl.c lights the textured ones as the figure turns)
+                const uint8_t luma = uint8_t(std::clamp(q.ambient + q.diffuse * 0.5f, 0.f, 255.f));
+                if (poly_state(q.texheader, luma, 0, mem, mv) == 1) continue;
+                mv.more[0] = uint32_t(std::clamp(q.diffuse, 0.f, 255.f)) | uint32_t(std::clamp(q.ambient, 0.f, 255.f)) << 8 |
+                             uint32_t(q.two_sided) << 16;
+                mv.depth = q.normal[0], mv.prio = q.normal[1], mv.key = q.normal[2];
+                M2Vert pv[4];
+                for (int k = 0; k < q.n; k++) {
+                    pv[k] = mv;
+                    pv[k].x = q.v[k][0], pv[k].y = q.v[k][1], pv[k].z = q.v[k][2];
+                    pv[k].u = q.uv[k][0] * 32.0f, pv[k].v = q.uv[k][1] * 32.0f;
+                    pv[k].more[0] |= chest_corner[k];
+                    if ((mv.info[0] & 3) >= 2) pv[k].r = q.v[0][0], pv[k].g = q.v[0][1], pv[k].b = q.v[0][2];
+                }
+                // (the rasterizer's corners: P1(n-1), P0(n-1), P0(n), P1(n): a quad goes round as 0, 1, 2, 3)
+                for (int k = 1; k + 1 < q.n; k++) parts[who][part].insert(parts[who][part].end(), {pv[0], pv[k], pv[k + 1]});
+            }
+        }
+        // the right hand: the left's, mirrored in its own space (z runs across the body: quest_avatar.c)
+        parts[who][M2_FIGURE_HAND_R] = parts[who][M2_FIGURE_HAND_L];
+        for (M2Vert &v : parts[who][M2_FIGURE_HAND_R]) v.z = -v.z, v.key = -v.key;
+    }
+    const rt::VideoMem &mem = fg.board().video().gpu_mem();
+    const std::string tmp = out + ".tmp";
+    FILE *f = std::fopen(tmp.c_str(), "wb");
+    if (!f) throw std::runtime_error("cannot write " + tmp);
+    const uint32_t head[2] = {2, M2_FIGURE_PARTS};
+    bool ok = std::fwrite("M2FIGUR3", 1, 8, f) == 8 && std::fwrite(head, 4, 2, f) == 2;
+    uint32_t total = 0;
+    for (auto &who : parts)
+        for (auto &part : who) {
+            const uint32_t n = uint32_t(part.size());
+            ok = ok && std::fwrite(&n, 4, 1, f) == 1;
+            total += n;
+        }
+    for (auto &who : parts)
+        for (auto &part : who) ok = ok && std::fwrite(part.data(), sizeof(M2Vert), part.size(), f) == part.size();
+    ok = ok && std::fwrite(mem.tex0, 4, M2_TEX_WORDS / 2, f) == M2_TEX_WORDS / 2 &&
+         std::fwrite(mem.tex1, 4, M2_TEX_WORDS / 2, f) == M2_TEX_WORDS / 2;
+    std::vector<uint8_t> t(M2_LUMA_ENTRIES);
+    for (uint32_t i = 0; i < M2_LUMA_ENTRIES; i++) t[i] = mem.lumaram[i * 4];
+    ok = ok && std::fwrite(t.data(), 1, t.size(), f) == t.size();
+    t.resize(M2_XLAT_ENTRIES);
+    for (uint32_t i = 0; i < M2_XLAT_ENTRIES; i++) t[i] = gamma_lut[le16(mem.colorxlat, i) & 0xff];
+    ok = ok && std::fwrite(t.data(), 1, t.size(), f) == t.size();
+    ok = std::fclose(f) == 0 && ok;
+    if (!ok || std::rename(tmp.c_str(), out.c_str())) throw std::runtime_error("cannot write " + out);
+    LOGI("figures: %u vertices", total);
 }
 
 // texture RAM rows that changed (the board's per-page generations) into the shared copy (g.mu held)
@@ -1051,8 +1197,20 @@ void draw_shoot_outside(std::vector<uint16_t> &px, const rt::Video &video) {
         quest_text565(px.data(), W, H, x, y, 2, 0xfd05, t);
     }
 }
+// where each player's gun aims in the frame's inputs (picture pixels, x | y << 16; -1: off the screen or no gun):
+// host_player_aim, for a partner whose app sends no pose (xr_shell.c: their figure aims there)
+std::atomic<int> g_aim[2] = {-1, -1};
 void draw_crosshairs(std::vector<uint16_t> &px, const rt::Inputs &in) {
     const bool online = arcade_net::mode() != arcade_net::Off;
+    for (int p = 0; p < 2; p++) {
+        const rt::GunRange &gun = rt::game().gun;
+        const int gx = p ? in.gun2_x : in.gun_x, gy = p ? in.gun2_y : in.gun_y;
+        int aim = -1;
+        if (gun.present() && gx > gun.x_min && gx < gun.x_max && gy > gun.y_min && gy < gun.y_max)
+            aim = int(float(gx - gun.x_min) * float(rt::Video::W) / float(gun.x_max - gun.x_min)) |
+                  int(float(gy - gun.y_min) * float(rt::Video::H) / float(gun.y_max - gun.y_min)) << 16;
+        g_aim[p].store(aim, std::memory_order_relaxed);
+    }
     if (!port_draw_crosshairs) return;
     const int me = online ? arcade_net::local_slot() : 0;
     for (int p = 0; p < 2; p++) {
@@ -1249,6 +1407,14 @@ uint64_t tgpx4_ns_total() { return rt::tgpx4_ns; }
 // The courtyard's file once it exists (m2_gl.c loads it for the cabinet room), else NULL
 extern "C" void arcade_restart(void) { restart_wanted.store(1); }
 extern "C" const char *arcade_courtyard_file(void) { return courtyard_ready.load(std::memory_order_acquire); }
+extern "C" int host_player_aim(int p, int *x, int *y) {
+    const int a = p >= 0 && p < 2 ? g_aim[p].load(std::memory_order_relaxed) : -1;
+    if (a < 0) return 0;
+    *x = a & 0xffff, *y = a >> 16;
+    return 1;
+}
+// The figures' file once it exists (m2_gl.c loads it: your partner's body online), else NULL
+extern "C" const char *arcade_figures_file(void) { return figures_ready.load(std::memory_order_acquire); }
 
 extern "C" const VrScene *d3d_vr_scene(void) {
     std::lock_guard<std::mutex> lock(g.mu);
@@ -1337,25 +1503,41 @@ extern "C" int SDL_main(int argc, char **argv) {
         std::remove((game_dir + "/courtyard3.m2w").c_str());
         std::remove((game_dir + "/courtyard2.m2w").c_str());
         std::remove((game_dir + "/courtyard.m2w").c_str());
-        if (made_images) std::remove(cy.c_str());
-        courtyard_path = cy;
-        if (exists(cy)) {
-            courtyard_ready.store(courtyard_path.c_str(), std::memory_order_release);
-        } else if (arcade_flat) {
-            // a screen has no cabinet room: not made (the Apple TV HD's two cores took 42 s over it beside the game)
-        } else if (exists(images + "/stamp.txt")) {
-            // made on a spare core while you play (about 15 s on the Quest 3; the game being played is not touched:
-            // two games side by side give the same frames, m2gpushot M2_TWIN=1). The cabinet room is dark till then;
-            // the VR thread loads the backdrop once courtyard_ready is set (m2_gl.c load_backdrop).
-            std::thread([images] {
+        // the players' figures (make_figures), once too
+        const std::string fg = game_dir + "/figures3.m2f";
+        std::remove((game_dir + "/figures2.m2f").c_str()); // (3: the hand with the gun; 2: the waist)
+        std::remove((game_dir + "/figures1.m2f").c_str());
+        if (made_images) std::remove(cy.c_str()), std::remove(fg.c_str());
+        courtyard_path = cy, figures_path = fg;
+        // (a screen has no cabinet room and shows no partner beside you: neither is made there; the Apple TV HD's
+        // two cores took 42 s over the courtyard beside the game. M2_FIGURES=1, tests: the figures all the same.)
+        const bool vr = !arcade_flat, test_figures = getenv("M2_FIGURES") && atoi(getenv("M2_FIGURES"));
+        const bool have_cy = exists(cy), have_fg = exists(fg);
+        if (have_cy) courtyard_ready.store(courtyard_path.c_str(), std::memory_order_release);
+        if (have_fg) figures_ready.store(figures_path.c_str(), std::memory_order_release);
+        const bool want_cy = vr && !have_cy, want_fg = (vr || test_figures) && !have_fg;
+        if ((want_cy || want_fg) && exists(images + "/stamp.txt")) {
+            // made on a spare core while you play (the courtyard about 15 s on the Quest 3, the figures after it;
+            // the game being played is not touched: two games side by side give the same frames, m2gpushot
+            // M2_TWIN=1). The cabinet room is dark till then, and a partner is only their guns and hands; the VR
+            // thread loads each once its file is there (m2_gl.c load_backdrop, load_figures).
+            std::thread([images, want_cy, want_fg] {
                 plat_thread_background();   // (below the game's thread and the VR's)
-                const auto t0 = std::chrono::steady_clock::now();
-                try {
+                auto t0 = std::chrono::steady_clock::now();
+                if (want_cy) try {
                     make_courtyard(images, courtyard_path);
                     courtyard_ready.store(courtyard_path.c_str(), std::memory_order_release);
                     LOGI("courtyard: made in %.1f s", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
                 } catch (const std::exception &e) {
                     LOGE("courtyard: %s", e.what());
+                }
+                t0 = std::chrono::steady_clock::now();
+                if (want_fg) try {
+                    make_figures(images, figures_path);
+                    figures_ready.store(figures_path.c_str(), std::memory_order_release);
+                    LOGI("figures: made in %.1f s", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+                } catch (const std::exception &e) {
+                    LOGE("figures: %s", e.what());
                 }
             }).detach();
         }
