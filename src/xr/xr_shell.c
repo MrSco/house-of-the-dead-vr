@@ -2792,6 +2792,9 @@ static void two_hands(void) {
 #define SLIDE_GRAB_Y 0.05f      // gun space: where the hand takes the slide (above its rear: the controllers can't meet)
 #define SLIDE_GRAB_Z 0.03f
 #define SLIDE_GRAB_R 0.09f
+// ... and anywhere up to this far behind it, on the line the slide is pulled along: the hand need not come to the
+// gun (0.7.0: it had to, within SLIDE_GRAB_R, and controllers with tracking rings, the Quest 2's, knocked together)
+#define SLIDE_GRAB_BACK 0.14f
 #define MAG_IN_R 0.07f          // the magazine's top this near the grip's base goes in
 #define RACK_TRAVEL 0.05f       // the hand's pull for a full rack
 static void magazine_and_slide(int f) {
@@ -2804,6 +2807,7 @@ static void magazine_and_slide(int f) {
     const float *gm = S.aim_m[g], *fm = S.aim_m[f];
     V3 hand = to_local(gm, (V3){ fm[12], fm[13], fm[14] });
     float dx = hand.x, dy = hand.y - SLIDE_GRAB_Y, dz = hand.z - SLIDE_GRAB_Z;
+    dz = dz > SLIDE_GRAB_BACK ? dz - SLIDE_GRAB_BACK : dz > 0 ? 0 : dz;   // (+ z: back, towards you)
     S.slide_near = !S.rack && sqrtf(dx * dx + dy * dy + dz * dz) < SLIDE_GRAB_R;
     if (S.grip_edge[f] && S.slide_near) {           // takes the slide
         S.rack = 1; S.rack_z0 = hand.z; S.rack_pull = 0; S.mag_hold = 0; S.mag_spent = 1;
