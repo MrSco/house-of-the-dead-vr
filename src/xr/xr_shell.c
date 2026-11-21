@@ -2743,8 +2743,35 @@ static void shot_confirm(XrTime t) {
 #define SUP_X 0.03f
 #define SUP_Y (-0.10f)
 #define SUP_Z 0.02f
-#define SUP_R 0.09f
+#define SUP_R 0.14f
 #define SUP_BREAK 0.25f
+// Where the free hand may take hold, and the slide. Both are measured from the free controller's aim pose, which is
+// its tip: two controllers cannot be at one place, and those with tracking rings (the Quest 2's) knock together well
+// before their tips meet. (0.7.0: within 9 cm of one point by the gun hand's fingers, and of one over the gun's rear:
+// "very specific", and the rings met.) So each is a line with room about it:
+//   the hold: anywhere within SUP_R of the gun hand, from its fingers (SUP_A) back and down to its wrist (SUP_B);
+//   the slide: anywhere within SLIDE_GRAB_R of the line the slide is pulled along, SLIDE_GRAB_Y over the aim ray, from
+//   over the muzzle (the whole top of the gun is its slide) to SLIDE_GRAB_BACK behind the gun's rear (SLIDE_GRAB_Z).
+// They overlap, and what a squeeze is for says which it is (MAGAZINE reload; else there is only the hold): no
+// magazine in the gun, it is for a new one, and takes neither; one just put in, the slide if it is in reach, else
+// the hold; a loaded gun, whichever the hand is nearer to, each by its own reach.
+#define SLIDE_GRAB_Y 0.07f
+#define SLIDE_GRAB_Z 0.03f
+#define SLIDE_GRAB_R 0.15f
+#define SLIDE_GRAB_BACK 0.14f
+static float sup_dist(V3 p) {       // (p: the free hand, gun space)
+    static const float a[3] = { 0, -0.03f, 0 }, b[3] = { 0, -0.12f, 0.10f };
+    const float ab[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] }, ap[3] = { p.x - a[0], p.y - a[1], p.z - a[2] };
+    float t = (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / (ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2]);
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const float dx = ap[0] - t * ab[0], dy = ap[1] - t * ab[1], dz = ap[2] - t * ab[2];
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+static float slide_dist(V3 p) {
+    const float front = -fmaxf(gun_muzzle_z(), 0.10f), back = SLIDE_GRAB_Z + SLIDE_GRAB_BACK;   // (+ z: back, towards you)
+    const float dx = p.x, dy = p.y - SLIDE_GRAB_Y, dz = p.z > back ? p.z - back : p.z < front ? p.z - front : 0;
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+}
 static void two_hands(void) {
     int f = free_hand(), g = 1 - f;
     S.sup_near = 0;
@@ -2756,11 +2783,17 @@ static void two_hands(void) {
     }
     const float *gm = S.aim_m[g], *fm = S.aim_m[f];
     V3 p = to_local(gm, (V3){ fm[12], fm[13], fm[14] });
-    float dx = p.x - (f == 0 ? -SUP_X : SUP_X), dy = p.y - SUP_Y, dz = p.z - SUP_Z, d = sqrtf(dx * dx + dy * dy + dz * dz);
+    const float d = sup_dist(p);
     if (S.support) {
         if (!S.grip_on[f] || d > SUP_BREAK) { S.support = 0; haptic(f, 0.2f, 10); LOGI("two hands: let go"); return; }
     } else {
-        S.sup_near = d < SUP_R && !S.rack && !S.mag_hold;
+        int mine = d < SUP_R && !S.rack && !S.mag_hold;
+        if (mine && mag_reload()) {
+            const float sd = slide_dist(p);
+            if (!S.mag_seated) mine = 0;
+            else if (S.mag_in ? sd < SLIDE_GRAB_R : sd / SLIDE_GRAB_R < d / SUP_R) mine = 0;
+        }
+        S.sup_near = mine;
         if (!S.grip_edge[f] || !S.sup_near) return;
         S.support = 1; S.sup_near = 0; S.grip_edge[f] = 0; S.mag_spent = 1;   // the squeeze is spent on this
         float gi[16];
@@ -2789,13 +2822,6 @@ static void two_hands(void) {
 // the bottom of the gun's grip: it goes in (a click in both hands). Squeeze the grip with the hand at the back of
 // the slide: it takes the slide; pull back RACK_TRAVEL and the slide is racked: with a magazine in, that is the
 // game's reload. Let go early and the slide springs back.
-#define SLIDE_GRAB_Y 0.05f      // gun space: where the hand takes the slide (above its rear: the controllers can't meet)
-#define SLIDE_GRAB_Z 0.03f
-#define SLIDE_GRAB_R 0.09f
-// ... and anywhere on the line the slide is pulled along, from over the muzzle (the whole top of the gun is its
-// slide) to this far behind that place: the hand need not come to the gun's rear (0.7.0: it had to, within
-// SLIDE_GRAB_R, and controllers with tracking rings, the Quest 2's, knocked together)
-#define SLIDE_GRAB_BACK 0.14f
 #define MAG_IN_R 0.07f          // the magazine's top this near the grip's base goes in
 #define RACK_TRAVEL 0.05f       // the hand's pull for a full rack
 static void magazine_and_slide(int f) {
@@ -2807,10 +2833,7 @@ static void magazine_and_slide(int f) {
     if (!S.aim_ok[f] || !S.aim_ok[g]) { if (S.rack) { S.rack = 0; S.rack_from = S.rack_pull; S.rack_end = S.now; } return; }
     const float *gm = S.aim_m[g], *fm = S.aim_m[f];
     V3 hand = to_local(gm, (V3){ fm[12], fm[13], fm[14] });
-    float dx = hand.x, dy = hand.y - SLIDE_GRAB_Y, dz = hand.z - SLIDE_GRAB_Z;
-    const float front = -SLIDE_GRAB_Z - fmaxf(gun_muzzle_z(), 0.10f);    // (over the muzzle; + z: back, towards you)
-    dz = dz > SLIDE_GRAB_BACK ? dz - SLIDE_GRAB_BACK : dz < front ? dz - front : 0;
-    S.slide_near = !S.rack && sqrtf(dx * dx + dy * dy + dz * dz) < SLIDE_GRAB_R;
+    S.slide_near = !S.rack && S.mag_seated && !S.sup_near && slide_dist(hand) < SLIDE_GRAB_R;   // (two_hands: which)
     if (S.grip_edge[f] && S.slide_near) {           // takes the slide
         S.rack = 1; S.rack_z0 = hand.z; S.rack_pull = 0; S.mag_hold = 0; S.mag_spent = 1;
         haptic(f, 0.25f, 15);
