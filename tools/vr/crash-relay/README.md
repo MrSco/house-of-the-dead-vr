@@ -37,9 +37,11 @@ what a report sends.
 ## The relay (`src/`)
 
 House of the Dead VR's own Cloudflare Worker, `hotd-crash-relay`, on the custom domain `hotdvr.roccojuliano.com`
-(`wrangler.jsonc`; the account is the logged-in one, its id is not in this repository). `GET /` answers
-`{"ok":true,"service":"hotdvr","reports":"/v1/reports","configured":…}`; `POST /v1/reports` takes a report (`/report`
-is the same, the address the first Quest builds knew). Later services get their own paths beside it (`/v1/lobbies`…).
+(`wrangler.jsonc`; the account is the logged-in one, its id is not in this repository). It serves the project's static
+website from `site/public/` (`GET /`, `/privacy`, `/img/*`, ...) while running the Worker first on `/v1/*` and `/report`:
+`GET /v1/health` answers `{"ok":true,"service":"hotdvr","reports":"/v1/reports","configured":…}`; `POST /v1/reports`
+takes a report (`/report` is the same, the address the first Quest builds knew). Later services get their own paths
+beside it (`/v1/lobbies`…).
 
 It holds the GitHub token, so the apps hold none. It checks and size-limits each report (128 KB), redacts IP and
 e-mail addresses (as GoldenEye VR's relay does), rate-limits (6 a minute per address, 30 overall; at most 20 new crash

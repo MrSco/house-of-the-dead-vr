@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The House of the Dead VR · Sega's 1996 arcade classic, natively on Quest, PC &amp; more</title>
+  <meta name="description" content="Sega's 1996 arcade original, statically recompiled to run natively on Meta Quest 3, PC VR, Windows, Mac, Android, iPhone, iPad, Apple TV, Apple Vision Pro and Steam Frame — with full 3D stereo VR, arcade cabinet mode, physical reloads, and cross-platform online co-op with voice chat. Bring your own ROM.">
+  <link rel="canonical" href="https://hotdvr.roccojuliano.com/">
+  <meta name="theme-color" content="#090708">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="The House of the Dead VR">
+  <meta property="og:url" content="https://hotdvr.roccojuliano.com/">
+  <meta property="og:title" content="The House of the Dead VR · Sega's 1996 arcade original in native VR">
+  <meta property="og:description" content="No emulator, no streaming. Statically recompiled native code at 57.52 fps — stand inside the mansion in full 3D VR, play on a restored arcade cabinet, or team up online across every platform.">
+  <meta property="og:image" content="https://hotdvr.roccojuliano.com/img/og.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The House of the Dead VR key art showing a player in a VR headset aiming a pistol at zombies outside the gothic mansion under a blood moon.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://hotdvr.roccojuliano.com/img/og.jpg">
+  <meta name="twitter:image:alt" content="The House of the Dead VR key art showing a player in a VR headset aiming a pistol at zombies outside the gothic mansion under a blood moon.">
+
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" href="/favicon-64.png" type="image/png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/barlow-semi-condensed-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/styles.css?v=1">
+  <noscript><link rel="stylesheet" href="/nojs.css"></noscript>
+  <script src="/main.js?v=1" defer></script>
+</head>
+<body>
+
+<header class="hero">
+  <nav class="top wrap" aria-label="Main">
+    <a class="brand" href="/">
+      <img src="/img/mark.webp" alt="" width="30" height="30">
+      House of the Dead VR
+    </a>
+    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-menu">
+      <svg class="i-open" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <svg class="i-close" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Menu</span>
+    </button>
+    <div class="top-links" id="site-menu">
+      <a href="#features">Features</a>
+      <a href="#clips">Gameplay</a>
+      <a href="#coop">Co-op</a>
+      <a href="#screens">Screens</a>
+      <a href="#controls">Controls</a>
+      <a href="#install">Download</a>
+      <a class="keep" href="https://www.youtube.com/watch?v=qA4V-auLHN0">YouTube</a>
+      <a class="keep" href="https://github.com/MrSco/house-of-the-dead-vr">GitHub</a>
+    </div>
+  </nav>
+
+  <div class="hero-stage" aria-hidden="true">
+    <img src="/img/hero.webp" alt="" width="1672" height="941" fetchpriority="high">
+  </div>
+
+  <div class="hero-body wrap">
+    <p class="kicker">Free &middot; Open Source &middot; Quest 3 &middot; PC VR &middot; Windows &middot; Mac &middot; Mobile &middot; Apple TV &middot; Vision Pro</p>
+    <h1>Sega's 1996 arcade classic, rebuilt natively for VR and every&nbsp;screen.</h1>
+    <p class="lede">No emulator, no streaming. Statically recompiled from the original Model&nbsp;2C arcade board into native code at the arcade's exact 57.52&nbsp;fps &mdash; stand inside Curien Mansion with a light gun in your hand, step up to a restored cabinet, or team up online with voice chat.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/MrSco/house-of-the-dead-vr/releases/latest" data-apk>Download Quest APK<span class="ver" data-version></span></a>
+      <a class="btn" href="#install">All Platforms &amp; Setup</a>
+      <a class="btn btn-ghost" href="#clips">Watch Gameplay</a>
+    </div>
+    <p class="fine">Free fan project under BSD-3-Clause. Contains zero game data: bring your own MAME ROM set (<code>hotd.zip</code> or <code>hotd.7z</code>, Revision&nbsp;A). <a href="#rom">Why?</a></p>
+  </div>
+</header>
+
+<main>
+
+  <section id="features" class="section wrap">
+    <p class="kicker">01 &middot; At a glance</p>
+    <h2>One arcade board. Every screen you own.</h2>
+
+    <ul class="platforms-strip" aria-label="Supported platforms">
+      <li class="plat main"><b>Meta Quest 3 &amp; 3S</b><span>Standalone 3D VR &amp; full arcade cabinet</span><em>Main</em></li>
+      <li class="plat"><b>Windows PC</b><span>Flat screen (mouse, pads, light guns) or PC VR</span><em>Released</em></li>
+      <li class="plat"><b>Mac</b><span>Apple silicon, flat screen via Metal</span><em class="exp">Experimental</em></li>
+      <li class="plat"><b>Android</b><span>Phones &amp; tablets: tap-to-shoot, gyro, pads</span><em class="exp">Experimental</em></li>
+      <li class="plat"><b>iPhone &amp; iPad</b><span>SideStore IPA or TestFlight: touch, gyro, pads</span><em class="exp">Experimental</em></li>
+      <li class="plat"><b>Apple TV</b><span>Siri Remote as the light gun, or gamepads</span><em class="exp">TestFlight</em></li>
+      <li class="plat"><b>Apple Vision Pro</b><span>Native VR with hand tracking &amp; PSVR2 Sense</span><em class="exp">TestFlight</em></li>
+      <li class="plat"><b>Steam Frame</b><span>The Quest VR app built for Valve's headset</span><em class="exp">Experimental</em></li>
+    </ul>
+    <p class="note">Every version is built from the same codebase, uses strict deterministic math, and plays online co-op with every other platform frame for frame.</p>
+
+    <div class="glance">
+      <article class="glance-card">
+        <h3>Stand inside the arcade</h3>
+        <ul class="ticks">
+          <li>The arcade's own polygons, textures and lighting at real-world scale</li>
+          <li>Full head tracking layered smoothly on top of the rail camera</li>
+          <li>Scenery visibility hook renders the full 360&deg; area all around you</li>
+          <li>Exact 57.52&nbsp;fps arcade logic &mdash; statically recompiled, not emulated</li>
+        </ul>
+      </article>
+      <article class="glance-card">
+        <h3>Light guns &amp; physical reloads</h3>
+        <ul class="ticks">
+          <li>Authentic arcade cabinet light guns (P1 red, P2 blue) or moving-slide pistol</li>
+          <li>Drop the magazine, push in a fresh one, rack the slide &mdash; with guided prompts</li>
+          <li>Prefer classic arcade off-screen or point-down reloads? One setting away</li>
+          <li>Recoil, muzzle flash, two-handed grip &amp; controller-free hand tracking</li>
+        </ul>
+      </article>
+      <article class="glance-card">
+        <h3>Restored arcade cabinet</h3>
+        <ul class="ticks">
+          <li>Full cabinet with restored high-res marquee, control panel and side art</li>
+          <li>Grab with both hands to move, rotate or resize it anywhere in space</li>
+          <li>Surround it with the 3D mansion courtyard, your real room (passthrough), or dark</li>
+          <li>Hold gun-hand thumbstick click to jump between cabinet and full VR anytime</li>
+        </ul>
+      </article>
+      <article class="glance-card">
+        <h3>Online co-op with voice</h3>
+        <ul class="ticks">
+          <li>Two-player co-op over the internet (room codes, browser, quick match) or LAN</li>
+          <li>Full crossplay: Quest, PC, Mac, phones, iPad, Apple TV &amp; Vision Pro together</li>
+          <li>Drop into a run already in progress with ~2&ndash;3s compressed state sync</li>
+          <li>Built-in Opus voice chat with echo cancellation, AI noise suppression &amp; PTT</li>
+        </ul>
+      </article>
+      <article class="glance-card">
+        <h3>Flat play &amp; local 2-player</h3>
+        <ul class="ticks">
+          <li>Crisp HD 3D rendering at window resolution (4x MSAA) or classic 496&times;384</li>
+          <li>Mouse, PC light guns (Sinden, GunCon&nbsp;3, Gun4IR), gamepads, gyro &amp; touch</li>
+          <li>Local 2P on one screen: press Start on any second device to drop in as P2</li>
+          <li>Apple TV Siri Remote touch surface aims like a trackpad light gun</li>
+        </ul>
+      </article>
+      <article class="glance-card accent">
+        <h3>Rumble, triggers &amp; updates <span class="pill">v0.6</span></h3>
+        <ul class="ticks">
+          <li>DualSense right trigger resists and snaps like a real firearm trigger</li>
+          <li>Xbox impulse trigger motors buzz on shots and reloads; phones pulse on touch</li>
+          <li>Both VR controllers rumble hard when you take a hit</li>
+          <li>Quest, Steam Frame &amp; Android apps check for and install updates in-app</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section id="clips" class="section wrap">
+    <p class="kicker">02 &middot; Gameplay in motion</p>
+    <h2>Short loops from a Quest&nbsp;3. Plus the full run.</h2>
+    <p class="section-lede">Captured straight from a standalone Meta Quest&nbsp;3 &mdash; no PC attached. Click any clip to view it full screen.</p>
+
+    <div class="clips-grid">
+      <figure class="clip-card">
+        <a class="shot clip-frame" href="/img/shots/cabinet-courtyard.mp4" data-video aria-label="Looping clip: walking around the restored arcade cabinet in the 3D courtyard.">
+          <video src="/img/shots/cabinet-courtyard.mp4" poster="/img/shots/cabinet-courtyard-poster.webp" width="800" height="450" muted loop playsinline preload="metadata" aria-hidden="true"></video>
+          <span class="clip-tag">6s loop</span>
+        </a>
+        <figcaption>
+          <strong>Cabinet in the Courtyard</strong>
+          <span>Full-scale arcade cabinet with restored side art, set inside the mansion's 3D courtyard built from your ROM.</span>
+        </figcaption>
+      </figure>
+
+      <figure class="clip-card">
+        <a class="shot clip-frame" href="/img/shots/cabinet-shootout.mp4" data-video aria-label="Looping clip: aiming the red light gun and shooting zombies on the cabinet screen.">
+          <video src="/img/shots/cabinet-shootout.mp4" poster="/img/shots/cabinet-shootout-poster.webp" width="800" height="450" muted loop playsinline preload="metadata" aria-hidden="true"></video>
+          <span class="clip-tag">10s loop</span>
+        </a>
+        <figcaption>
+          <strong>Arcade Light-Gun Shootout</strong>
+          <span>Aim the corded red cabinet gun right at the screen, pick off zombies, and snap off-screen to reload.</span>
+        </figcaption>
+      </figure>
+
+      <figure class="clip-card">
+        <a class="shot clip-frame" href="/img/shots/immersive-reload.mp4" data-video aria-label="Looping clip: standing on the mansion bridge in immersive VR and physically reloading the gun.">
+          <video src="/img/shots/immersive-reload.mp4" poster="/img/shots/immersive-reload-poster.webp" width="800" height="450" muted loop playsinline preload="metadata" aria-hidden="true"></video>
+          <span class="clip-tag">7s loop</span>
+        </a>
+        <figcaption>
+          <strong>Inside the Game &amp; Physical Reload</strong>
+          <span>Step inside the bridge in full stereo 3D &mdash; drop the mag, slap in a fresh one, rack the slide, and fire.</span>
+        </figcaption>
+      </figure>
+    </div>
+
+    <div class="video-block">
+      <a class="video" href="https://www.youtube.com/watch?v=qA4V-auLHN0" data-youtube="qA4V-auLHN0">
+        <img src="/img/shots/video-cover.webp" alt="Standing on the Curien Mansion bridge in House of the Dead VR with a red light gun aimed at a leaping zombie." width="1280" height="720" loading="lazy">
+        <span class="play" aria-hidden="true"></span>
+        <span class="video-label">House of the Dead VR &mdash; Quest 3 Gameplay (Cabinet &amp; Immersive 3D)</span>
+        <span class="visually-hidden">Play the full gameplay video on YouTube</span>
+      </a>
+      <p class="note">Privacy-friendly embed: nothing loads from YouTube until you press play.</p>
+    </div>
+  </section>
+
+  <section id="play" class="section wrap">
+    <p class="kicker">03 &middot; Two ways to play in VR</p>
+    <h2>Step up to the cabinet. Or step inside the mansion.</h2>
+
+    <div class="modes">
+      <article class="mode">
+        <img src="/img/shots/play-immersive-bridge-thumb.webp" alt="Standing on the mansion bridge in immersive stereo 3D VR with the red light gun aimed at an oncoming zombie." width="800" height="450" loading="lazy">
+        <div class="mode-body">
+          <h3>Immersive 3D VR</h3>
+          <p>Stand right inside Sega's 1996 world at life size in full stereo 3D. Look around freely while the rail camera carries you through Curien Mansion.</p>
+          <ul class="ticks">
+            <li>A hook in the arcade's scenery code sends the entire surrounding area, so the mansion stays rendered behind and beside you.</li>
+            <li>Shots travel straight from the barrel of your red/blue arcade gun or moving-slide pistol, with recoil, flash and rumble.</li>
+            <li>Physical reloads replace the arcade's off-screen prompt with clear step-by-step hints: drop mag, insert mag, rack slide.</li>
+            <li>Hold the gun with both hands for steadier aim, or play controller-free with hand tracking on Quest and Vision Pro.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="mode">
+        <img src="/img/shots/play-cabinet-thumb.webp" alt="The full-size restored House of the Dead arcade cabinet standing inside the 3D mansion courtyard." width="800" height="450" loading="lazy">
+        <div class="mode-body">
+          <h3>Arcade Cabinet Mode</h3>
+          <p>Play the classic upright cabinet with restored marquee, control panel and side art &mdash; zero artificial camera motion.</p>
+          <ul class="ticks">
+            <li>Grab the cabinet with both grips to move it closer, rotate it, or scale it from tabletop to towering arcade height.</li>
+            <li>Choose your backdrop: the 3D <b>Courtyard</b> (generated locally from your ROM), <b>Passthrough</b> (your real room), or a <b>Dark</b> arcade space.</li>
+            <li>Shoot off the cabinet's screen for classic light-gun reloads, with the gun's cord connected right to the holster.</li>
+            <li>Hold your gun hand's thumbstick click at any moment to switch seamlessly between the cabinet and standing inside the game.</li>
+          </ul>
+        </div>
+      </article>
+    </div>
+
+    <h3 class="sub">Also built in</h3>
+    <div class="features">
+      <div class="feature">
+        <h4>Your reload style</h4>
+        <p>Default physical magazine reloads (drop, insert, rack), quick point-down floor reloads, classic off-screen shots, or a B/Y button press &mdash; switchable anytime in the in-VR menu.</p>
+      </div>
+      <div class="feature">
+        <h4>Hand tracking &amp; in-VR menus</h4>
+        <p>Full laser-pointed menus for gun model, left/right handedness, view, comfort, graphics and audio. Every preference saves automatically. No controllers required if you prefer bare hands.</p>
+      </div>
+      <div class="feature">
+        <h4>Local 2-player on one screen</h4>
+        <p>On Windows, Mac, phones, iPad and Apple TV, a second player can press Start on any other input device mid-run to drop in as Player&nbsp;2 with the blue crosshair &mdash; just like dropping quarters at the cabinet.</p>
+      </div>
+      <div class="feature">
+        <h4>DualSense &amp; Xbox triggers</h4>
+        <p>A DualSense right trigger builds real mechanical resistance and snaps on each shot; Xbox One/Series trigger motors kick on shots and reloads across Windows (SDL3), Mac, iOS and Apple TV.</p>
+      </div>
+      <div class="feature">
+        <h4>HD or original 496&times;384</h4>
+        <p>In flat mode, play in sharp native-resolution HD (4:3 with 4x MSAA) or toggle the authentic 496&times;384 arcade picture. Works with Sinden, GunCon&nbsp;3 and Gun4IR light guns out of the box.</p>
+      </div>
+      <div class="feature">
+        <h4>In-app updates</h4>
+        <p>Meta Quest, Steam Frame and Android builds check GitHub Releases on launch and download, verify (SHA-256 + signature) and install updates from the SYSTEM tab while keeping your ROM and saves.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="coop" class="section wrap">
+    <p class="kicker">04 &middot; Online Co-Op &amp; Voice Chat</p>
+    <h2>Two agents. Any two platforms. Frame for frame.</h2>
+    <div class="mp">
+      <div class="mp-copy">
+        <p class="mp-lede">Team up as Rogan (red gun) and G (blue gun) over the internet or on your local network &mdash; no port forwarding, no accounts, and no platform walls.</p>
+        <ul class="ticks">
+          <li><b>True cross-platform lockstep:</b> Every compiler builds the game with strict floating-point rules, so an ARM64 Quest&nbsp;3 and an x64 Windows PC compute the exact same arcade RAM bit for bit, verified every 60 frames by checksum.</li>
+          <li><b>Internet rooms &amp; zero-server LAN:</b> Host a room with a shareable code, browse open games (each tagged with its platform: <code>QUEST</code>, <code>PC</code>, <code>PCVR</code>, <code>MAC</code>, <code>IPHONE</code>, <code>APPLETV</code>, <code>VISIONPRO</code>), hit Quick Match, or play directly on your local Wi-Fi with no server at all.</li>
+          <li><b>Drop into a game already running:</b> Partners don't need to wait for a restart. The host packs a compressed snapshot (~180&nbsp;KB LZMA) and streams it over so Player&nbsp;2 joins mid-stage in 2&ndash;3 seconds.</li>
+          <li><b>Clear built-in voice chat:</b> Opus audio with SpeexDSP echo cancellation, RNNoise background noise suppression, and optional push-to-talk (off-hand stick click in VR, <code>T</code> on keyboard).</li>
+        </ul>
+        <p class="fine">Online rooms use <code>zonesync.net</code> by default (configurable in the ONLINE tab). Voice audio goes to your partner during play and is never recorded.</p>
+      </div>
+      <div class="mp-side">
+        <figure class="mp-shot">
+          <img src="/img/shots/play-immersive-hit-thumb.webp" alt="Blasting a zombie up close on the bridge in full 3D stereo VR." width="800" height="450" loading="lazy">
+          <figcaption>Player 1 holds the classic red arcade gun; Player 2 joins with the blue gun.</figcaption>
+        </figure>
+        <aside class="mp-card">
+          <h3>Crossplay Matrix</h3>
+          <p>Every platform runs the same online protocol and joins the same rooms:</p>
+          <div class="tag-cloud" aria-label="Crossplay platform tags">
+            <span class="tag tag-p1">QUEST</span>
+            <span class="tag tag-p2">PCVR</span>
+            <span class="tag">PC</span>
+            <span class="tag">MAC</span>
+            <span class="tag">ANDROID</span>
+            <span class="tag">IPHONE</span>
+            <span class="tag">IPAD</span>
+            <span class="tag">APPLETV</span>
+            <span class="tag tag-p2">VISIONPRO</span>
+            <span class="tag tag-p1">FRAME</span>
+          </div>
+          <p class="fine">Online compatibility: <b>v0.6.1</b> plays cleanly with 0.4.x, 0.5.0 and 0.6.0 across every platform.</p>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens" class="section wrap">
+    <p class="kicker">05 &middot; Screenshots</p>
+    <h2>Straight from a Quest&nbsp;3</h2>
+    <p class="section-lede">Click any screenshot to inspect it full size, or use your arrow keys to step through.</p>
+    <div class="gallery">
+      <figure>
+        <a class="shot" href="/img/shots/play-cabinet.webp"><img src="/img/shots/play-cabinet-thumb.webp" alt="The restored House of the Dead arcade cabinet standing inside the 3D mansion courtyard." width="800" height="450" loading="lazy"></a>
+        <figcaption>Cabinet mode in the 3D courtyard, captured from your own ROM.</figcaption>
+      </figure>
+      <figure>
+        <a class="shot" href="/img/shots/play-cabinet-aim.webp"><img src="/img/shots/play-cabinet-aim-thumb.webp" alt="Aiming the red arcade light gun at the cabinet screen." width="800" height="450" loading="lazy"></a>
+        <figcaption>Aiming the classic corded red light gun at the cabinet screen.</figcaption>
+      </figure>
+      <figure>
+        <a class="shot" href="/img/shots/play-cabinet-hit.webp"><img src="/img/shots/play-cabinet-hit-thumb.webp" alt="Shooting a zombie directly on the arcade cabinet screen." width="800" height="450" loading="lazy"></a>
+        <figcaption>Landing a shot on the cabinet screen with restored control panel art below.</figcaption>
+      </figure>
+      <figure>
+        <a class="shot" href="/img/shots/play-immersive-bridge.webp"><img src="/img/shots/play-immersive-bridge-thumb.webp" alt="Standing on the mansion bridge in full 3D stereo VR as a zombie leaps forward." width="800" height="450" loading="lazy"></a>
+        <figcaption>Immersive 3D mode: standing on the bridge as zombies charge in.</figcaption>
+      </figure>
+      <figure>
+        <a class="shot" href="/img/shots/play-immersive-hit.webp"><img src="/img/shots/play-immersive-hit-thumb.webp" alt="Hitting a zombie at point-blank range on the bridge in VR." width="800" height="450" loading="lazy"></a>
+        <figcaption>Point-blank hit with muzzle sparks and real-scale 3D enemies.</figcaption>
+      </figure>
+      <figure>
+        <a class="shot" href="/img/shots/play-immersive-reload.webp"><img src="/img/shots/play-immersive-reload-thumb.webp" alt="Racking the slide of the red light gun after inserting a magazine, with the Rack The Slide prompt visible." width="800" height="450" loading="lazy"></a>
+        <figcaption>Physical reload: slap in a fresh magazine and rack the slide under pressure.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="controls" class="section wrap">
+    <p class="kicker">06 &middot; Controls</p>
+    <h2>Pick up and play on any device</h2>
+
+    <div class="tabs" data-tabs>
+      <div class="tab-bar" role="tablist" aria-label="Control schemes">
+        <button class="tab-btn is-active" type="button" role="tab" aria-selected="true" aria-controls="tab-vr" id="btn-vr">VR Controllers</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-hands" id="btn-hands">Hand Tracking</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-mouse" id="btn-mouse">Mouse &amp; Light Guns</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-pad" id="btn-pad">Gamepads</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-touch" id="btn-touch">Touch &amp; Phone</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-tv" id="btn-tv">Apple TV Remote</button>
+      </div>
+
+      <div class="tab-panel" id="tab-vr" role="tabpanel" aria-labelledby="btn-vr">
+        <h3 class="tab-fallback-title">VR Controllers (Quest, PC VR, Steam Frame, Vision Pro Sense)</h3>
+        <dl class="ctrl-list">
+          <div><dt><kbd>Trigger</kbd></dt><dd>Shoot. Shoot off-screen to reload in cabinet mode or when reload gesture is OFF.</dd></div>
+          <div><dt><kbd>B</kbd> / <kbd>Y</kbd> + Off-hand <kbd>Grip</kbd></dt><dd><b>Physical reload (default):</b> drop mag (<kbd>B</kbd>/<kbd>Y</kbd>), grab a new mag with off-hand grip, push into gun grip, then rack the slide.</dd></div>
+          <div><dt><kbd>A</kbd> / <kbd>X</kbd></dt><dd>Insert coins, press Start, or skip a cutscene.</dd></div>
+          <div><dt>Hold Gun <kbd>Stick Click</kbd></dt><dd>Switch seamlessly between <b>Immersive 3D</b> and <b>Arcade Cabinet</b> mode.</dd></div>
+          <div><dt><kbd>Left Menu</kbd> (or double-click stick on SteamVR)</dt><dd>Open the in-VR menu (pauses offline play).</dd></div>
+          <div><dt>Off-hand <kbd>Grip</kbd> at gun</dt><dd>Hold your pistol with both hands.</dd></div>
+          <div><dt>Both <kbd>Grips</kbd> apart</dt><dd>In cabinet mode: move, turn and resize the arcade cabinet.</dd></div>
+          <div><dt>Off-hand <kbd>Stick Click</kbd></dt><dd>Push-to-talk in online co-op.</dd></div>
+        </dl>
+      </div>
+
+      <div class="tab-panel" id="tab-hands" role="tabpanel" aria-labelledby="btn-hands" hidden>
+        <h3 class="tab-fallback-title">Hand Tracking (Quest &amp; Apple Vision Pro)</h3>
+        <dl class="ctrl-list">
+          <div><dt>Point</dt><dd>Aim your gun ray straight where your hand points.</dd></div>
+          <div><dt>Index Finger <kbd>Pinch</kbd></dt><dd>Shoot. Pinch while aiming off-screen to reload.</dd></div>
+          <div><dt>Off-hand Middle <kbd>Pinch</kbd></dt><dd>Insert coins, press Start, or skip a cutscene.</dd></div>
+          <div><dt>Left Palm Toward You + <kbd>Pinch</kbd></dt><dd>Open the in-VR settings and online menu.</dd></div>
+        </dl>
+      </div>
+
+      <div class="tab-panel" id="tab-mouse" role="tabpanel" aria-labelledby="btn-mouse" hidden>
+        <h3 class="tab-fallback-title">Mouse, Keyboard &amp; PC Light Guns (Windows &amp; Mac)</h3>
+        <dl class="ctrl-list">
+          <div><dt>Pointer / Light Gun</dt><dd>Aim &mdash; works directly with Sinden, GunCon&nbsp;3, Gun4IR and any mouse-mode light gun.</dd></div>
+          <div><dt><kbd>Left Click</kbd></dt><dd>Shoot.</dd></div>
+          <div><dt><kbd>Right Click</kbd> / Off-picture shot</dt><dd>Reload.</dd></div>
+          <div><dt><kbd>Space</kbd> or <kbd>Enter</kbd></dt><dd>Coins &amp; Start; skip a cutscene (or join as local Player&nbsp;2).</dd></div>
+          <div><dt><kbd>Esc</kbd></dt><dd>Open the menu.</dd></div>
+          <div><dt>Hold <kbd>T</kbd></dt><dd>Push-to-talk during online co-op.</dd></div>
+          <div><dt><kbd>F11</kbd> / <kbd>Alt+Enter</kbd> / <kbd>Ctrl+Cmd+F</kbd></dt><dd>Toggle full screen.</dd></div>
+        </dl>
+      </div>
+
+      <div class="tab-panel" id="tab-pad" role="tabpanel" aria-labelledby="btn-pad" hidden>
+        <h3 class="tab-fallback-title">Gamepads (Xbox, DualSense, Switch Pro, MFi)</h3>
+        <dl class="ctrl-list">
+          <div><dt>Either <kbd>Stick</kbd> / <kbd>Gyro</kbd></dt><dd>Move the crosshair; enable gyro aim in the GAME tab on supported pads.</dd></div>
+          <div><dt><kbd>R2</kbd> / <kbd>RT</kbd> / <kbd>R1</kbd></dt><dd>Shoot (with DualSense firearm resistance &amp; Xbox impulse trigger feedback).</dd></div>
+          <div><dt><kbd>L2</kbd> / <kbd>LT</kbd> / <kbd>L1</kbd> / <kbd>X</kbd> / <kbd>Square</kbd></dt><dd>Reload.</dd></div>
+          <div><dt><kbd>A</kbd> / <kbd>Cross</kbd> / <kbd>Start</kbd></dt><dd>Coins &amp; Start; skip cutscene; or press on a second pad mid-game to drop in as Player&nbsp;2.</dd></div>
+          <div><dt><kbd>Back</kbd> / <kbd>Select</kbd> / <kbd>Share</kbd></dt><dd>Open the menu.</dd></div>
+        </dl>
+      </div>
+
+      <div class="tab-panel" id="tab-touch" role="tabpanel" aria-labelledby="btn-touch" hidden>
+        <h3 class="tab-fallback-title">Touchscreen &amp; Phone Gyro (Android, iPhone, iPad)</h3>
+        <dl class="ctrl-list">
+          <div><dt>Tap anywhere on picture</dt><dd>Instant light-gun shot right where you tap (with phone haptic kick).</dd></div>
+          <div><dt>Phone <kbd>Gyro</kbd></dt><dd>Optional tilt-to-aim mode in the GAME tab.</dd></div>
+          <div><dt>Second finger tap / <kbd>RELOAD</kbd></dt><dd>Reload.</dd></div>
+          <div><dt><kbd>START</kbd> / <kbd>MENU</kbd></dt><dd>On-screen Start and Menu buttons (or Android Back button).</dd></div>
+        </dl>
+      </div>
+
+      <div class="tab-panel" id="tab-tv" role="tabpanel" aria-labelledby="btn-tv" hidden>
+        <h3 class="tab-fallback-title">Siri Remote (Apple TV)</h3>
+        <dl class="ctrl-list">
+          <div><dt>Swipe Touch Surface</dt><dd>Move the sight like a trackpad (adjustable sensitivity in GAME: Remote speed).</dd></div>
+          <div><dt>Click Centre</dt><dd>Shoot.</dd></div>
+          <div><dt>Click Ring Edge / <kbd>Play/Pause</kbd></dt><dd>Reload.</dd></div>
+          <div><dt>Hold <kbd>Play/Pause</kbd></dt><dd>Coins &amp; Start; skip a cutscene.</dd></div>
+          <div><dt><kbd>Back</kbd> / <kbd>Menu</kbd></dt><dd>Open the menu.</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture" class="section wrap">
+    <p class="kicker">07 &middot; Under the hood</p>
+    <h2>Why it isn't an emulator</h2>
+    <p class="section-lede">Instead of interpreting arcade machine code on the fly, the board's programs are statically recompiled ahead of time into native C++ &mdash; giving standalone headsets smooth 120&nbsp;Hz head tracking and true 3D depth on top of the exact 1996 arcade logic.</p>
+
+    <div class="arch-grid">
+      <div class="arch-row">
+        <div class="arch-chip">Intel i960 Main CPU</div>
+        <div class="arch-desc">The arcade game's entire program is statically recompiled ahead of time into native ARM64 / x64 C++.</div>
+      </div>
+      <div class="arch-row">
+        <div class="arch-chip">Motorola 68000 &amp; SCSP DSP</div>
+        <div class="arch-desc">Sound CPU recompiled natively alongside a reimplemented SCSP audio chip for authentic arcade music and voice lines.</div>
+      </div>
+      <div class="arch-row">
+        <div class="arch-chip">Fujitsu MB86235 (TGPx4)</div>
+        <div class="arch-desc">Geometry coprocessor handled by an interpreter derived from MAME, keeping every transform and animation exact.</div>
+      </div>
+      <div class="arch-row">
+        <div class="arch-chip">Geometrizer &amp; 3D Renderer</div>
+        <div class="arch-desc">One unified OpenGL ES&nbsp;3.0 shader pipeline everywhere (native on Quest &amp; Android, GL&nbsp;3.3 on Windows, ANGLE on Metal on Apple) drawing true 3D stereo views.</div>
+      </div>
+      <div class="arch-row">
+        <div class="arch-chip">Deterministic Crossplay</div>
+        <div class="arch-desc">Compiled with strict floating-point flags across MSVC, NDK Clang and Apple Clang so every CPU calculates identical game RAM bit for bit.</div>
+      </div>
+    </div>
+    <p class="more"><a href="https://github.com/MrSco/house-of-the-dead-vr/blob/main/docs/vr.md">Read the VR technical notes</a> <a href="https://github.com/MrSco/house-of-the-dead-vr/blob/main/docs/platforms.md">Cross-platform architecture</a></p>
+  </section>
+
+  <section id="install" class="section wrap">
+    <p class="kicker">08 &middot; Download &amp; Install</p>
+    <h2>Ready in three quick steps</h2>
+
+    <ol class="objectives">
+      <li>
+        <h3>Install the Quest APK</h3>
+        <p>Download the latest <code>house-of-the-dead-vr.apk</code> below and install it onto your Meta Quest&nbsp;3 or 3S using <b>SideQuest</b> or <code>adb install</code>. Already on v0.4.1 or newer? Open the in-VR <b>SYSTEM</b> tab and press <b>UPDATE</b> directly in your headset.</p>
+      </li>
+      <li>
+        <h3>Copy your MAME ROM set</h3>
+        <p>Copy your own <code>hotd.zip</code> or <code>hotd.7z</code> (MAME <b>Revision&nbsp;A</b>) to your headset &mdash; for example into its <b>Download</b> folder over USB or from your own cloud storage.</p>
+      </li>
+      <li>
+        <h3>Launch, load &amp; play</h3>
+        <p>Open <b>House of the Dead VR</b> from <b>Unknown Sources</b>, pull the trigger to pick your ROM set, and you're in. The app verifies it, stores its own copy, and offers to clean up the download file.</p>
+      </li>
+    </ol>
+
+    <div id="platforms" class="platforms">
+      <h3>Download for your platform <span class="ver-tag" data-version></span></h3>
+      <p>Every download is built from the same commit on <a href="https://github.com/MrSco/house-of-the-dead-vr/releases/latest">GitHub Releases</a> and plays online with every other platform.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/MrSco/house-of-the-dead-vr/releases/latest" data-apk>Meta Quest 3 / 3S (.apk)</a>
+        <a class="btn" href="https://github.com/MrSco/house-of-the-dead-vr/releases/latest" data-asset="-windows-x64.zip">Windows PC &amp; PC VR (.zip)</a>
+        <a class="btn" href="https://github.com/MrSco/house-of-the-dead-vr/releases/latest" data-asset="-mac.zip">Mac Apple Silicon (.zip)</a>
+        <a class="btn" href="https://github.com/MrSco/house-of-the-dead-vr/releases/latest" data-asset="-android.apk">Android Phone / Tablet (.apk)</a>
+        <a class="btn" href="https://github.com/MrSco/house-of-the-dead-vr/releases/latest" data-asset="-ios.ipa">iPhone &amp; iPad (.ipa)</a>
+        <a class="btn" href="https://github.com/MrSco/house-of-the-dead-vr/releases/latest" data-asset="-frame.apk">Steam Frame (.apk)</a>
+      </div>
+
+      <div class="plat-notes">
+        <p><b>Windows (flat &amp; PC VR):</b> Unzip anywhere and launch <code>HOTDVR/HOTDVR.exe</code>. It starts in VR automatically when SteamVR, Quest Link or Virtual Desktop is active, or flat on your monitor otherwise (toggle anytime in <b>SYSTEM</b>, or pass <code>--vr</code> / <code>--flat</code>). Not code-signed: if SmartScreen prompts, click <b>More info &rarr; Run anyway</b>.</p>
+        <p><b>Mac (Apple silicon, experimental):</b> Unzip, drag <b>House of the Dead VR</b> into Applications and open it. First launch: <b>System Settings &rarr; Privacy &amp; Security &rarr; Open Anyway</b>.</p>
+        <p><b>iPhone &amp; iPad (experimental):</b> Install the <code>.ipa</code> using <a href="https://sidestore.io/">SideStore</a> (or TestFlight if invited), then pick your ROM file from the Files picker.</p>
+        <p><b>Apple TV &amp; Apple Vision Pro (experimental):</b> Available via TestFlight for invited testers. Vision Pro loads your ROM from Files; Apple TV shows a local web address and QR code so you can upload the ROM straight from a phone or laptop on the same Wi-Fi.</p>
+      </div>
+    </div>
+
+    <aside id="rom" class="callout">
+      <h3>Bring your own game</h3>
+      <p>None of the downloads contain any SEGA game code, artwork, models, sound or music. You need your own MAME arcade ROM set of <i>The House of the Dead</i> &mdash; <code>hotd.zip</code> or <code>hotd.7z</code>, <b>Revision&nbsp;A</b> (the older <code>hotdo</code> revision isn't compatible). Everything is loaded locally on your device. Please don't ask for ROMs.</p>
+    </aside>
+  </section>
+
+  <section class="section wrap split">
+    <div>
+      <p class="kicker">09 &middot; Status</p>
+      <h2>Active development</h2>
+      <p>The Meta Quest&nbsp;3 version is the primary build, and Windows flat + PC VR builds are released alongside it. Mac, Android phone/tablet, iPhone/iPad, Apple TV, Apple Vision Pro and Steam Frame builds are experimental and improving rapidly.</p>
+      <p>Every platform includes optional automatic crash reporting (which you can toggle off anytime in <b>SYSTEM &rarr; Crash reports</b>) so crashes reach the developer without hunting for log files. Hit a bug or want to share feedback? <a href="https://github.com/MrSco/house-of-the-dead-vr/issues">Open an issue on GitHub</a>.</p>
+    </div>
+    <div>
+      <p class="kicker">10 &middot; Credits</p>
+      <h2>Built on the shoulders of</h2>
+      <ul class="credits">
+        <li><a href="https://github.com/RetroValou/Sega-Model2-recomp-PSVita">RetroValou's Sega Model 2 Recomp</a><span>the Model 2 recompiler &amp; runtime</span></li>
+        <li><a href="https://github.com/alphanu1/daytona-arcade-recomp">alphanu1's Daytona Arcade Recomp</a><span>the original Model 2 recompiler foundation</span></li>
+        <li><a href="https://www.mamedev.org/">MAME</a><span>TGPx4 geometry reference &amp; hardware verification</span></li>
+        <li><a href="https://github.com/MrSco/house-of-the-dead-vr/blob/main/THIRD_PARTY.md">OpenXR, Opus, SpeexDSP &amp; RNNoise</a><span>VR runtime &amp; voice chat pipeline</span></li>
+        <li><a href="https://github.com/MrSco/house-of-the-dead-vr/blob/main/THIRD_PARTY.md">Seraphim Sarov &amp; Askasknot</a><span>arcade cabinet &amp; VR hand models (CC BY 4.0)</span></li>
+      </ul>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-row">
+      <div>
+        <a class="brand" href="/">
+          <img src="/img/mark.webp" alt="" width="30" height="30">
+          House of the Dead VR
+        </a>
+        <p class="credit">Made by <a href="https://github.com/MrSco">MrSco</a></p>
+      </div>
+      <nav class="foot-links" aria-label="Project">
+        <a href="https://github.com/MrSco/house-of-the-dead-vr">GitHub</a>
+        <a href="https://github.com/MrSco/house-of-the-dead-vr/releases">Releases</a>
+        <a href="https://github.com/MrSco/house-of-the-dead-vr/issues">Issues</a>
+        <a href="https://www.youtube.com/watch?v=qA4V-auLHN0">YouTube</a>
+        <a href="https://github.com/MrSco/house-of-the-dead-vr/blob/main/LICENSE">BSD-3-Clause</a>
+        <a href="/privacy">Privacy</a>
+      </nav>
+    </div>
+    <p class="legal">The House of the Dead, its artwork and SEGA are trademarks or copyrights of SEGA. This is an independent, non-commercial fan project, not affiliated with or endorsed by SEGA. No copyrighted game code or data is distributed with this project; you must supply your own MAME ROM set.</p>
+  </div>
+</footer>
+
+<dialog class="lightbox" aria-label="Media viewer">
+  <figure>
+    <img alt="">
+    <video muted loop playsinline hidden></video>
+    <figcaption></figcaption>
+  </figure>
+  <button class="lb-btn lb-close" type="button" aria-label="Close">&times;</button>
+  <button class="lb-btn lb-prev" type="button" aria-label="Previous item">&lsaquo;</button>
+  <button class="lb-btn lb-next" type="button" aria-label="Next item">&rsaquo;</button>
+</dialog>
+
+</body>
+</html>

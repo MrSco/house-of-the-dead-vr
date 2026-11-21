@@ -1,4 +1,5 @@
-// House of the Dead VR's Worker (README.md): the crash relay today, at https://hotdvr.roccojuliano.com/v1/reports.
+// House of the Dead VR's Worker (README.md): serves the website (site/public/) and the crash relay
+// at https://hotdvr.roccojuliano.com (/v1/reports, /v1/health).
 // Deploy: npx wrangler deploy (the account is the logged-in one: no account id here); secrets:
 // npx wrangler secret put GITHUB_TOKEN (and optionally REPORT_KEY).
 {
@@ -6,6 +7,12 @@
   "name": "hotd-crash-relay",
   "main": "src/index.js",
   "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "../../../site/public",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/v1/*", "/report"]
+  },
   // its own subdomain of the user's zone (Cloudflare makes the DNS record and the certificate)
   "routes": [{ "pattern": "hotdvr.roccojuliano.com", "custom_domain": true }],
   "workers_dev": false,

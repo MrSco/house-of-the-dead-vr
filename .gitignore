@@ -28,9 +28,10 @@ vendor/
 *.rom
 *.bin
 *.ic*
-# (but the app icons: scripts/make_icons.py)
+# (but the app icons: scripts/make_icons.py, and the site favicon: site/tools/media.py)
 !src/flat/win/hotdvr.ico
 !src/flat/mac/AppIcon.icns
+!site/public/favicon.ico
 roms/*
 !roms/.gitkeep
 rom/

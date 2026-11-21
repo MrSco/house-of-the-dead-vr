@@ -158,16 +158,27 @@ test('limits: key, size, rate, new issues per day', async () => {
   assert.equal((await handle(post(report()), env({ NEW_ISSUES_PER_DAY: '1' }), gh.fetch)).json.action, 'commented');
 });
 
-test('the Worker entry point answers JSON', async () => {
+test('the Worker entry point answers JSON and delegates static site routes to ASSETS', async () => {
   let res = await worker.fetch(post(report()), {});
   assert.equal(res.status, 503);                       // no token yet: the app keeps the report for later
   assert.deepEqual(await res.json(), { ok: false, error: 'relay not configured' });
+  res = await worker.fetch(new Request('https://relay.test/v1/health'), {});
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { ok: true, service: 'hotdvr', reports: '/v1/reports', configured: false });
   res = await worker.fetch(new Request('https://relay.test/'), {});
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { ok: true, service: 'hotdvr', reports: '/v1/reports', configured: false });
+  // When ASSETS is bound (Cloudflare deployment), site paths serve the static site while /v1/* stays JSON.
+  const assets = { fetch: async (req) => new Response('site:' + new URL(req.url).pathname, { status: 200 }) };
+  res = await worker.fetch(new Request('https://relay.test/'), env({ ASSETS: assets }));
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), 'site:/');
+  res = await worker.fetch(new Request('https://relay.test/v1/health'), env({ ASSETS: assets }));
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { ok: true, service: 'hotdvr', reports: '/v1/reports', configured: true });
   res = await worker.fetch(new Request('https://relay.test/other'), env());
   assert.equal(res.status, 404);
-  res = await worker.fetch(new Request('https://relay.test/v1/lobbies'), env());
+  res = await worker.fetch(new Request('https://relay.test/v1/lobbies'), env({ ASSETS: assets }));
   assert.equal(res.status, 404);
   res = await worker.fetch(post('{"schema":1}'), env());
   assert.equal(res.status, 400);

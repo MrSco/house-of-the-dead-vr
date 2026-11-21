@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy · The House of the Dead VR</title>
+  <meta name="description" content="What The House of the Dead VR keeps on your device and what it sends for online play, crash reports and updates.">
+  <link rel="canonical" href="https://hotdvr.roccojuliano.com/privacy">
+  <meta name="theme-color" content="#090708">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" href="/favicon-64.png" type="image/png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/styles.css?v=1">
+</head>
+<body>
+  <main class="wrap section doc">
+    <p class="kicker">The House of the Dead VR</p>
+    <h1>Privacy</h1>
+    <p class="updated">Covers every platform: Meta Quest, Steam Frame, Windows &amp; PC VR, Mac, Android, iPhone &amp; iPad, Apple TV, Apple Vision Pro, and this website.</p>
+
+    <p>House of the Dead VR has <strong>no accounts, no ads and no analytics</strong>, and it doesn't track you. This website sets no cookies; the gameplay video only loads from YouTube (<code>youtube-nocookie.com</code>) after you press play.</p>
+
+    <h2>On your device</h2>
+    <p>Your ROM set, your settings, the game's saves and high scores, and a log of the app's own messages stay in the app's own folder. Nothing in it is sent anywhere unless described below.</p>
+
+    <h2>Online play (only when you use it)</h2>
+    <p>Hosting or joining an online game connects to a lobby server (<code>zonesync.net</code> by default; you can change it in the <b>ONLINE</b> tab) or straight to the other player on your local network. What is sent is the game's inputs, your player name (<code>PLAYER</code> unless you change it), the room's code and, with voice chat on, your voice.</p>
+    <p>The lobby server sees your IP address, as any internet service does. Voice chat uses your microphone only while voice chat is on and only during an online game; your voice goes to the other player and is not recorded.</p>
+
+    <h2>Crash reports (on unless you switch them off)</h2>
+    <p>If the app crashes, it sends a report the next time it starts, on every platform. The report holds:</p>
+    <ul>
+      <li>Where in the app it crashed (the kind of fault and addresses in the app's code)</li>
+      <li>The app's version and build</li>
+      <li>The last lines of the app's own log and your app settings</li>
+      <li>Your device's model, system version, processor core count, and the time of the crash</li>
+    </ul>
+    <p>No name, account or ROM data is included, and no file paths outside the app's folder; IP and e-mail addresses that appear in the log are removed. Reports go to this project's server (<code>hotdvr.roccojuliano.com/v1/reports</code>), which files them in a private GitHub repository that only the developer can read. The server sees your IP address only to rate-limit reports and does not store it.</p>
+    <p>The <b>SYSTEM</b> tab's <b>Crash reports</b> switch turns this off completely; then nothing is sent.</p>
+
+    <h2>Updates</h2>
+    <p>The Meta Quest, Steam Frame and Android apps ask GitHub for this project's list of releases when they start, and download an update only when you choose to. GitHub sees that request as it sees any visit.</p>
+
+    <h2>Questions</h2>
+    <p>Open an issue on <a href="https://github.com/MrSco/house-of-the-dead-vr/issues">GitHub</a>.</p>
+
+    <div class="cta back">
+      <a class="btn btn-primary" href="/">Back to House of the Dead VR</a>
+      <a class="btn" href="https://github.com/MrSco/house-of-the-dead-vr/blob/main/PRIVACY.md">View PRIVACY.md on GitHub</a>
+    </div>
+  </main>
+</body>
+</html>
