@@ -188,8 +188,12 @@ static const char *FS =
     "vec3 to_linear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }\n"
     "void main() {\n"
     "  uint flags = v_info.x;\n"
+    // Model 2 translucency keeps odd checkerboard cells. Coarse shading in even-sized blocks (e.g. 2x2)
+    // can leave raw pixel parity constant across a region. Use the fragment spacing so the checkerboard
+    // alternates across coarse blocks as well as individual pixels.
     "  if (((flags >> 2) & 1u) != 0u) {\n"
-    "    uvec2 p = uvec2(gl_FragCoord.xy);\n"
+    "    vec2 rate = max(abs(vec2(dFdx(gl_FragCoord.x), dFdy(gl_FragCoord.y))), vec2(1.0));\n"
+    "    uvec2 p = uvec2(gl_FragCoord.xy / rate);\n"
     "    if (((p.x ^ p.y) & 1u) == 0u) discard;\n"
     "  }\n"
     "  uint renderer = flags & 3u;\n"
