@@ -32,11 +32,16 @@ add_library(m2_rnnoise STATIC ${M2_RNN}/src/denoise.c ${M2_RNN}/src/rnn.c ${M2_R
 target_include_directories(m2_rnnoise PUBLIC ${M2_RNN}/include PRIVATE ${M2_RNN}/src ${M2_OPUS}/celt ${M2_OPUS}/include)
 target_compile_options(m2_rnnoise PRIVATE -w)
 
+# iCloud sync (docs/icloud-sync.md, src/core/hotd_icloud.h): iPhone, iPad and Apple TV, one App Store Connect app with
+# Vision Pro's; the Mac app (a GitHub zip) has none
+set(M2_ICLOUD)
 if(CMAKE_SYSTEM_NAME STREQUAL "tvOS")
     # Apple TV (scripts/build_tvos.py, src/flat/tvos/project.yml): the remote and pads, the ROM set by the LAN upload page
     set(M2_FRONT src/flat/tvos/main_tvos.m src/flat/tvos/tv_upload.m src/flat/tvos/tv_store.m)
+    set(M2_ICLOUD src/platform/apple/icloud_apple.mm)
 elseif(IOS)
     set(M2_FRONT src/flat/ios/main_ios.m)
+    set(M2_ICLOUD src/platform/apple/icloud_apple.mm)
 else()
     set(M2_FRONT src/flat/mac/main_mac.m)
 endif()
@@ -44,11 +49,14 @@ set(M2_APPLE_C
     ${M2_FRONT} src/flat/flat.c src/flat/flat_app.c src/flat/flat_menu.c src/flat/flat_touch.c
     src/core/host_sdl.c src/core/voice.c src/core/voice_dsp.c src/core/m2_gl.c
     src/core/quest_menu.c src/core/quest_canvas.c src/core/quest_options.c
-    src/platform/posix.c src/platform/apple/apple.m src/platform/apple/crash_apple.m)
+    src/platform/posix.c src/platform/apple/apple.m src/platform/apple/crash_apple.m ${M2_ICLOUD})
 add_library(hotdvr_apple STATIC ${M2_APPLE_C} ${M2_NET_C})
 target_include_directories(hotdvr_apple PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${M2_NET_SRC} ${M2_QUEST_SDL2}
                            ${ANGLE_DIR}/include)
-target_compile_definitions(hotdvr_apple PRIVATE HOTD_ARCADE HOTD_VOICE)
+target_compile_definitions(hotdvr_apple PRIVATE HOTD_ARCADE HOTD_VOICE $<$<BOOL:${M2_ICLOUD}>:HOTD_ICLOUD>)
+if(M2_ICLOUD)
+    set_source_files_properties(${M2_ICLOUD} PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-std=c++17")
+endif()
 target_link_libraries(hotdvr_apple PRIVATE opus m2_speexdsp m2_rnnoise)
 set_source_files_properties(${M2_FRONT} src/platform/apple/apple.m src/platform/apple/crash_apple.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 set_source_files_properties(src/platform/apple/crash_apple.m PROPERTIES COMPILE_DEFINITIONS "${M2_BUILD_INFO_DEFS}")

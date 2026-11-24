@@ -50,6 +50,8 @@ const QOptDef qopt_defs[QOPT_COUNT] = {
     [QOPT_BRIGHTNESS] = { "brightness_level_pct", 0, 100, 25 },
     [QOPT_REMOTE_SPEED] = { "tv_remote_speed_pct", 25, 300, 100 },
     [QOPT_TRIGGER] = { "pad_trigger_feedback", 0, 1, 1 },
+    // iCloud sync (docs/icloud-sync.md): settings, saves and the ROM set across the player's Apple devices
+    [QOPT_ICLOUD] = { "icloud_sync", 0, 1, 1 },
 };
 
 void qoptions_defaults(int *v) {

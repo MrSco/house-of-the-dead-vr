@@ -30,6 +30,9 @@ typedef struct QMenuHost {
     // starts again in it, and keeps to it); 0 none (every other app), 1 "PLAY IN VR" (flat), 2 "PLAY ON THE SCREEN"
     int pc_switch;
     int (*def)(int option);              // the app's default for an option (a row's reset); NULL: qopt_defs' own
+    // the Apple apps signed for iCloud (hotd_icloud.h): the SYSTEM tab's iCloud sync row and this line beside CHANGE
+    // ROM SET ("iCloud: up to date"); NULL: no iCloud in this app
+    const char *icloud;
 } QMenuHost;
 
 typedef struct QMenuInput {

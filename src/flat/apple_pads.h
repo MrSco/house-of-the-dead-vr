@@ -8,7 +8,8 @@
 //  - each pad rumbles for its own player's shots, reloads and hits (flat.h's rumble: apple_pad_rumble), through its
 //    GCController.haptics (iOS and tvOS 14, macOS 11; a pad with motors: DualSense, DualShock 4, Xbox pads). The Siri
 //    Remote has none. Its triggers kick too (flat.h's trigger feedback: apple_pad_trigger): a DualSense's adaptive
-//    triggers (GCDualSenseAdaptiveTrigger), an Xbox One / Series pad's trigger motors (its haptics at the triggers).
+//    triggers (GCDualSenseAdaptiveTrigger: R2 shoots once through its snap, L2 reloads past its click), an Xbox One /
+//    Series pad's trigger motors (its haptics at the triggers).
 #pragma once
 #import <CoreHaptics/CoreHaptics.h>
 #import <GameController/GameController.h>
@@ -91,8 +92,11 @@ static inline int apple_pad_game(GCExtendedGamepad *g, ApplePad *p, double dt, f
         }
     }
     if (p->on) flat_dev_pointer(p->dev, (int)*sx, (int)*sy);
-    const int fire = g.rightTrigger.value > 0.4f || g.rightShoulder.pressed;
-    const int rel = g.leftTrigger.value > 0.4f || g.leftShoulder.pressed || g.buttonX.pressed;
+    // (a DualSense's triggers count past their feel's snap or click: flat_trigger_at)
+    int felt = 0;
+    if (@available(iOS 14.5, tvOS 14.5, macOS 11.3, *)) felt = [g isKindOfClass:GCDualSenseGamepad.class];
+    const int fire = g.rightTrigger.value > flat_trigger_at(p->dev, 1, felt, p->fire) || g.rightShoulder.pressed;
+    const int rel = g.leftTrigger.value > flat_trigger_at(p->dev, 0, felt, p->reload) || g.leftShoulder.pressed || g.buttonX.pressed;
     if (fire != p->fire) { p->on = 1; flat_dev_pointer(p->dev, (int)*sx, (int)*sy); flat_dev_trigger(p->dev, fire); p->fire = fire; }
     if (rel != p->reload) { flat_dev_reload(p->dev, rel); p->reload = rel; }
     return (mx || my) != 0;
@@ -212,14 +216,20 @@ static inline void apple_pad_trigger(int dev, int right, int mode, float amp, in
             if ([c.extendedGamepad isKindOfClass:GCDualSenseGamepad.class]) {
                 GCDualSenseGamepad *ds = (GCDualSenseGamepad *)c.extendedGamepad;
                 GCDualSenseAdaptiveTrigger *t = right ? ds.rightTrigger : ds.leftTrigger;
-                // a gun's: resistance from 30% of the pull, a snap at 60%; a shot's buzz as GoldenEye VR's
-                if (mode == FLAT_TRIG_WEAPON) [t setModeWeaponWithStartPosition:0.3f endPosition:0.6f resistiveStrength:0.85f];
-                else if (mode == FLAT_TRIG_BUZZ) [t setModeVibrationWithStartPosition:0.f amplitude:fminf(fmaxf(amp, 0), 1) frequency:0.6f];
+                // the right one a gun's (resistance from 30% of the pull, a snap at 60%), the left one a light click;
+                // a buzz from that trigger's give on, where the finger is once it counted (GoldenEye VR's)
+                if (mode == FLAT_TRIG_WEAPON)
+                    [t setModeWeaponWithStartPosition:FLAT_GUN_START endPosition:FLAT_GUN_BREAK resistiveStrength:FLAT_GUN_STRENGTH];
+                else if (mode == FLAT_TRIG_CLICK)
+                    [t setModeWeaponWithStartPosition:FLAT_CLICK_START endPosition:FLAT_CLICK_BREAK resistiveStrength:FLAT_CLICK_STRENGTH];
+                else if (mode == FLAT_TRIG_BUZZ)
+                    [t setModeVibrationWithStartPosition:right ? FLAT_GUN_BREAK : FLAT_CLICK_BREAK amplitude:fminf(fmaxf(amp, 0), 1)
+                                               frequency:0.6f];
                 else [t setModeOff];
                 continue;
             }
         }
-        if (mode == FLAT_TRIG_WEAPON) continue;   // (an Xbox pad: its motors only buzz)
+        if (mode == FLAT_TRIG_WEAPON || mode == FLAT_TRIG_CLICK) continue;   // (an Xbox pad: its motors only buzz)
         const int slot = i, which = right ? AH_RIGHT_TRIGGER : AH_LEFT_TRIGGER;
         const float strength = fminf(fmaxf(amp, 0), 1);
         dispatch_async(apple_haptics_queue(), ^{

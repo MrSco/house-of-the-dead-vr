@@ -58,6 +58,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: "${HOTD_BUNDLE_ID}"
         PRODUCT_NAME: HouseOfTheDeadVR
         INFOPLIST_FILE: Info.plist
+        # iCloud (docs/icloud-sync.md): both empty unless the build script signs with HOTD_ICLOUD=1
+        HOTD_ICLOUD: "${HOTD_ICLOUD}"
+        CODE_SIGN_ENTITLEMENTS: "${HOTD_ENTITLEMENTS}"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: vos_bridging.h
         MARKETING_VERSION: "${HOTD_VERSION}"
@@ -81,6 +84,7 @@ targets:
       - sdk: AudioToolbox.framework
       - sdk: CoreAudio.framework
       - sdk: CoreHaptics.framework
+      - sdk: CloudKit.framework   # iCloud sync (src/platform/apple/icloud_apple.mm)
       - sdk: GameController.framework
       - sdk: Foundation.framework
       - sdk: CoreFoundation.framework

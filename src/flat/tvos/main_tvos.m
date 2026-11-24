@@ -16,7 +16,9 @@
 // - The ROM set comes from a phone or computer: the TV shows an address and its QR code, and a page served there sends
 //   the file (tv_upload.m). The files folder is Library/Caches/HOTDVR (a tvOS app can't write Documents), which tvOS
 //   may empty when short of space: the settings and saves are kept in the app's defaults too (tv_store.m), and a ROM
-//   set that is gone is asked for again.
+//   set that is gone is asked for again. With iCloud (docs/icloud-sync.md, a build signed for it), the settings and
+//   saves come from the other devices before the game reads them, and a missing set comes down from iCloud while the
+//   address page waits for it (whichever arrives first).
 // - No microphone of its own: voice chat listens (apple.m), and talks only when tvOS reports an input.
 // An app can't start itself again: where the app would restart (online play begins and ends so, a new ROM set), it
 // says so and closes, and the player opens it again (online-session.cfg waits ten minutes).
@@ -42,6 +44,7 @@
 #include "quest_options.h"
 #include "online.h"
 #include "quest.h"
+#include "hotd_icloud.h"
 #include "flat/apple_pads.h"
 
 #ifndef EGL_PLATFORM_ANGLE_ANGLE
@@ -60,6 +63,7 @@
 static struct {
     char files[1024];
     int started, background, quit, closing, upload;   // upload: the ROM page is showing
+    int cloud;                                         // iCloud's start under way (hotd_cloud_launch)
     EGLDisplay dpy;
     EGLContext ctx;
     EGLSurface surf;
@@ -80,6 +84,7 @@ static struct {
 @property (nonatomic, strong) UIImageView *uploadQr;
 @property (nonatomic, strong) NSTimer *uploadTimer;
 @property (nonatomic, copy) NSString *shownUrl;
+@property (nonatomic, copy) NSString *uploadWhy;   // the page's own line (why the set is asked for), under iCloud's
 - (void)showUpload:(NSString *)why;
 - (void)romArrived;
 @end
@@ -553,6 +558,18 @@ static NSMutableSet *passed_presses;   // presses UIKit keeps (the Menu that goe
     for (GCController *c in GCController.controllers) hook_remote(c);
     [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil queue:NSOperationQueue.mainQueue
                                                 usingBlock:^(NSNotification *n) { hook_remote(n.object); }];
+    if (A.started || A.upload || A.cloud) return;
+    if (hotd_cloud_available()) {   // iCloud first, off the main thread (a first sync may wait a few seconds)
+        A.cloud = 1;
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            hotd_cloud_launch(A.files, "options.cfg");
+            dispatch_async(dispatch_get_main_queue(), ^{ A.cloud = 0; [self afterCloud]; });
+        });
+        return;
+    }
+    [self afterCloud];
+}
+- (void)afterCloud {
     if (A.started || A.upload) return;
     if (!has_rom() && !getenv("FLAT_NO_ROM_DIALOG")) {
         [self showUpload:tv_store_had_rom() ? @"tvOS removed the ROM set to free space on the Apple TV (your settings and scores are kept). Send it again."
@@ -698,7 +715,8 @@ static void rom_arrived(const char *path) { (void)path; [the_controller romArriv
     self.uploadQr.layer.magnificationFilter = kCAFilterNearest;
     [v addSubview:self.uploadQr];
     self.uploadStatus = label(v, 30, UIFontWeightMedium, why ? gold : text);
-    self.uploadStatus.text = why ?: @"Waiting for the file.";
+    self.uploadWhy = why ?: @"Waiting for the file.";
+    self.uploadStatus.text = self.uploadWhy;
     self.uploadHint = label(v, 24, UIFontWeightRegular, muted);
     self.uploadHint.text = A.started ? @"Menu: back to the game" : @"The file goes from your device to the Apple TV only, nowhere else.";
     UILayoutGuide *g = v.safeAreaLayoutGuide;
@@ -739,10 +757,19 @@ static void rom_arrived(const char *path) { (void)path; [the_controller romArriv
         if (u.length) LOGI("tv: the ROM page is at %s", url);
     }
     long long got, total;
+    float done = 0;
+    const int rom = A.started ? HOTD_CLOUD_ROM_NONE : hotd_cloud_rom(&done);   // (iCloud: only while no set is here)
+    if (rom == HOTD_CLOUD_ROM_ARRIVED) { LOGI("tv: the ROM set came from iCloud"); [self romArrived]; return; }
     if (tv_upload_progress(&got, &total))
         self.uploadStatus.text = [NSString stringWithFormat:@"Receiving: %lld of %lld MB (%d%%)", got >> 20, total >> 20, (int)(got * 100 / total)];
     else if (tv_upload_error()[0])
         self.uploadStatus.text = [NSString stringWithUTF8String:tv_upload_error()];
+    else if (rom == HOTD_CLOUD_ROM_DOWNLOADING)
+        self.uploadStatus.text = [NSString stringWithFormat:@"Downloading your ROM set from iCloud: %d%%", (int)(done * 100)];
+    else if (rom == HOTD_CLOUD_ROM_LOOKING)
+        self.uploadStatus.text = @"Looking for your ROM set in iCloud…";
+    else
+        self.uploadStatus.text = self.uploadWhy;
     if (!A.started) {   // (before the game: no display link; the test switches that need no game)
         self.controllerUserInteractionEnabled = top_level();
     }
@@ -754,6 +781,7 @@ static void rom_arrived(const char *path) { (void)path; [the_controller romArriv
     [self.uploadView removeFromSuperview];
     A.upload = 0;
     tv_store_set_had_rom(1);
+    hotd_cloud_kick();   // (a set sent here goes up to iCloud, for the other devices)
     if (!A.started) [self startGame];
     else close_with(@"Your ROM set is in", @"It loads when the app opens again. Open House of the Dead VR again now.");
 }

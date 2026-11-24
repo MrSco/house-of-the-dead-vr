@@ -36,12 +36,14 @@ set(M2_VOS_C
     src/xr/quest_gun.c src/xr/quest_hand.c src/xr/quest_cabinet.c src/xr/quest_avatar.c
     src/core/host_sdl.c src/core/voice.c src/core/voice_dsp.c src/core/m2_gl.c
     src/core/quest_menu.c src/core/quest_canvas.c src/core/quest_options.c
-    src/platform/posix.c src/platform/apple/apple.m src/platform/apple/crash_apple.m)
+    src/platform/posix.c src/platform/apple/apple.m src/platform/apple/crash_apple.m
+    src/platform/apple/icloud_apple.mm)   # (iCloud sync: docs/icloud-sync.md)
 add_library(hotdvr_visionos STATIC ${M2_VOS_C} ${M2_NET_C})
 target_include_directories(hotdvr_visionos PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core ${CMAKE_SOURCE_DIR}/src/xr
                            ${CMAKE_SOURCE_DIR}/src/visionos ${M2_NET_SRC} ${M2_QUEST_SDL2} ${ANGLE_DIR}/include)
 # (XR_OPENXR=0: the shell without OpenXR, its frames and input from the host: src/xr/xr.h)
-target_compile_definitions(hotdvr_visionos PRIVATE HOTD_ARCADE HOTD_VOICE XR_OPENXR=0)
+target_compile_definitions(hotdvr_visionos PRIVATE HOTD_ARCADE HOTD_VOICE XR_OPENXR=0 HOTD_ICLOUD)
+set_source_files_properties(src/platform/apple/icloud_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-std=c++17")
 target_link_libraries(hotdvr_visionos PRIVATE opus m2_speexdsp m2_rnnoise)
 set_source_files_properties(src/visionos/xr_vos.m src/platform/apple/apple.m src/platform/apple/crash_apple.m
                             PROPERTIES COMPILE_OPTIONS "-fobjc-arc")

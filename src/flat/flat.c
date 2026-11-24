@@ -707,11 +707,12 @@ static void rumble(int pl, int dev, int what) {
     running[k].dev = dev;
     if (running[k].until < until) running[k].until = until;
 }
-// Trigger feedback: each pad's triggers as last told ([0] left, [1] right), a buzz's end
+// Trigger feedback: each pad's triggers as last told ([0] left, [1] right), a buzz's end, and the feel each trigger
+// has (or goes back to once its buzz is over: where it counts as pulled, flat_trigger_at)
 #define TRIG_BUZZ_SHOT_MS 100
 #define TRIG_BUZZ_RELOAD_MS 80
-static struct Trig { int dev, sent[2]; uint64_t until[2]; } trig[4];
-static const char *const trig_names[] = { "off", "weapon", "buzz" };
+static struct Trig { int dev, sent[2], felt[2]; uint64_t until[2]; } trig[4];
+static const char *const trig_names[] = { "off", "weapon", "click", "buzz" };
 static struct Trig *trig_of(int dev, int make) {
     for (int i = 0; i < 4; i++) if (trig[i].dev == dev) return &trig[i];
     if (!make) return NULL;
@@ -759,7 +760,8 @@ void flat_rumble_frame(int paused) {
         if (pad && trig_on && ev & 1 << HOST_EV_SHOT) trig_buzz(dev, 1, 1.0f, TRIG_BUZZ_SHOT_MS, "a shot");
         if (pad && trig_on && ev & 1 << HOST_EV_RELOAD) trig_buzz(dev, 0, 0.35f, TRIG_BUZZ_RELOAD_MS, "a reload");
     }
-    // each pad's triggers: a buzz runs out; then the right one is a gun's while its player plays, else loose
+    // each pad's triggers: a buzz runs out; then while its player plays the right one is a gun's and the left one
+    // clicks, else both are loose
     const uint64_t now = plat_now_ns();
     for (int pl = 0; pl < 2; pl++) if (weapon_dev[pl]) trig_of(weapon_dev[pl], 1);
     for (int i = 0; i < 4; i++) {
@@ -767,8 +769,9 @@ void flat_rumble_frame(int paused) {
         if (!t->dev) continue;
         const int weapon = t->dev == weapon_dev[0] || t->dev == weapon_dev[1];
         for (int right = 0; right < 2; right++) {
+            const int want = !weapon ? FLAT_TRIG_OFF : right ? FLAT_TRIG_WEAPON : FLAT_TRIG_CLICK;
+            t->felt[right] = want;
             if (t->sent[right] == FLAT_TRIG_BUZZ && trig_on && now < t->until[right]) continue;
-            const int want = right && weapon ? FLAT_TRIG_WEAPON : FLAT_TRIG_OFF;
             if (t->sent[right] != want)
                 trig_send(t, right, want, 0, 0, want ? "in play" : !trig_on ? (paused ? "paused" : "the menu, or the setting off")
                                                                           : "not playing");
@@ -792,7 +795,15 @@ void flat_rumble_stop(void) {
         if (!trig[i].dev) continue;
         for (int right = 0; right < 2; right++) if (trig[i].sent[right]) trig_send(&trig[i], right, FLAT_TRIG_OFF, 0, 0, "stopped");
         trig[i].dev = 0;
+        trig[i].felt[0] = trig[i].felt[1] = FLAT_TRIG_OFF;
     }
+}
+float flat_trigger_at(int dev, int right, int felt, int down) {
+    const struct Trig *t = felt && dev ? trig_of(dev, 0) : NULL;
+    const int feel = t ? t->felt[right ? 1 : 0] : FLAT_TRIG_OFF;
+    if (feel == FLAT_TRIG_WEAPON) return down ? FLAT_GUN_BREAK : FLAT_GUN_FIRE;
+    if (feel == FLAT_TRIG_CLICK) return down ? FLAT_CLICK_BREAK : FLAT_CLICK_FIRE;
+    return FLAT_TRIG_PRESS;
 }
 
 // pads: an id each; a pad that comes back gets a gone pad's (player 2's first), so it drives the same player

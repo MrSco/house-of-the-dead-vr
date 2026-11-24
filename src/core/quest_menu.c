@@ -144,7 +144,7 @@ static const RowDef PICTURE_ROWS[] = {
       "ON: your game pad vibrates when you shoot and reload, and hard when you're hit (each player's own pad). OFF: never.",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
     { QOPT_TRIGGER, "Trigger feedback", "A pad's triggers kick too",
-      "ON: a DualSense's right trigger resists then snaps like a gun's while you play, and buzzes on a shot; an Xbox pad's trigger motors buzz on a shot (right) and a reload (left). OFF: none.",
+      "ON: a DualSense's right trigger resists, then snaps like a gun's and shoots once pulled through; its left clicks to reload. An Xbox pad's trigger motors buzz. OFF: none (rumble stays).",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
 // ...on a touch screen: no window; the gyro aims if you like
@@ -167,7 +167,7 @@ static const RowDef TOUCH_ROWS[] = {
       "ON: a game pad vibrates when you shoot and reload, and hard when you're hit; playing by touch, so does a phone. OFF: never.",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
     { QOPT_TRIGGER, "Trigger feedback", "A pad's triggers kick too",
-      "ON: a DualSense's right trigger resists then snaps like a gun's while you play, and buzzes on a shot; an Xbox pad's trigger motors buzz on a shot (right) and a reload (left). OFF: none.",
+      "ON: a DualSense's right trigger resists, then snaps like a gun's and shoots once pulled through; its left clicks to reload. An Xbox pad's trigger motors buzz. OFF: none (rumble stays).",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
 // ...on Apple TV: the Siri Remote's touch surface moves the sight, at this speed
@@ -188,13 +188,13 @@ static const RowDef TV_ROWS[] = {
       "ON: a game pad vibrates when you shoot and reload, and hard when you're hit (the Siri Remote has no motor). OFF: never.",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
     { QOPT_TRIGGER, "Trigger feedback", "A pad's triggers kick too",
-      "ON: a DualSense's right trigger resists then snaps like a gun's while you play, and buzzes on a shot; an Xbox pad's trigger motors buzz on a shot (right) and a reload (left). OFF: none.",
+      "ON: a DualSense's right trigger resists, then snaps like a gun's and shoots once pulled through; its left clicks to reload. An Xbox pad's trigger motors buzz. OFF: none (rumble stays).",
       T_SEG, { "ON", "OFF" }, 2, 1, "", false },
 };
 static const RowDef SYSTEM_ROWS[] = {
     { QOPT_VOLUME, "Game volume", "Everything the game plays", "All of the game's sound: music, voices and guns. Voice chat isn't in it.",
       T_SLIDER, { 0 }, 0, 5, "%", false },
-    { QOPT_MUSIC, "Music", "The soundtrack", "The game's music (its CD tracks). The game's own Options page has a music level too; both apply.",
+    { QOPT_MUSIC, "Music", "The soundtrack", "The game's soundtrack. Effects has everything else.",
       T_SLIDER, { 0 }, 0, 5, "%", false },
     { QOPT_SFX, "Effects", "Guns, zombies and voices", "Everything but the music: shots, hits, the zombies and the game's voices. The game's Options page has its own level too.",
       T_SLIDER, { 0 }, 0, 5, "%", false },
@@ -208,6 +208,11 @@ static const RowDef SYSTEM_ROWS[] = {
 static const RowDef DISPLAY_ROW =
     { QOPT_FULLSCREEN, "Display", "A window, or the whole screen", "Alt+Enter or F11 switches too.",
       T_SEG, { "WINDOW", "FULL SCREEN" }, 2, 1, "", false };
+// the Apple apps signed for iCloud (H->icloud): the SYSTEM tab's last row (docs/icloud-sync.md)
+static const RowDef ICLOUD_ROW =
+    { QOPT_ICLOUD, "iCloud sync", "Your other iPhone, iPad, Apple TV and Vision Pro",
+      "ON: your settings, high scores and ROM set follow you to your Apple devices on the same iCloud account (the ROM set goes up on Wi-Fi). OFF: this device keeps its own.",
+      T_SEG, { "ON", "OFF" }, 2, 1, "", false };
 
 // ---- state ----
 static int tab, modal;
@@ -567,7 +572,7 @@ static void settings_row(const RowDef *r, float y, float h) {
         rrect(x, sy, total, 50, 14, WELL); rline(x, sy, total, 50, 14, 2, LINE);
         x += 4;
         const bool flip = r->opt == QOPT_RUMBLE || r->opt == QOPT_TRIGGER || r->opt == QOPT_GRIP || r->opt == QOPT_CRASH_REPORTS || r->opt == QOPT_MY_BODY ||
-                          r->opt == QOPT_CROSSHAIR;
+                          r->opt == QOPT_CROSSHAIR || r->opt == QOPT_ICLOUD;
         for (int i = 0; i < r->nopts; i++) {
             const int val = flip ? r->nopts - 1 - i : i;
             const int id = ID(K_SEG, r->opt * 8 + i);
@@ -1187,13 +1192,14 @@ static void layout(int which) {
     else if (tab == QMENU_TAB_GRAPHICS) settings(GRAPHICS_ROWS, sizeof GRAPHICS_ROWS / sizeof *GRAPHICS_ROWS);
     else if (tab == QMENU_TAB_SYSTEM) {
         // (crash reports, the last row: the Quest's and the flat builds that send them; a window's Display before it)
-        RowDef rows[sizeof SYSTEM_ROWS / sizeof *SYSTEM_ROWS + 1];
+        RowDef rows[sizeof SYSTEM_ROWS / sizeof *SYSTEM_ROWS + 2];
         int n = 0;
         for (size_t i = 0; i < sizeof SYSTEM_ROWS / sizeof *SYSTEM_ROWS; i++) {
             if (SYSTEM_ROWS[i].opt == QOPT_CRASH_REPORTS && H->flat && !H->tv && !H->touch) rows[n++] = DISPLAY_ROW;
             if (SYSTEM_ROWS[i].opt == QOPT_CRASH_REPORTS && H->flat && !H->reports) continue;
             rows[n++] = SYSTEM_ROWS[i];
         }
+        if (H->icloud) rows[n++] = ICLOUD_ROW;   // (the Apple apps signed for iCloud: seven slots, as HANDS)
         settings_in(rows, n, n + 1);   // (its ROM button below them: one more slot)
         const float by = CY0 + row_step(n + 1) * n + 6;
         // the game's own ROM set: another one (a different revision, a fresh copy)
@@ -1202,6 +1208,8 @@ static void layout(int which) {
                    "Choose your MAME ROM set of the game (hotd.zip or hotd.7z, Revision A). The app restarts with it."))
             H->action(QACT_ARCADE_IMPORT);
         if (H->update) update_line(CX0 + 316, by);   // (updates: the apps that have an updater)
+        else if (H->icloud && H->icloud[0])           // the Apple apps: what iCloud is doing
+            text_fit(UI_M15, CX0 + 316, mid(UI_M15, by, 48), CX1 - (CX0 + 316), H->icloud, MUTED, 0);
         else if (H->pc_switch) {                     // HOTDVR.exe: VR or the screen
             const int id = ID(K_ROW, QOPT_COUNT + 3);
             focusable(id, F_BUTTON, CX0 + 316 + 160);
@@ -1371,6 +1379,7 @@ bool qmenu_render(const QMenuHost *host, uint8_t *pixels, double now, int dirty[
     uint32_t h = mix(2166136261u, &s, sizeof s);
     if (modal == M_SERVER && kerror) h = mix(h, kerror, strlen(kerror));
     if (H->update) h = mix(h, H->update, strlen(H->update));   // (the SYSTEM tab's update line and its dot)
+    if (H->icloud) h = mix(h, H->icloud, strlen(H->icloud) + 1);   // (its iCloud row and line)
     if (tab == QMENU_TAB_ONLINE || online_now()) { h = mix(h, &V, sizeof V); h = mix(h, games, (size_t)game_count * sizeof *games); }
     const int point[3] = { stick_mode ? 0 : hover, pressed, stick_mode ? focus : 0 };
     uint32_t p = mix(2166136261u, point, sizeof point); p = mix(p, help, strlen(help));

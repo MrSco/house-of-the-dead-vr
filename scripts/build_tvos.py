@@ -22,6 +22,10 @@ App Store Connect); --upload sends it to TestFlight. The account as for build_ap
 repository): HOTD_TEAM, HOTD_PROFILE (the tvOS App Store profile's name: a TVOS_APP_STORE profile, not the iPhone
 one), HOTD_KEYCHAIN, HOTD_KEYCHAIN_PASS, and for the upload HOTD_ASC_KEY_DIR, HOTD_ASC_KEY_ID, HOTD_ASC_ISSUER. The app
 record needs Apple TV as a platform first (an App Store version for tvOS), or App Store Connect refuses the upload.
+
+HOTD_ICLOUD=1 on a signed build (a device build with DEVELOPMENT_TEAM, or --archive) adds iCloud sync's entitlements
+and aps-environment (docs/icloud-sync.md; the App ID and the profile must have iCloud and Push Notifications first).
+Unset, the build is as before.
 """
 import argparse
 import glob
@@ -81,11 +85,13 @@ def main():
     # ANGLE's frameworks without the paths of the machine that built them (build_info.clean_angle)
     env['HOTD_ANGLE_FW'] = build_info.clean_angle(os.path.join(angle, 'xcframeworks-tvos'), os.path.join(libs, 'angle'))
     env.setdefault('DEVELOPMENT_TEAM', '')
+    icloud_export = build_info.icloud(ROOT, env, bool(a.archive) or (a.slice == 'device' and bool(env['DEVELOPMENT_TEAM'])),
+                                      bool(a.archive), tvos=True, out_dir=libs)
     spec_dir = os.path.join(ROOT, 'src', 'flat', 'tvos')
     run(['xcodegen', 'generate', '--spec', os.path.join(spec_dir, 'project.yml'), '--project', spec_dir], env=env)
     if a.archive:
         if a.slice != 'device': sys.exit('build_tvos: --archive is for the device slice')
-        archive(a, env, spec_dir, libs)
+        archive(a, env, spec_dir, libs, icloud_export)
         return
     dd = os.path.join(libs, 'dd')
     sign = ['CODE_SIGN_IDENTITY=-'] if a.slice == 'simulator' else (
@@ -111,7 +117,7 @@ def main():
         print('[tvos] ipa: %s' % ipa)
 
 
-def archive(a, env, spec_dir, libs):
+def archive(a, env, spec_dir, libs, icloud_export=''):
     """The App Store archive, its .ipa (manual signing with HOTD_*), and with --upload TestFlight (altool)"""
     need = ['HOTD_TEAM', 'HOTD_PROFILE', 'HOTD_KEYCHAIN', 'HOTD_KEYCHAIN_PASS'] + (
         ['HOTD_ASC_KEY_DIR', 'HOTD_ASC_KEY_ID', 'HOTD_ASC_ISSUER'] if a.upload else [])
@@ -139,8 +145,9 @@ def archive(a, env, spec_dir, libs):
   <key>signingCertificate</key><string>Apple Distribution</string>
   <key>provisioningProfiles</key><dict><key>%s</key><string>%s</string></dict>
   <key>uploadSymbols</key><true/>
+  %s
 </dict></plist>
-''' % (env['HOTD_TEAM'], 'com.mrsco.hotdvr', env['HOTD_PROFILE']))
+''' % (env['HOTD_TEAM'], 'com.mrsco.hotdvr', env['HOTD_PROFILE'], icloud_export))
     run(['xcodebuild', '-exportArchive', '-archivePath', xa, '-exportPath', os.path.join(out, 'export'),
          '-exportOptionsPlist', opts], env=env)
     ipas = glob.glob(os.path.join(out, 'export', '*.ipa'))

@@ -15,8 +15,8 @@
 // FLAT_TEST_PAD=n (tests): n virtual SDL gamepads (1..4). FLAT_TEST_PAD_SCRIPT=steps drives them (else, with one
 // pad: the right stick pushed right for half a second at 3 s, the right trigger at 5 s, A at 6 s). A step is
 // WHO@SECONDS:WHAT, comma-separated; WHO is a pad's number (1..n) or K (the keyboard and mouse); a pad's WHAT is A,
-// START, RT, LT, BACK (pressed for 0.2 s), RX+ RX- RY+ RY- LX+ LX- LY+ LY- (that stick pushed for 0.3 s; RX+40: 40%
-// of the way), OFF or ON
+// START, RT, LT, BACK (pressed for 0.2 s; RT60: the trigger pulled 60% of the way), RX+ RX- RY+ RY- LX+ LX- LY+ LY-
+// (that stick pushed for 0.3 s; RX+40: 40% of the way), OFF or ON
 // (unplugged, plugged in again); the keyboard's is SPACE (Space pressed), or X;Y (the mouse to that point of the
 // picture, 0..1 each, and its left button clicked). Each pad's sight is logged a second after each step, and with
 // FLAT_TEST_RUMBLE=1 each change of a virtual pad's motors as SDL sends it (its rumble's start and end), its trigger
@@ -348,8 +348,10 @@ static void test_pad(double now) {
                 if (!strcmp(s->what, "A")) b[B_SOUTH] = 1;
                 else if (!strcmp(s->what, "START")) b[B_START] = 1;
                 else if (!strcmp(s->what, "BACK")) b[B_BACK] = 1;
-                else if (!strcmp(s->what, "RT")) ax[AX_RTRIGGER] = 32767;
-                else if (!strcmp(s->what, "LT")) ax[AX_LTRIGGER] = 32767;
+                else if (!strncmp(s->what, "RT", 2) || !strncmp(s->what, "LT", 2)) {   // (RT60: pulled 60%)
+                    const int pct = s->what[2] ? atoi(s->what + 2) : 100;
+                    ax[s->what[0] == 'R' ? AX_RTRIGGER : AX_LTRIGGER] = (int16_t)(-32768 + 65535 * pct / 100);
+                }
             }
             if (d < 0.3)
                 for (int a = 0; a < 4; a++)
@@ -450,7 +452,10 @@ static void pad_frame(struct Conn *c, const Pad *p, double now, double dt) {
     if (c->sy < vy - vh * 0.05f) c->sy = vy - vh * 0.05f;
     if (c->sy > vy + vh * 1.05f) c->sy = vy + vh * 1.05f;
     if (c->active) flat_dev_pointer(c->dev, (int)c->sx, (int)c->sy);
-    const int fire = p->rt > 0.4f || p->b[B_RSHOULDER], reload = p->lt > 0.4f || p->b[B_LSHOULDER] || p->b[B_WEST];
+    // (a DualSense's triggers count past their feel's snap or click: flat_trigger_at)
+    const int felt = c->triggers == TRIG_DUALSENSE;
+    const int fire = p->rt > flat_trigger_at(c->dev, 1, felt, c->fire_was) || p->b[B_RSHOULDER];
+    const int reload = p->lt > flat_trigger_at(c->dev, 0, felt, c->reload_was) || p->b[B_LSHOULDER] || p->b[B_WEST];
     if (fire != c->fire_was) { c->active = 1; flat_dev_pointer(c->dev, (int)c->sx, (int)c->sy); flat_dev_trigger(c->dev, fire); c->fire_was = fire; }
     if (reload != c->reload_was) { flat_dev_reload(c->dev, reload); c->reload_was = reload; }
 }
@@ -488,13 +493,21 @@ static void dualsense_trigger(SDLGamepad *gp, int right, int mode, float amp) {
     memset(&fx, 0, sizeof fx);
     fx.enable1 = right ? 0x04 : 0x08;
     uint8_t *e = right ? fx.right_trigger : fx.left_trigger;
-    if (mode == FLAT_TRIG_WEAPON) {
-        // a gun's trigger (the weapon mode, 0x25): resistance from zone 3 of the pull, a snap at zone 6 (of 0..9), the
-        // strength 7 of 8 (its bits: the two zones, then strength - 1)
-        e[0] = 0x25; e[1] = (1 << 3) | (1 << 6); e[2] = 0; e[3] = 7 - 1;
+    if (mode == FLAT_TRIG_WEAPON || mode == FLAT_TRIG_CLICK) {
+        // the weapon mode (0x25): resistance from a start zone of the pull to a snap at an end zone (of 0..9), a
+        // strength of 1..8 (its bits: the two zones, then strength - 1). The gun's: zones 3 and 6, strength 7; the
+        // reload's click: zones 2 and 3, strength 2 (flat.h's shapes)
+        const int gun = mode == FLAT_TRIG_WEAPON;
+        const int start = (int)((gun ? FLAT_GUN_START : FLAT_CLICK_START) * 10 + 0.5f);
+        const int end = (int)((gun ? FLAT_GUN_BREAK : FLAT_CLICK_BREAK) * 10 + 0.5f);
+        const int force = (int)((gun ? FLAT_GUN_STRENGTH : FLAT_CLICK_STRENGTH) * 8 + 0.5f);
+        const unsigned zones = (1u << start) | (1u << end);
+        e[0] = 0x25; e[1] = (uint8_t)(zones & 0xff); e[2] = (uint8_t)(zones >> 8); e[3] = (uint8_t)(force - 1);
     } else if (mode == FLAT_TRIG_BUZZ) {
-        // the simple vibration (0x06): 40 Hz, the amplitude, from the trigger's rest on (GoldenEye VR's shot)
-        e[0] = 0x06; e[1] = 40; e[2] = (uint8_t)(fminf(fmaxf(amp, 0), 1) * 255); e[3] = 0;
+        // the simple vibration (0x06): 40 Hz, the amplitude, from the trigger's give on (where the finger is once it
+        // counted; GoldenEye VR's shot)
+        e[0] = 0x06; e[1] = 40; e[2] = (uint8_t)(fminf(fmaxf(amp, 0), 1) * 255);
+        e[3] = (uint8_t)((right ? FLAT_GUN_BREAK : FLAT_CLICK_BREAK) * 255);
     } else {
         e[0] = 0x05;   // off: the trigger loose
     }
@@ -507,7 +520,7 @@ void flat_os_trigger(int dev, int right, int mode, float amp, int ms) {
         if (c->triggers == TRIG_DUALSENSE) dualsense_trigger(c->gp, right, mode, amp);
         else if (c->triggers == TRIG_MOTORS) {
             const uint16_t level = mode == FLAT_TRIG_BUZZ ? (uint16_t)(fminf(fmaxf(amp, 0), 1) * 65535) : 0;
-            if (mode != FLAT_TRIG_WEAPON) S.RumbleGamepadTriggers(c->gp, right ? 0 : level, right ? level : 0, level ? (uint32_t)ms : 0);
+            if (mode == FLAT_TRIG_BUZZ || mode == FLAT_TRIG_OFF) S.RumbleGamepadTriggers(c->gp, right ? 0 : level, right ? level : 0, level ? (uint32_t)ms : 0);
         }
     }
 }
