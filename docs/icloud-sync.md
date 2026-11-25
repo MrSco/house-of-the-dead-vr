@@ -113,7 +113,8 @@ Builds are unchanged until a build script runs with `HOTD_ICLOUD=1` on a signed 
    no such split). The sync fetches records by name and by zone changes, never by query, so it needs no indexes.
 5. Build with `HOTD_ICLOUD=1` (`scripts/build_apple.py`, `build_tvos.py`, `build_visionos.py`;
    `scripts/apple/testflight.sh` passes the environment on). An archive's export options get
-   `iCloudContainerEnvironment` Production.
+   `iCloudContainerEnvironment` Production. **Done (2026-11-24):** the Mac's settings (`HOTD_TOOLS_ENV`,
+   scripts/apple/README.md) export `HOTD_ICLOUD=1`, so every TestFlight build has it, from 0.8.0 on.
 
 ## Tests
 
@@ -124,7 +125,7 @@ Builds are unchanged until a build script runs with `HOTD_ICLOUD=1` on a signed 
 
 ## State
 
-- 2026-11-24, uncommitted on `t3/adaptive-triggers-icloud-sync`: the code, the menu row, the build switch and the test.
+- 2026-11-24, released in 0.8.0 (TestFlight builds; the SideStore IPA is unsigned, so it has none): the code, the menu row, the build switch and the test.
   `tests/apple/test_icloud.sh` passes (47 checks). The iPhone, Apple TV and Vision Pro simulator apps build with it.
   Run signed on devices, 2026-11-24 (Ad Hoc, Development environment), started seconds apart on an iPhone 16 Pro
   Max and an Apple TV 4K, both with hotd.7z: both joined as the first device (the key-value store was empty on
