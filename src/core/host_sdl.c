@@ -373,11 +373,16 @@ static struct {
     void *ud;
     int rate;                 // the rate the game mixes at
     plat_lock mu;
+    // the stream's opening and closing: the game thread closes it as its loop ends, and the app's quit (the main
+    // thread) at the same time; without it both disposed the same unit (iPhone 0.8.0, quit as an online guest, whose
+    // loop never sleeps: CoreAudio's AURemoteIO destroyed twice). Not mu: the callback takes that, and closing waits
+    // for the callback.
+    plat_lock open_mu;
     volatile int dev_paused, open;
     int16_t fifo[2 * 4096];   // resampler input
     int fifo_n;
     double fpos;
-} au = { .mu = PLAT_LOCK_INIT };
+} au = { .mu = PLAT_LOCK_INIT, .open_mu = PLAT_LOCK_INIT };
 
 volatile int quest_volume = 100;
 // the platform's audio thread: `frames` stereo frames at the stream's rate
@@ -432,9 +437,10 @@ static int au_open(int *burst) {
     return 1;
 }
 static void au_close(void) {
-    if (!au.open) return;
-    plat_audio_close();
+    plat_lock_take(&au.open_mu);
+    if (au.open) plat_audio_close();
     au.open = 0;
+    plat_lock_give(&au.open_mu);
 }
 // (before the process exits: its callback thread otherwise runs on into the C++ globals exit() destroys)
 void quest_audio_shutdown(void) {
@@ -445,9 +451,14 @@ void quest_audio_shutdown(void) {
 // the stream failed (the output device changed): open it again
 void quest_audio_service(void) {
     if (!au.open || !plat_audio_lost()) return;
-    au_close();
-    int burst = 0;
-    au_open(&burst);
+    plat_lock_take(&au.open_mu);
+    if (au.open) {   // (not when the quit closed it meanwhile)
+        plat_audio_close();
+        au.open = 0;
+        int burst = 0;
+        au_open(&burst);
+    }
+    plat_lock_give(&au.open_mu);
 }
 SDL_AudioDeviceID SDL_OpenAudioDevice(const char *device, int iscapture, const SDL_AudioSpec *want, SDL_AudioSpec *have, int changes) {
     (void)device; (void)changes;

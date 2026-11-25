@@ -41,7 +41,7 @@ const char *quest_files_dir(void) { return files; }
 
 static struct {
     int opt[QOPT_COUNT];
-    volatile int restart, game_done, game_failed;
+    volatile int restart, game_started, game_done, game_failed;
 } A;
 
 static void request_restart(void) { A.restart = 1; }
@@ -177,6 +177,7 @@ int flat_app_start(const char *files_dir) {
         LOGE("cannot start the game thread");
         return 0;
     }
+    A.game_started = 1;
     return 1;
 }
 
@@ -270,5 +271,10 @@ void flat_app_quit(void) {
     flat_rumble_stop();                     // (a DualSense's trigger is never left stiff)
     online_quit();                          // the partner hears us go at once (else they wait out a timeout)
     quest_quit();
+    // the game ends its loop at once, writes changed settings and scores, and closes its sound: waited for (2 s at
+    // most), since the apps exit right after this, and the game thread was otherwise cut off mid-way (iPhone 0.8.0)
+    const uint64_t until = plat_now_ns() + 2000000000ull;
+    while (A.game_started && !A.game_done && !A.game_failed && plat_now_ns() < until) plat_sleep_until_ns(plat_now_ns() + 5000000);
+    if (A.game_started && !A.game_done && !A.game_failed) LOGI("quit: the game thread is still running");
     quest_audio_shutdown();
 }
