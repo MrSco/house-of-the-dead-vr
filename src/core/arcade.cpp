@@ -1571,6 +1571,16 @@ extern "C" int SDL_main(int argc, char **argv) {
     uint64_t next = now_ns();
     bool quit = false;
     std::vector<uint8_t> saved_eeprom(game->board().io().eeprom.begin(), game->board().io().eeprom.end()), saved_backup(game->board().backup_ram().begin(), game->board().backup_ram().end());
+    // settings and scores written when they changed: every ~5 s in play, and once more as the game ends
+    auto save_changed = [&] {
+        const auto &e = game->board().io().eeprom;
+        const auto &b = game->board().backup_ram();
+        if (std::equal(e.begin(), e.end(), saved_eeprom.begin(), saved_eeprom.end()) &&
+            std::equal(b.begin(), b.end(), saved_backup.begin(), saved_backup.end())) return;
+        tools::save_nvram(*game, save_dir);
+        saved_eeprom.assign(e.begin(), e.end());
+        saved_backup.assign(b.begin(), b.end());
+    };
     the_game = game.get();
     // The game thread's time per frame by part, logged every 600 frames (hotdarcade: "frame ms"): the measure of
     // the headroom on the headset.
@@ -1742,16 +1752,7 @@ extern "C" int SDL_main(int argc, char **argv) {
         }
 
         // settings and scores: written when they change (checked every ~5 s)
-        if (game->frames() % 300 == 0) {
-            const auto &e = game->board().io().eeprom;
-            const auto &b = game->board().backup_ram();
-            if (!std::equal(e.begin(), e.end(), saved_eeprom.begin(), saved_eeprom.end()) ||
-                !std::equal(b.begin(), b.end(), saved_backup.begin(), saved_backup.end())) {
-                tools::save_nvram(*game, save_dir);
-                saved_eeprom.assign(e.begin(), e.end());
-                saved_backup.assign(b.begin(), b.end());
-            }
-        }
+        if (game->frames() % 300 == 0) save_changed();
 
         // the board's frame rate; after a stall (paused), start again from now. A guest goes at the host's pace
         // (its bundles), and as fast as it can while it catches up.
@@ -1761,6 +1762,7 @@ extern "C" int SDL_main(int argc, char **argv) {
         if (t > next + 4 * frame_ns) next = t;
         else if (t < next) plat_sleep_until_ns(next);
     }
+    save_changed();   // (a score set in the last seconds before quitting was lost)
     if (dev) SDL_CloseAudioDevice(dev);
     return 0;
 }
