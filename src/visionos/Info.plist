@@ -85,5 +85,9 @@
 	<array>
 		<string>arm64</string>
 	</array>
+	<!-- iCloud sync (src/platform/apple/icloud_apple.mm, docs/icloud-sync.md): YES only in a build signed with
+	     src/platform/apple/hotd-icloud.entitlements (the build scripts with HOTD_ICLOUD=1) -->
+	<key>HOTDICloud</key>
+	<string>$(HOTD_ICLOUD)</string>
 </dict>
 </plist>

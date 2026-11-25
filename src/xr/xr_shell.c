@@ -81,6 +81,7 @@
 #include "ui_font_data.h"
 #include "quest_menu.h"
 #include "quest_options.h"
+#include "hotd_icloud.h"
 #include "online.h"
 #include "voice.h"
 #include "netplay.h"
@@ -2584,6 +2585,7 @@ static void opt_set(int o, int v) {
     S.opt[o] = v;
     apply_options();
     if (o == QOPT_HZ) request_rate(0);
+    if (o == QOPT_ICLOUD) hotd_cloud_set_sync(v);
     char p[600];
     snprintf(p, sizeof p, "%s/vr-options.cfg", S.files);
     S.opt_saved = qoptions_save(p, S.opt);
@@ -2650,6 +2652,7 @@ static void menu_action(int a) {
 static QMenuHost menu_host(void) {
     QMenuHost h = { opt_get, opt_set, menu_action, S.boot_res, (unsigned)S.sc_w, (unsigned)S.sc_h, S.opt_saved != 0, S.hz_now };
     if (xr_os_update_line()) h.update = xr_os_update_line(), h.update_cmd = xr_os_update_cmd;   // (the SYSTEM tab's updates)
+    h.icloud = hotd_cloud_line();          // (Vision Pro signed for iCloud: SYSTEM's iCloud sync row)
 #if !XR_GLES
     h.pc_switch = 2;                    // HOTDVR.exe: PLAY ON THE SCREEN (the SYSTEM tab)
 #endif
@@ -3319,6 +3322,17 @@ void xr_close_with(const char *text) {
     quest_show_message(text);
     S.game_failed = 1;                      // (the message page instead of the game: draw_message)
     LOGI("closing: %s", text);
+}
+int xr_rom_setup(const char *line) {
+    if (!S.need_files) return 0;
+    static char shown[200] = "-";
+    if (line && strcmp(line, shown)) {   // (the page again only when the line changed)
+        snprintf(shown, sizeof shown, "%s", line);
+        char why[260];
+        snprintf(why, sizeof why, "No ROM set yet.%s%s", line[0] ? "\n\n" : "", line);
+        show_setup(why);
+    }
+    return 1;
 }
 int xr_rom_chosen(int ok) {
     S.import_started = 0;

@@ -47,6 +47,7 @@
 #include "vos_bridging.h"
 #include "online.h"
 #include "platform/platform.h"
+#include "hotd_icloud.h"
 
 #define LOGI(...) plat_log(PLAT_LOG_INFO, __VA_ARGS__)
 #define LOGE(...) plat_log(PLAT_LOG_ERROR, __VA_ARGS__)
@@ -504,6 +505,8 @@ static void *render_main(void *arg) {
         plat_mkdir(V.files);
         if (chdir(V.files)) LOGE("cannot go into %s", V.files);
         online_set_platform("VISIONPRO");
+        // iCloud (docs/icloud-sync.md): the other devices' settings and saves first, then the shell reads them
+        hotd_cloud_launch(V.files, "vr-options.cfg");
         xr_setup(V.files);
         xr_start();
     }
@@ -602,6 +605,14 @@ static void *render_main(void *arg) {
                     c->thumb = sh[h].triggerTouch || sh[h].a || sh[h].b;
                     c->pose_ok = controller_aim(h, present, local, c->aim);
                 }
+            }
+            {   // no ROM set yet: iCloud may have it (the setup page says how it goes, and the game starts when it is in)
+                float done = 0;
+                const int rom = hotd_cloud_rom(&done);
+                char line[120] = "";
+                if (rom == HOTD_CLOUD_ROM_LOOKING) snprintf(line, sizeof line, "Looking for your ROM set in iCloud...");
+                else if (rom == HOTD_CLOUD_ROM_DOWNLOADING) snprintf(line, sizeof line, "Downloading your ROM set from iCloud: %d%%", (int)(done * 100));
+                if (xr_rom_setup(line) && rom == HOTD_CLOUD_ROM_ARRIVED) { LOGI("ROM set: from iCloud"); xr_rom_chosen(1); }
             }
             // the picker's answer: the game starts with the set now, or (the game was running) when the app opens again
             {
@@ -714,7 +725,7 @@ void vosPickerDone(int status, const char *path) {
         [NSFileManager.defaultManager removeItemAtPath:[dir stringByAppendingPathComponent:seven ? @"hotd.zip" : @"hotd.7z"] error:nil];
         NSError *err = nil;
         ok = [NSFileManager.defaultManager moveItemAtPath:src toPath:dst error:&err];
-        if (ok) LOGI("ROM set: %s in", src.lastPathComponent.UTF8String);
+        if (ok) { LOGI("ROM set: %s in", src.lastPathComponent.UTF8String); hotd_cloud_kick(); }   // (up to iCloud)
         else LOGE("ROM set: %s", err.localizedDescription.UTF8String);
     }
     atomic_store(&V.picked, ok ? 1 : 2);

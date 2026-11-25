@@ -17,6 +17,9 @@ Store Connect); --upload sends it to TestFlight. As GoldenEye VR's tools/build_v
 account (nothing of it lives in this repository): HOTD_TEAM, HOTD_PROFILE (the App Store profile's name),
 HOTD_KEYCHAIN (the keychain with the Apple Distribution identity), HOTD_KEYCHAIN_PASS (a file with its password), and
 for the upload HOTD_ASC_KEY_DIR (AuthKey_<id>.p8), HOTD_ASC_KEY_ID, HOTD_ASC_ISSUER (a file, or the id itself).
+
+HOTD_ICLOUD=1 on a signed build (a device build with DEVELOPMENT_TEAM, or --archive) adds iCloud sync's entitlements
+(docs/icloud-sync.md; the App ID and the profile must have iCloud first). Unset, the build is as before.
 """
 import argparse
 import glob
@@ -83,12 +86,14 @@ def main():
     # ANGLE's frameworks without the paths of the machine that built them (build_info.clean_angle)
     env['HOTD_ANGLE_FW'] = build_info.clean_angle(os.path.join(angle, 'xcframeworks'), os.path.join(libs, 'angle'))
     env.setdefault('DEVELOPMENT_TEAM', '')
+    icloud_export = build_info.icloud(ROOT, env, bool(a.archive) or (a.slice == 'device' and bool(env['DEVELOPMENT_TEAM'])),
+                                      bool(a.archive))
     # (beside its spec: xcodegen writes the paths outside the project relative to it)
     spec_dir = os.path.join(ROOT, 'src', 'flat', 'ios')
     run(['xcodegen', 'generate', '--spec', os.path.join(spec_dir, 'project.yml'), '--project', spec_dir], env=env)
     if a.archive:
         if a.slice != 'device': sys.exit('build_apple: --archive is for the device slice')
-        archive(a, env, spec_dir, libs)
+        archive(a, env, spec_dir, libs, icloud_export)
         return
     dd = os.path.join(libs, 'dd')
     sdk = 'iphonesimulator' if a.slice == 'simulator' else 'iphoneos'
@@ -108,7 +113,7 @@ def main():
         print('[apple] ipa: %s' % ipa)
 
 
-def archive(a, env, spec_dir, libs):
+def archive(a, env, spec_dir, libs, icloud_export=''):
     """The App Store archive, its .ipa (manual signing with HOTD_*), and with --upload TestFlight (altool)"""
     need = ['HOTD_TEAM', 'HOTD_PROFILE', 'HOTD_KEYCHAIN', 'HOTD_KEYCHAIN_PASS'] + (
         ['HOTD_ASC_KEY_DIR', 'HOTD_ASC_KEY_ID', 'HOTD_ASC_ISSUER'] if a.upload else [])
@@ -137,8 +142,9 @@ def archive(a, env, spec_dir, libs):
   <key>signingCertificate</key><string>Apple Distribution</string>
   <key>provisioningProfiles</key><dict><key>%s</key><string>%s</string></dict>
   <key>uploadSymbols</key><true/>
+  %s
 </dict></plist>
-''' % (env['HOTD_TEAM'], bundle, env['HOTD_PROFILE']))
+''' % (env['HOTD_TEAM'], bundle, env['HOTD_PROFILE'], icloud_export))
     run(['xcodebuild', '-exportArchive', '-archivePath', xa, '-exportPath', os.path.join(out, 'export'),
          '-exportOptionsPlist', opts], env=env)
     ipas = glob.glob(os.path.join(out, 'export', '*.ipa'))   # (named after the app's name: "House of the Dead VR.ipa")

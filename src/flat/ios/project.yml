@@ -9,8 +9,8 @@
 #   HOTD_ANGLE_FW      build_ios/angle: ANGLE's xcframeworks (from ~/angle) without their debug maps (the paths of the
 #                      machine that built them: scripts/build_info.py clean_angle)
 #   HOTD_LIBS          build_ios (the libraries: build_ios/simulator, build_ios/device)
-#   HOTD_VERSION       0.7.2 (the Quest app's versionName)
-#   HOTD_BUILD         14 (its versionCode)
+#   HOTD_VERSION       0.8.0 (the Quest app's versionName)
+#   HOTD_BUILD         15 (its versionCode)
 #   DEVELOPMENT_TEAM   your Apple team id, for a signed device build (SideStore re-signs an unsigned one)
 name: HouseOfTheDeadVR
 options:
@@ -51,6 +51,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.mrsco.hotdvr
         PRODUCT_NAME: HouseOfTheDeadVR
         INFOPLIST_FILE: Info.plist
+        # iCloud (docs/icloud-sync.md): both empty unless the build script signs with HOTD_ICLOUD=1
+        HOTD_ICLOUD: "${HOTD_ICLOUD}"
+        CODE_SIGN_ENTITLEMENTS: "${HOTD_ENTITLEMENTS}"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: "${HOTD_VERSION}"
         CURRENT_PROJECT_VERSION: "${HOTD_BUILD}"
@@ -76,5 +79,6 @@ targets:
       - sdk: CoreAudio.framework
       - sdk: GameController.framework
       - sdk: CoreHaptics.framework
+      - sdk: CloudKit.framework   # iCloud sync (src/platform/apple/icloud_apple.mm)
       - sdk: CoreMotion.framework
       - sdk: UniformTypeIdentifiers.framework

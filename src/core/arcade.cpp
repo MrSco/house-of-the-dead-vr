@@ -996,6 +996,20 @@ void bake_line(snd::Board &sb) {
     baked = want;
 }
 
+// The menu's Music and Effects (port_music_gain, port_sfx_gain): the board scales each SCSP slot by what it plays (the
+// driver's voice table, Game::scsp_voices and music_channels). Until 2026-11-24 the two were kept and never applied:
+// both rows did nothing (GoldenEye VR's owner found its Music setting dead in the menus the same day). Set when either
+// changes, and once a second besides (a save state loaded for online play brings the host's slots). Sound only: online
+// play's checksum is the main and work RAM (M2Board::state_hash), so each player's own levels can't desync it.
+void apply_volumes(snd::Board &sb) {
+    static float music = -1, effects = -1;
+    static unsigned frames;
+    const float m = std::clamp(port_music_gain, 0.0f, 1.0f), e = std::clamp(port_sfx_gain, 0.0f, 1.0f);
+    if (m == music && e == effects && ++frames % 60) return;
+    music = m, effects = e, frames = 0;
+    sb.set_volumes(m, e);
+}
+
 void push_audio(snd::Board &sb) {
     std::vector<float> pcm = sb.take_pcm();
     for (float f : pcm) sound_peak = std::max(sound_peak, std::fabs(f));
@@ -1696,7 +1710,7 @@ extern "C" int SDL_main(int argc, char **argv) {
             }
         }
         watch_sound_commands(packet.bytes());
-        if (game->sound()) bake_line(*game->sound()); // (the sound thread idle till run: its bytes are ours)
+        if (game->sound()) bake_line(*game->sound()), apply_volumes(*game->sound()); // (the sound thread idle till run: its bytes are ours)
         sound_thread.run(std::move(packet));
         prof.scene += now_ns() - t_scene;
         if (++prof.frames == 600) {

@@ -65,7 +65,8 @@ Captured on a Quest 3. Hold the gun hand's thumbstick click to switch between th
   on Apple TV the Siri Remote's touch surface.
 - **Rumble everywhere.** Each player's pad kicks on their own shots, pulses on a reload and rumbles hard when they're
   hit; an iPhone or Android phone does too while you play by touch. A DualSense's right trigger resists and snaps like
-  a gun's trigger and an Xbox pad's trigger motors buzz on each shot (Windows, Mac, iPhone, iPad, Apple TV).
+  a gun's trigger, firing once you pull through the snap, and its left clicks for a reload; an Xbox pad's trigger
+  motors buzz on each shot (Windows, Mac, iPhone, iPad, Apple TV).
 - **Updates in the app.** The Quest, Steam Frame and Android apps look for a new release when they start and install
   it from the menu.
 
@@ -191,7 +192,8 @@ the mouse and touch point at it.
 gives a short kick on each of your shots, a softer pulse on a reload and a strong, longer rumble when you lose a
 life; in a two-player game each player's pad has only their own. Nothing while the game is paused or the menu is open,
 and online only your own events. **Trigger feedback** (GAME, on; Rumble OFF mutes it too): while you play, a
-DualSense's right trigger resists then snaps like a gun's and buzzes on each shot; an Xbox One or Series pad's right
+DualSense's right trigger resists then snaps like a gun's, shoots only once you pull through the snap and buzzes on
+each shot, and its left trigger clicks lightly for a reload; an Xbox One or Series pad's right
 trigger motor buzzes on a shot and its left one on a reload (Windows with SDL3, Mac, iPhone, iPad, Apple TV; not on
 Android, which has no API for them, nor with XInput alone). The Siri Remote, iPads and Macs have no motor of their own.
 

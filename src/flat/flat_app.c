@@ -20,6 +20,7 @@
 #include "quest.h"
 #include "quest_options.h"
 #include "quest_menu.h"
+#include "hotd_icloud.h"
 #include "voice.h"
 #include "m2_vr.h"
 #include "online.h"
@@ -86,6 +87,7 @@ void flat_opt_set(int o, int v) {
     A.opt[o] = v;
     apply_options();
     if (o == QOPT_FULLSCREEN) flat_os_fullscreen(v);
+    if (o == QOPT_ICLOUD) hotd_cloud_set_sync(v);
     char p[700];
     snprintf(p, sizeof p, "%s/options.cfg", files);
     qoptions_save(p, A.opt);

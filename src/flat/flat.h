@@ -58,8 +58,9 @@ void flat_pad_detach(int dev);
 // this one, never the partner), never while the game is paused or the menu is open (a running one stops), the GAME
 // tab's Rumble. FLAT_TEST_RUMBLE=1 (tests) logs each request.
 // Trigger feedback (the GAME tab's, muted by Rumble OFF too) on that player's pad: a DualSense's right trigger (R2
-// shoots) resists then snaps like a gun's while that player plays, and buzzes on a shot; an Xbox pad's trigger
-// motors buzz on a shot (right) and a reload (left). Loose again when that player isn't playing, paused, in the menu,
+// shoots) resists then snaps like a gun's while that player plays, shoots once through the snap and buzzes on a
+// shot; its left (L2 reloads) clicks lightly and buzzes on a reload; an Xbox pad's trigger motors buzz on a shot
+// (right) and a reload (left). Loose again when that player isn't playing, paused, in the menu,
 // at the quit, or when the pad is no longer that player's.
 enum { FLAT_RUMBLE_SHOT, FLAT_RUMBLE_RELOAD, FLAT_RUMBLE_HIT };
 void flat_rumble_frame(int paused);     // (flat_app_frame)
@@ -69,10 +70,27 @@ int flat_player_device(int p);          // the device player p used last (0: non
 // (light) frequency motors 0..1 for ms; ms 0: stop it. Never blocking. A device with nothing to vibrate ignores it.
 void flat_os_rumble(int dev, int what, float low, float high, int ms);
 // ...and its triggers (right: R2 / RT, else L2 / LT): OFF no effect (a DualSense's trigger loose); WEAPON a
-// DualSense's gun feel (resistance to a break point, then a snap); BUZZ amp 0..1 for ms (an Xbox pad's trigger motor,
-// a DualSense trigger's vibration: flat.c sends WEAPON or OFF after it). A pad without either ignores it.
-enum { FLAT_TRIG_OFF, FLAT_TRIG_WEAPON, FLAT_TRIG_BUZZ };
+// DualSense's gun feel (resistance to a break point, then a snap: the right trigger); CLICK a light click (the left
+// trigger, which reloads); BUZZ amp 0..1 for ms (an Xbox pad's trigger motor, a DualSense trigger's vibration from
+// that trigger's break on: flat.c sends its feel or OFF after it). A pad without either ignores it.
+enum { FLAT_TRIG_OFF, FLAT_TRIG_WEAPON, FLAT_TRIG_CLICK, FLAT_TRIG_BUZZ };
 void flat_os_trigger(int dev, int right, int mode, float amp, int ms);
+// Each feel's shape, 0 at rest to 1 pulled full (a DualSense's zones are tenths): resistance from START, a give at
+// BREAK, and the pull counts at FIRE, a tenth past the give, so a shot goes only once the finger is through the snap
+// as a real trigger's does (GoldenEye VR, 2026-11-23: it went at 40%, ahead of the snap). It lets go below BREAK, so
+// the next shot is a short pull back, not a whole new one. A trigger without a feel counts at FLAT_TRIG_PRESS.
+#define FLAT_TRIG_PRESS 0.4f
+#define FLAT_GUN_START 0.3f
+#define FLAT_GUN_BREAK 0.6f
+#define FLAT_GUN_FIRE 0.7f
+#define FLAT_GUN_STRENGTH 0.85f
+#define FLAT_CLICK_START 0.2f
+#define FLAT_CLICK_BREAK 0.3f
+#define FLAT_CLICK_FIRE 0.4f
+#define FLAT_CLICK_STRENGTH 0.3f
+// where device dev's trigger (right: R2) counts as pulled, 0..1, for a pad whose triggers take the feels (a
+// DualSense; pass felt 0 for any other): down, the trigger counts as held now (its let-go point is asked for)
+float flat_trigger_at(int dev, int right, int felt, int down);
 
 // ---- the menu (flat_menu.c): the VR app's menu (quest_menu.c) as a panel over the game, which pauses (not online)
 void flat_menu_set_open(int open);

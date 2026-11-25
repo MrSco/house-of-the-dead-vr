@@ -92,6 +92,15 @@ constexpr ControlDef kControls[] = {
     {Control::Start, "START", PadButton::Start},
     {Control::Coin, "COIN", PadButton::Select},
 };
+
+// The sound driver's voice table: 32 bytes per SCSP slot from 0x400 in the 68000's RAM (each entry's first word is its
+// slot's register offset, slot * 0x20; not VF2's and Virtua Cop 2's 0x2800, here sample data), byte 4 the voice's MIDI
+// channel. Found 2026-11-24 by dumping the RAM at key-ons and logging the entries at each key-on through m2run's
+// hotd_shoot, hotd_2p, hotd_courtyard and attract_long (5,832 key-ons): channels 0-9 are the music's sequence (byte
+// 11 is 0 on 0-8, 0x10 on 9, the drums, busiest in the attract), 14 and 15 the effects (byte 11 0x1a). Channel 14's
+// key-ons fall within 60 ms of a scripted shot 87% of the time in hotd_courtyard (a shot every 15 frames) and 58% in
+// hotd_shoot, each other channel's at chance (about 21% and 4%). The menu's Music and Effects go by it.
+constexpr ScspVoices kVoices = {0x400, 0x20, 4};
 } // namespace
 
 extern const Game hotd_game = {
@@ -105,6 +114,7 @@ extern const Game hotd_game = {
     .idle = {{0x18d4, 0x18e7}, {0, 0}},
     .sound = SoundBoardType::Scsp, .native_sound = nullptr,
     .io = {port, nullptr}, .link = false,
+    .scsp_voices = &kVoices,
     // +14.8 dB: the attract's peaks at -1.2 dBFS (2.5 minutes of attract on the Quest peak -16.2 dBFS at the board;
     // its mean -43 dBFS was too quiet to hear at a middling headset volume)
     .output_gain = 5.5f,
@@ -114,6 +124,7 @@ extern const Game hotd_game = {
     // (live: the game reloads at x 192 and below, 575 and up, y 100 and below, 370 and up; between, measured with
     // m2probe --watch on the bullets (0x51f2c1), x 196..573 and y 102..362 shoot: the box a step inside those)
     .gun = {173, 596, 87, 380, 0x17b, 0x0e9, 197, 572, 103, 361},
+    .music_channels = 0x03ff, // 0-9 (kVoices)
 };
 
 } // namespace rt

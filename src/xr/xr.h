@@ -94,6 +94,9 @@ void xr_close_with(const char *text);
 // The host's ROM set import answered (ok: the set is in arcade/): 1 when the game started with it now (the setup
 // page showed), 0 when it loads only when the app opens again (or none came)
 int xr_rom_chosen(int ok);
+// The setup page shows (no ROM set yet): its text, the way to load one, with `line` under it (iCloud's progress:
+// Vision Pro's xr_vos.m); 0 when the game runs
+int xr_rom_setup(const char *line);
 #endif
 
 // ---- the host (one per OS)

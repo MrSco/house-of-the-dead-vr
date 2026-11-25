@@ -11,8 +11,8 @@
 #   HOTD_ANGLE_FW      build_visionos/angle: ANGLE's xcframeworks (from ~/angle) without their debug maps (the paths of the
 #                      machine that built them: scripts/build_info.py clean_angle)
 #   HOTD_LIBS          build_visionos (the libraries: build_visionos/simulator, build_visionos/device)
-#   HOTD_VERSION       0.7.2 (the Quest app's versionName)
-#   HOTD_BUILD         14 (its versionCode, or --archive's build)
+#   HOTD_VERSION       0.8.0 (the Quest app's versionName)
+#   HOTD_BUILD         15 (its versionCode, or --archive's build)
 #   HOTD_BUNDLE_ID     com.mrsco.hotdvr unless set
 #   DEVELOPMENT_TEAM   your Apple team id, for a signed device build
 name: HouseOfTheDeadVR
@@ -58,6 +58,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: "${HOTD_BUNDLE_ID}"
         PRODUCT_NAME: HouseOfTheDeadVR
         INFOPLIST_FILE: Info.plist
+        # iCloud (docs/icloud-sync.md): both empty unless the build script signs with HOTD_ICLOUD=1
+        HOTD_ICLOUD: "${HOTD_ICLOUD}"
+        CODE_SIGN_ENTITLEMENTS: "${HOTD_ENTITLEMENTS}"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: vos_bridging.h
         MARKETING_VERSION: "${HOTD_VERSION}"
@@ -81,6 +84,7 @@ targets:
       - sdk: AudioToolbox.framework
       - sdk: CoreAudio.framework
       - sdk: CoreHaptics.framework
+      - sdk: CloudKit.framework   # iCloud sync (src/platform/apple/icloud_apple.mm)
       - sdk: GameController.framework
       - sdk: Foundation.framework
       - sdk: CoreFoundation.framework

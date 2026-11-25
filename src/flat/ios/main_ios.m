@@ -6,6 +6,8 @@
 // (arcade/ holds the ROM set; the Files app shows it), the ROM set chosen in the document picker at the first start.
 // An iOS app cannot start itself again: where the app would restart (online play begins and ends so, a new ROM set),
 // it says so and closes, and the player opens it again (online-session.cfg waits ten minutes).
+// iCloud (docs/icloud-sync.md, a build signed for it): the other devices' settings and saves come in before the game
+// reads them, and a device without a ROM set waits for iCloud's (the picker stays a tap away) before asking for one.
 #import <GameController/GameController.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <UIKit/UIKit.h>
@@ -20,6 +22,7 @@
 #include "platform/gl.h"
 #include "platform/platform.h"
 #include "online.h"
+#include "hotd_icloud.h"
 
 #ifndef EGL_PLATFORM_ANGLE_ANGLE
 #define EGL_PLATFORM_ANGLE_ANGLE 0x3202
@@ -52,6 +55,9 @@ static struct {
 static CMMotionManager *motion;
 @interface HotdController : UIViewController <UIDocumentPickerDelegate>
 @property (nonatomic, strong) CADisplayLink *link;
+@property (nonatomic, strong) UIView *cloudView;     // iCloud: the wait at the start (its settings, its ROM set)
+@property (nonatomic, strong) UILabel *cloudLabel;
+@property (nonatomic, strong) NSTimer *cloudTimer;
 - (void)pickRom;
 @end
 static HotdController *the_controller;
@@ -285,9 +291,76 @@ static void test_pads(double now) {
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+    if (A.started || self.cloudView) return;
+    if (!hotd_cloud_available()) { [self afterCloud]; return; }
+    // iCloud first, off the main thread (a device's first sync may wait a few seconds for the store)
+    [self cloudWait:@"Checking iCloud…" button:NO];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        hotd_cloud_launch(A.files, "options.cfg");
+        dispatch_async(dispatch_get_main_queue(), ^{ [self cloudDone]; [self afterCloud]; });
+    });
+}
+- (void)afterCloud {
     if (A.started) return;
-    if (!has_rom() && !getenv("FLAT_NO_ROM_DIALOG")) { [self pickRom]; return; }
+    if (!has_rom() && !getenv("FLAT_NO_ROM_DIALOG")) {
+        const int rom = hotd_cloud_rom(NULL);
+        if (rom == HOTD_CLOUD_ROM_LOOKING || rom == HOTD_CLOUD_ROM_DOWNLOADING) {   // iCloud may have it: wait for it
+            [self cloudWait:@"Looking for your ROM set in iCloud…" button:YES];
+            self.cloudTimer = [NSTimer scheduledTimerWithTimeInterval:0.25 target:self selector:@selector(cloudTick) userInfo:nil repeats:YES];
+            return;
+        }
+        [self pickRom];
+        return;
+    }
     [self startGame];
+}
+// the wait's page: a line, and (waiting for the ROM set) CHOOSE A FILE, the picker instead
+- (void)cloudWait:(NSString *)text button:(BOOL)button {
+    [self cloudDone];
+    UIView *v = [[UIView alloc] initWithFrame:self.view.bounds];
+    v.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    v.backgroundColor = UIColor.blackColor;
+    UILabel *l = [[UILabel alloc] init];
+    l.text = text;
+    l.textColor = UIColor.whiteColor;
+    l.font = [UIFont systemFontOfSize:20 weight:UIFontWeightMedium];
+    l.textAlignment = NSTextAlignmentCenter;
+    l.numberOfLines = 0;
+    l.translatesAutoresizingMaskIntoConstraints = NO;
+    [v addSubview:l];
+    NSMutableArray *c = [NSMutableArray arrayWithArray:@[
+        [l.centerXAnchor constraintEqualToAnchor:v.centerXAnchor], [l.centerYAnchor constraintEqualToAnchor:v.centerYAnchor],
+        [l.widthAnchor constraintLessThanOrEqualToAnchor:v.widthAnchor multiplier:0.8] ]];
+    if (button) {
+        UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+        [b setTitle:@"Choose the file instead" forState:UIControlStateNormal];
+        b.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+        b.translatesAutoresizingMaskIntoConstraints = NO;
+        [b addTarget:self action:@selector(cloudChoose) forControlEvents:UIControlEventTouchUpInside];
+        [v addSubview:b];
+        [c addObjectsFromArray:@[ [b.centerXAnchor constraintEqualToAnchor:v.centerXAnchor],
+                                  [b.topAnchor constraintEqualToAnchor:l.bottomAnchor constant:28] ]];
+    }
+    [NSLayoutConstraint activateConstraints:c];
+    [self.view addSubview:v];
+    self.cloudView = v;
+    self.cloudLabel = l;
+}
+- (void)cloudDone {
+    [self.cloudTimer invalidate];
+    self.cloudTimer = nil;
+    [self.cloudView removeFromSuperview];
+    self.cloudView = nil;
+    self.cloudLabel = nil;
+}
+- (void)cloudChoose { [self cloudDone]; [self pickRom]; }
+- (void)cloudTick {
+    float done = 0;
+    const int rom = hotd_cloud_rom(&done);
+    if (rom == HOTD_CLOUD_ROM_DOWNLOADING)
+        self.cloudLabel.text = [NSString stringWithFormat:@"Downloading your ROM set from iCloud: %d%%", (int)(done * 100)];
+    else if (rom == HOTD_CLOUD_ROM_ARRIVED || has_rom()) { LOGI("ROM set: from iCloud"); [self cloudDone]; [self startGame]; }
+    else if (rom == HOTD_CLOUD_ROM_NONE) { LOGI("ROM set: none in iCloud"); [self cloudDone]; [self pickRom]; }
 }
 - (void)startGame {
     A.started = 1;
@@ -357,6 +430,8 @@ static void test_pads(double now) {
         return;
     }
     LOGI("ROM set: %s copied in", u.lastPathComponent.UTF8String);
+    hotd_cloud_kick();   // (up to iCloud, for the other devices)
+    [self cloudDone];
     if (!A.started) [self startGame];
     else close_with(@"Your ROM set is in", @"It loads when the app opens again. Open House of the Dead VR again now.");
 }

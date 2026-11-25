@@ -15,6 +15,9 @@ HOTD_BUNDLE_ID sets the app's bundle id (com.mrsco.hotdvr by default). --archive
 .ipa with that build number; --upload sends it to TestFlight. The account as for build_apple.py (nothing of it lives
 in this repository): HOTD_TEAM, HOTD_PROFILE (the App Store profile's name: the iPhone app's serves visionOS too),
 HOTD_KEYCHAIN, HOTD_KEYCHAIN_PASS, and for the upload HOTD_ASC_KEY_DIR, HOTD_ASC_KEY_ID, HOTD_ASC_ISSUER.
+
+HOTD_ICLOUD=1 on a signed build (a device build with DEVELOPMENT_TEAM, or --archive) adds iCloud sync's entitlements
+(docs/icloud-sync.md; the App ID and the profile must have iCloud first). Unset, the build is as before.
 """
 import argparse
 import glob
@@ -72,11 +75,13 @@ def main():
     env['HOTD_ANGLE_FW'] = build_info.clean_angle(os.path.join(angle, 'xcframeworks-visionos'), os.path.join(libs, 'angle'))
     env.setdefault('HOTD_BUNDLE_ID', 'com.mrsco.hotdvr')
     env.setdefault('DEVELOPMENT_TEAM', '')
+    icloud_export = build_info.icloud(ROOT, env, bool(a.archive) or (a.slice == 'device' and bool(env['DEVELOPMENT_TEAM'])),
+                                      bool(a.archive))
     spec_dir = os.path.join(ROOT, 'src', 'visionos')
     run(['xcodegen', 'generate', '--spec', os.path.join(spec_dir, 'project.yml'), '--project', spec_dir], env=env)
     if a.archive:
         if a.slice != 'device': sys.exit('build_visionos: --archive is for the device slice')
-        archive(a, env, spec_dir, libs)
+        archive(a, env, spec_dir, libs, icloud_export)
         return
     dd = os.path.join(libs, 'dd')
     sdk = sysroot
@@ -87,7 +92,7 @@ def main():
     print('[visionos] app: %s' % os.path.join(dd, 'Build', 'Products', 'Release-' + sdk, 'HouseOfTheDeadVR.app'))
 
 
-def archive(a, env, spec_dir, libs):
+def archive(a, env, spec_dir, libs, icloud_export=''):
     """The App Store archive, its .ipa (manual signing with HOTD_*), and with --upload TestFlight (altool)"""
     need = ['HOTD_TEAM', 'HOTD_PROFILE', 'HOTD_KEYCHAIN', 'HOTD_KEYCHAIN_PASS'] + (
         ['HOTD_ASC_KEY_DIR', 'HOTD_ASC_KEY_ID', 'HOTD_ASC_ISSUER'] if a.upload else [])
@@ -115,8 +120,9 @@ def archive(a, env, spec_dir, libs):
   <key>signingCertificate</key><string>Apple Distribution</string>
   <key>provisioningProfiles</key><dict><key>%s</key><string>%s</string></dict>
   <key>uploadSymbols</key><true/>
+  %s
 </dict></plist>
-''' % (env['HOTD_TEAM'], env['HOTD_BUNDLE_ID'], env['HOTD_PROFILE']))
+''' % (env['HOTD_TEAM'], env['HOTD_BUNDLE_ID'], env['HOTD_PROFILE'], icloud_export))
     run(['xcodebuild', '-exportArchive', '-archivePath', xa, '-exportPath', os.path.join(out, 'export'),
          '-exportOptionsPlist', opts], env=env)
     ipas = glob.glob(os.path.join(out, 'export', '*.ipa'))

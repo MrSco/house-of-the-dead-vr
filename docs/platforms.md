@@ -156,8 +156,17 @@ ON; dimmed and off while Rumble is OFF). Pads only, each player's own:
 - **DualSense**: while that player plays (`host_player_playing`), the right trigger (R2 shoots) is a gun's:
   resistance from a third of the pull and a snap at about 60% (Apple: `setModeWeaponWithStartPosition:0.3
   endPosition:0.6 resistiveStrength:0.85`; SDL: the effect packet's weapon mode `25 48 00 06`, zones 3 and 6,
-  strength 7 of 8). Each shot swaps it for 100 ms of vibration (`06 28 ff 00`, GoldenEye's simple vibration), then
-  the weapon again; a reload buzzes the left trigger lightly for 80 ms. Off (`05`) when the player isn't playing
+  strength 7 of 8). The shot goes only once the finger is through the snap, at 70% of the pull, and the trigger lets
+  go below 60%, so the next shot is a short pull back (2026-11-24, after GoldenEye VR's owner found its shots went
+  ahead of the snap: here R2 counted at 40%, before the resistance was through). Each shot swaps it for 100 ms of
+  vibration from the snap on (`06 28 ff 99`, GoldenEye's simple vibration), then the weapon again. The left trigger
+  (L2 reloads) has a light click while the player plays (zones 2 and 3, strength 2 of 8; Apple: `0.2`, `0.3`, `0.3`),
+  counts at 40% as before (past the click) and lets go below 30%; a reload buzzes it lightly for 80 ms from the click
+  on. The shapes are `flat.h`'s `FLAT_GUN_*` and `FLAT_CLICK_*`, the counting `flat_trigger_at`; a pad that isn't a
+  DualSense, or one whose trigger has no feel (the menu, a scene, Trigger feedback OFF), counts at 40%. Checked on
+  Windows with a virtual DualSense (`FLAT_TEST_PAD_SCRIPT`'s `RT60`: a trigger pulled that far): in play 50% and 65%
+  pulls shot nothing, 80% and 100% shot, the packets `25 48 00 06`, `06 28 ff 99`, then the gun again, and the left
+  `25 0c 00 01`. Off (`05`) when the player isn't playing
   (scenes, the continue, the title), paused, in the menu, at the quit and in the background, and when the pad is no
   longer that player's, so a DualSense is never left stiff. A pad that disconnects is forgotten (it comes back loose).
 - **Xbox One / Series** (impulse triggers): the right trigger's motor buzzes 100 ms at full on a shot, the left one
@@ -181,6 +190,27 @@ ON; dimmed and off while Rumble is OFF). Pads only, each player's own:
   0.75, 70 ms)`, `trigger: device 16 right weapon (in play)`); on Windows the virtual SDL pads have motors and log what
   SDL sends them (start and end), and `FLAT_TEST_PAD_KINDS=ps5,xbox` makes them a DualSense (its effects packets
   logged) and an Xbox Series pad (its trigger motors). The headsets log `rumble: hit, both hands`.
+
+## Sound levels (2026-11-24)
+
+Checked after GoldenEye VR's owner found its Apple builds far too loud and its Music setting dead in the menus.
+
+- **Music and Effects did nothing, here too.** The menus' SYSTEM rows were kept (`port_music_gain`,
+  `port_sfx_gain`) and never applied since the first commit. `arcade.cpp`'s `apply_volumes` now sets them on the
+  sound board (when they change, and once a second for a save state loaded online), and `hotd.cpp` has the driver's
+  voice table, as Virtua Cop 2's: 32 bytes per SCSP slot at 0x400 in the sound 68000's RAM (not 0x2800), byte 4 the
+  MIDI channel; music on 0-9, the effects on 14 and 15. Found by dumping the RAM at key-ons and logging each key-on's
+  entry through m2run's `hotd_shoot`, `hotd_2p`, `hotd_courtyard` and `attract_long` (5,832 key-ons): channel 14's
+  key-ons fall within 60 ms of a scripted shot 87% of the time in `hotd_courtyard` and 58% in `hotd_shoot`, every
+  other channel's at chance (about 21% and 4%); 9 is the drums (busiest in the attract). In `hotd_courtyard`
+  (`m2run --volumes`) the music alone plus the effects alone is the full mix to 62 dB down; at 100% and 100% the WAV
+  is byte-identical to before. Sound only: online play's checksum is the main and work RAM (`M2Board::state_hash`).
+- **Loudness, no change.** ITU BS.1770 integrated loudness of m2run's board output times the apps' `output_gain`
+  (5.5): the attract -20.2 LUFS (peaks -0.2 dBFS), play with a shot a second (`hotd_shoot`) -19.7 LUFS, a shot every
+  quarter second (`hotd_courtyard`) -17.0 LUFS (peaks -2.9 dBFS), no sample clipped. GoldenEye VR's menus were -14.4
+  LUFS at full scale before its fixed -6 dB and -20.4 after, so this game already sits where that one was brought
+  to; the music alone is about 9 dB under the effects in play. Nothing in the Apple builds adds gain (the mix is the
+  same on every platform).
 
 ## Per platform
 
@@ -548,8 +578,8 @@ libraries in `build_tvos/<slice>`, the app from `src/flat/tvos/project.yml`; ANG
   The files folder is `Library/Caches/HOTDVR`; options.cfg, online.cfg and save/ (the game's settings and high
   scores, about 17 KB) are copied into the defaults every 20 s, on going to the background and before closing, and
   put back at start when missing. A ROM set that was there and is gone is asked for again with the reason ("tvOS
-  removed the ROM set to free space... your settings and scores are kept"). Keeping the ROM itself would need iCloud
-  or on-demand resources: not done.
+  removed the ROM set to free space... your settings and scores are kept"). With iCloud sync (docs/icloud-sync.md, a
+  build signed for it) the set comes back from iCloud by itself while that page waits.
 - **Voice chat** listens; an Apple TV has no microphone of its own. `apple.m` asks for one (AVAudioApplication) only
   when tvOS reports an input (a headset through the TV), else voice is receive-only.
 - **Online play** as on iOS: rooms, quick match, LAN host and direct IP; an app can't restart itself, so starting or

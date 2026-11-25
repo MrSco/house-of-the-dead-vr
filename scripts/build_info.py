@@ -65,3 +65,28 @@ def clean_angle(src, dest):
             if n in fs and not os.path.islink(os.path.join(dp, n)):
                 subprocess.check_call(['strip', '-S', '-x', os.path.join(dp, n)])
     return dest
+
+
+def icloud(root, env, signed, archive, tvos=False, out_dir=None):
+    """iCloud sync (docs/icloud-sync.md) for a build: HOTD_ICLOUD=1 in the environment and a signed build (a device
+    build with a team, or an archive; never the simulator) give the app src/platform/apple/hotd-icloud.entitlements
+    and Info.plist's HOTDICloud YES. The App ID and the profile must have iCloud. The Apple TV's entitlements also get
+    aps-environment (production for an archive, else development): App Store Connect refuses tvOS iCloud without it
+    (error 90575, GoldenEye VR's tvOS 9). Sets HOTD_ICLOUD and HOTD_ENTITLEMENTS for the Xcode project (empty: as before)
+    and returns the export options' line (iCloudContainerEnvironment Production for an archive), '' when off."""
+    on = env.get('HOTD_ICLOUD', '') in ('1', 'YES', 'yes', 'true') and signed
+    env['HOTD_ICLOUD'] = 'YES' if on else 'NO'
+    env['HOTD_ENTITLEMENTS'] = ''
+    if not on:
+        return ''
+    ent = os.path.join(root, 'src', 'platform', 'apple', 'hotd-icloud.entitlements')
+    if tvos:
+        text = open(ent, encoding='utf-8').read()
+        aps = 'production' if archive else 'development'
+        text = text.replace('</dict>\n</plist>', '\t<key>aps-environment</key>\n\t<string>%s</string>\n</dict>\n</plist>' % aps, 1)
+        os.makedirs(out_dir, exist_ok=True)
+        ent = os.path.join(out_dir, 'hotd-icloud-tvos.entitlements')
+        open(ent, 'w', encoding='utf-8', newline='\n').write(text)
+    env['HOTD_ENTITLEMENTS'] = ent
+    print('[icloud] signed with %s' % ent, flush=True)
+    return '<key>iCloudContainerEnvironment</key><string>Production</string>' if archive else ''

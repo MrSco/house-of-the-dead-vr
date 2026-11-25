@@ -7,6 +7,7 @@
 #include "quest.h"
 #include "quest_menu.h"
 #include "quest_options.h"
+#include "hotd_icloud.h"
 #include "online.h"
 #include <SDL.h>
 #include <stdlib.h>
@@ -49,6 +50,7 @@ static QMenuHost host(void) {
     h.tv = M.tv != 0;
     h.reports = flat_os_has_reports() != 0;
     h.local_p2 = flat_player2_in() != 0;
+    h.icloud = hotd_cloud_line();          // (the Apple apps signed for iCloud: SYSTEM's iCloud sync row)
 #ifdef _WIN32
     h.pc_switch = 1;                     // HOTDVR.exe: PLAY IN VR (the SYSTEM tab)
 #endif
